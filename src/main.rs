@@ -621,7 +621,7 @@ enum VikunjaAction {
 /// Only the fields required by this integration are declared; any additional
 /// fields sent by Vikunja are silently ignored by serde.
 #[derive(Debug, Deserialize)]
-struct VikunjaTask {
+struct VikunjaTaskData {
     /// Vikunja's internal numeric task identifier.  Used as the value for the
     /// `vikunja_task_id` private extended property so events can be looked up
     /// later without storing any external state.
@@ -650,12 +650,12 @@ struct VikunjaTask {
 
 /// Top-level Vikunja webhook POST body.
 #[derive(Debug, Deserialize)]
-struct VikunjaWebhookPayload {
+struct VikunjaPayload {
     /// The event type that triggered this notification.
     action: VikunjaAction,
 
     /// The task resource associated with the event.
-    data: VikunjaTask,
+    data: VikunjaTaskData,
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,7 +1062,7 @@ fn priority_to_color_id(priority: i32, config: &Config) -> String {
 /// Returns a descriptive `String` error if `due_date` is present but cannot
 /// be parsed as an RFC3339 timestamp.
 fn build_google_event_from_task(
-    task: &VikunjaTask,
+    task: &VikunjaTaskData,
     config: &Config,
 ) -> Result<GoogleEvent, String> {
     // --- Determine event start and end times --------------------------------
@@ -1169,7 +1169,7 @@ fn build_google_event_from_task(
 /// - `500 Internal Server Error` — a Google Calendar API call failed
 async fn vikunja_webhook_handler(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<VikunjaWebhookPayload>,
+    Json(payload): Json<VikunjaPayload>,
 ) -> HandlerResult {
     let task = &payload.data;
 
@@ -1486,20 +1486,18 @@ async fn vikunja_webhook_handler(
 
                 // Rebuild the event from current task data and force the
                 // colour to tomato to provide an overdue visual cue.
-                let mut event =
-                    build_google_event_from_task(task, &state.calendar_client.config).map_err(
-                        |e| {
-                            tracing::error!(
-                                task_id = task.id,
-                                error   = %e,
-                                "failed to map Vikunja task to Google Event during task.overdue",
-                            );
-                            (
-                                StatusCode::BAD_REQUEST,
-                                Json(json!({ "status": "error", "message": e })),
-                            )
-                        },
-                    )?;
+                let mut event = build_google_event_from_task(task, &state.calendar_client.config)
+                    .map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "failed to map Vikunja task to Google Event during task.overdue",
+                    );
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "status": "error", "message": e })),
+                    )
+                })?;
 
                 let tomato_id = state
                     .calendar_client

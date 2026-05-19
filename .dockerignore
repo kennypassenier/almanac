@@ -1,0 +1,18 @@
+# Exclude the Rust build cache — the Docker builder compiles from scratch.
+target/
+
+# Exclude local environment files that contain credentials.
+# Secrets are injected at runtime via environment variables, not baked in.
+.env
+.env.example
+
+# Exclude the project-root binary produced by 'make build'.
+cal-stacean
+
+# Exclude version control metadata.
+.git/
+.gitignore
+
+# Exclude Docker-specific files (no need to copy them into the image).
+Dockerfile
+.dockerignore

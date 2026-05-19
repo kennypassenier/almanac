@@ -1,6 +1,10 @@
 {
     "chat.tools.terminal.autoApprove": {
         "cargo build": true,
-        "make": true
+        "make": true,
+        "/^cd /home/kenny/Projects/cal-stacean && docker --version 2>&1; wc -l Dockerfile 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }
