@@ -36,3 +36,6 @@ serde_json = "1"
 
 # Web framework for the HTTP API server layer
 axum = "0.8"
+
+# Date/time parsing and arithmetic for Vikunja due_date → Google Calendar mapping
+chrono = { version = "0.4", features = ["serde"] }

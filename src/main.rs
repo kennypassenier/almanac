@@ -10,6 +10,8 @@
 //!         `find_event_by_property` with an end-to-end lifecycle test.
 //! Step 6: HTTP server            — Axum web server exposing the CRUD core via
 //!         REST endpoints at `/api/v1/events/*`.
+//! Step 7: Vikunja integration    — Webhook endpoint at `/webhooks/vikunja` that
+//!         translates Vikunja task events into Google Calendar CRUD operations.
 //!
 //! Execution order in `main`:
 //!   1.  Load `.env` into the process environment (must be first).
@@ -36,6 +38,7 @@ use axum::{
     http::StatusCode,
     routing::post,
 };
+use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -501,7 +504,6 @@ impl GoogleCalendarClient {
     /// # Errors
     /// Returns an error if the HTTP request fails, if Google returns a non-2xx
     /// status, or if the response JSON cannot be deserialized.
-    #[allow(dead_code)]
     pub async fn find_event_by_property(
         &self,
         key: &str,
@@ -573,6 +575,87 @@ struct AppState {
     /// Encapsulates the active OAuth2 bearer token, the shared HTTP connection
     /// pool, and the loaded application configuration.
     calendar_client: GoogleCalendarClient,
+}
+
+// ---------------------------------------------------------------------------
+// Vikunja webhook types
+// ---------------------------------------------------------------------------
+
+/// The action that triggered a Vikunja webhook notification.
+///
+/// Vikunja encodes the action as a dot-separated string; each variant carries
+/// an explicit `serde` rename attribute to match the exact wire format.
+#[derive(Debug, Deserialize)]
+enum VikunjaAction {
+    /// A new task was created in Vikunja.
+    #[serde(rename = "task.created")]
+    TaskCreated,
+
+    /// An existing task was modified in Vikunja.
+    #[serde(rename = "task.updated")]
+    TaskUpdated,
+
+    /// A task was permanently removed from Vikunja.
+    #[serde(rename = "task.deleted")]
+    TaskDeleted,
+
+    /// A single task has passed its due date.
+    #[serde(rename = "task.overdue")]
+    TaskOverdue,
+
+    /// One or more tasks have passed their due date (batch notification).
+    #[serde(rename = "tasks.overdue")]
+    TasksOverdue,
+
+    /// Any action string not matched by the variants above.
+    ///
+    /// Serde's `other` attribute routes all unrecognised strings here so the
+    /// payload still deserialises successfully and can be logged and silently
+    /// acknowledged rather than returning a 422 to Vikunja.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The task data embedded in a Vikunja webhook notification.
+///
+/// Only the fields required by this integration are declared; any additional
+/// fields sent by Vikunja are silently ignored by serde.
+#[derive(Debug, Deserialize)]
+struct VikunjaTask {
+    /// Vikunja's internal numeric task identifier.  Used as the value for the
+    /// `vikunja_task_id` private extended property so events can be looked up
+    /// later without storing any external state.
+    id: i64,
+
+    /// The task title, mapped to Google Calendar's `summary` field.
+    title: String,
+
+    /// The task description, mapped to Google Calendar's `description` field.
+    /// A missing or empty description is stored as `None` and omitted from the
+    /// Google Calendar event body.
+    #[serde(default)]
+    description: String,
+
+    /// Optional RFC3339 due date sent by Vikunja.
+    ///
+    /// When present the Google Calendar event `start` is set to this timestamp
+    /// and `end` is set one hour later.  When absent a same-day noon–1 pm UTC
+    /// placeholder window is used instead.
+    due_date: Option<String>,
+
+    /// Optional Vikunja priority in the range 1 (lowest) to 5 (highest).
+    /// Mapped to a Google Calendar colour ID via [`priority_to_color_id`].
+    priority: Option<i32>,
+}
+
+/// Top-level Vikunja webhook POST body.
+#[derive(Debug, Deserialize)]
+struct VikunjaWebhookPayload {
+    /// The event type that triggered this notification.
+    action: VikunjaAction,
+
+    /// The task resource associated with the event.
+    data: VikunjaTask,
 }
 
 // ---------------------------------------------------------------------------
@@ -930,6 +1013,577 @@ async fn delete_event_handler(
 }
 
 // ---------------------------------------------------------------------------
+// Vikunja integration helpers
+// ---------------------------------------------------------------------------
+
+/// Map a Vikunja task priority (1–5) to a Google Calendar colour ID string.
+///
+/// The mapping resolves colour IDs by looking up named colours in
+/// `config.standard_colors`, so the association between priority levels and
+/// colours can be changed in `config.toml` without recompiling.
+///
+/// | Priority | Urgency   | Colour name  |
+/// |----------|-----------|--------------|
+/// | 1        | Very low  | `sage`       |
+/// | 2        | Low       | `peacock`    |
+/// | 3        | Medium    | `banana`     |
+/// | 4        | High      | `tangerine`  |
+/// | 5        | Urgent    | `tomato`     |
+///
+/// Falls back to `config.default_color_id` when a colour name is absent from
+/// the config map.
+fn priority_to_color_id(priority: i32, config: &Config) -> String {
+    // One entry per priority level, ordered low to high.
+    const PRIORITY_COLORS: [&str; 5] = ["sage", "peacock", "banana", "tangerine", "tomato"];
+
+    // Clamp to the valid Vikunja range before using as an index.
+    let index = (priority.clamp(1, 5) - 1) as usize;
+
+    config
+        .standard_colors
+        .get(PRIORITY_COLORS[index])
+        .cloned()
+        .unwrap_or_else(|| config.default_color_id.clone())
+}
+
+/// Build a [`GoogleEvent`] from a [`VikunjaTask`] by applying the field
+/// mappings and metadata injection required by this integration.
+///
+/// | Vikunja field       | Google Calendar field                              |
+/// |---------------------|----------------------------------------------------|
+/// | `title`             | `summary`                                          |
+/// | `description`       | `description` (omitted when empty)                 |
+/// | `due_date` (RFC3339)| `start` = due_date, `end` = due_date + 1 h         |
+/// | absent `due_date`   | `start` and `end` = today noon–1 pm UTC            |
+/// | `priority` (1–5)    | `color_id` via [`priority_to_color_id`]            |
+/// | `id`                | `extended_properties.private["vikunja_task_id"]`   |
+///
+/// # Errors
+/// Returns a descriptive `String` error if `due_date` is present but cannot
+/// be parsed as an RFC3339 timestamp.
+fn build_google_event_from_task(
+    task: &VikunjaTask,
+    config: &Config,
+) -> Result<GoogleEvent, String> {
+    // --- Determine event start and end times --------------------------------
+    let (start, end) = match &task.due_date {
+        Some(due) if !due.is_empty() => {
+            // Parse the RFC3339 due date, then derive a 1-hour event window.
+            let dt = DateTime::parse_from_rfc3339(due)
+                .map(|d| d.with_timezone(&Utc))
+                .map_err(|e| format!("invalid due_date '{due}': {e}"))?;
+
+            let end_dt = dt + Duration::hours(1);
+
+            (
+                EventDateTime {
+                    date_time: dt.to_rfc3339(),
+                    time_zone: "UTC".to_string(),
+                },
+                EventDateTime {
+                    date_time: end_dt.to_rfc3339(),
+                    time_zone: "UTC".to_string(),
+                },
+            )
+        }
+        _ => {
+            // No due date: default to today at noon UTC for a 1-hour slot so
+            // the event lands on a visible calendar day rather than the epoch.
+            let today_noon = Utc::now()
+                .date_naive()
+                .and_hms_opt(12, 0, 0)
+                .expect("12:00:00 is always a valid time")
+                .and_utc();
+
+            let end_dt = today_noon + Duration::hours(1);
+
+            (
+                EventDateTime {
+                    date_time: today_noon.to_rfc3339(),
+                    time_zone: "UTC".to_string(),
+                },
+                EventDateTime {
+                    date_time: end_dt.to_rfc3339(),
+                    time_zone: "UTC".to_string(),
+                },
+            )
+        }
+    };
+
+    // --- Map priority to a colour ID ----------------------------------------
+    // If no priority was provided, fall back to the configured default.
+    let color_id = task
+        .priority
+        .map(|p| priority_to_color_id(p, config))
+        .unwrap_or_else(|| config.default_color_id.clone());
+
+    // --- Inject the Vikunja task ID as a private extended property ----------
+    // This tag is used later by `find_event_by_property` to locate the
+    // Google Calendar event that corresponds to a given Vikunja task.
+    let mut private_props = HashMap::new();
+    private_props.insert("vikunja_task_id".to_string(), task.id.to_string());
+
+    // --- Assemble the final event -------------------------------------------
+    Ok(GoogleEvent {
+        id: None, // assigned by Google on creation; not sent on updates
+        summary: task.title.clone(),
+        description: if task.description.is_empty() {
+            None
+        } else {
+            Some(task.description.clone())
+        },
+        location: None,
+        color_id: Some(color_id),
+        start,
+        end,
+        extended_properties: Some(ExtendedProperties {
+            private: private_props,
+        }),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handler — Vikunja webhook
+// ---------------------------------------------------------------------------
+
+/// Handler for `POST /webhooks/vikunja`.
+///
+/// Receives a Vikunja webhook notification, determines the action type, and
+/// dispatches to the appropriate Google Calendar CRUD operation.
+///
+/// | Vikunja action  | Google Calendar operation                            |
+/// |-----------------|------------------------------------------------------|
+/// | `task.created`    | `create_event` with task fields mapped               |
+/// | `task.updated`    | `update_event` if event exists, else `create_event`  |
+/// | `task.deleted`    | `delete_event` if event exists, else no-op           |
+/// | `task.overdue`    | `update_event` to tomato colour if event exists      |
+/// | `tasks.overdue`   | same as `task.overdue`                               |
+/// | _(anything else)_ | `200 OK` no-op — Vikunja will not retry              |
+///
+/// # Responses
+/// - `201 Created`               — a new Google Calendar event was created
+/// - `200 OK`                    — an existing event was updated or deleted,
+///                                  or the delete was a no-op (idempotent)
+/// - `400 Bad Request`           — task payload could not be mapped (e.g.
+///                                  unparsable `due_date`)
+/// - `500 Internal Server Error` — a Google Calendar API call failed
+async fn vikunja_webhook_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<VikunjaWebhookPayload>,
+) -> HandlerResult {
+    let task = &payload.data;
+
+    tracing::info!(
+        action  = ?payload.action,
+        task_id = task.id,
+        title   = %task.title,
+        "POST /webhooks/vikunja received",
+    );
+
+    match payload.action {
+        // ------------------------------------------------------------------
+        // task.created — build a new Google Calendar event from the task
+        // ------------------------------------------------------------------
+        VikunjaAction::TaskCreated => {
+            let event =
+                build_google_event_from_task(task, &state.calendar_client.config).map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "failed to map Vikunja task to Google Event",
+                    );
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "status": "error", "message": e })),
+                    )
+                })?;
+
+            let created = state
+                .calendar_client
+                .create_event(&event)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "create_event failed for Vikunja task.created",
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": e.to_string() })),
+                    )
+                })?;
+
+            let event_id = created.id.ok_or_else(|| {
+                let msg = "Google API did not return an event ID after task.created";
+                tracing::error!(task_id = task.id, msg);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "status": "error", "message": msg })),
+                )
+            })?;
+
+            tracing::info!(
+                task_id  = task.id,
+                event_id = %event_id,
+                "Vikunja task.created mapped to new Google Calendar event",
+            );
+
+            Ok((
+                StatusCode::CREATED,
+                Json(json!({
+                    "status":   "success",
+                    "action":   "created",
+                    "event_id": event_id,
+                })),
+            ))
+        }
+
+        // ------------------------------------------------------------------
+        // task.updated — update the existing event, or create if not found
+        // ------------------------------------------------------------------
+        VikunjaAction::TaskUpdated => {
+            let task_id_str = task.id.to_string();
+
+            let event =
+                build_google_event_from_task(task, &state.calendar_client.config).map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "failed to map Vikunja task to Google Event",
+                    );
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "status": "error", "message": e })),
+                    )
+                })?;
+
+            // Locate an existing Google Calendar event tagged with this
+            // Vikunja task ID so we can update it in place rather than
+            // creating a duplicate.
+            let existing = state
+                .calendar_client
+                .find_event_by_property("vikunja_task_id", &task_id_str)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "find_event_by_property failed during task.updated",
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": e.to_string() })),
+                    )
+                })?;
+
+            if let Some(existing_event) = existing {
+                // An existing event was found — update it (PUT).
+                let google_id = existing_event.id.ok_or_else(|| {
+                    let msg = "existing event returned by property search had no id field";
+                    tracing::error!(task_id = task.id, msg);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": msg })),
+                    )
+                })?;
+
+                let updated = state
+                    .calendar_client
+                    .update_event(&google_id, &event)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            task_id  = task.id,
+                            event_id = %google_id,
+                            error    = %e,
+                            "update_event failed for Vikunja task.updated",
+                        );
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({ "status": "error", "message": e.to_string() })),
+                        )
+                    })?;
+
+                // Prefer the ID confirmed by Google; fall back to the
+                // google_id we used in the request URL.
+                let updated_id = updated.id.unwrap_or(google_id);
+
+                tracing::info!(
+                    task_id  = task.id,
+                    event_id = %updated_id,
+                    "Vikunja task.updated applied to existing Google Calendar event",
+                );
+
+                Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "status":   "success",
+                        "action":   "updated",
+                        "event_id": updated_id,
+                    })),
+                ))
+            } else {
+                // No existing event was found (e.g. manually deleted from
+                // Calendar) — fall back to creation so the task is not lost.
+                let created = state
+                    .calendar_client
+                    .create_event(&event)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            task_id = task.id,
+                            error   = %e,
+                            "create_event fallback failed for Vikunja task.updated",
+                        );
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({ "status": "error", "message": e.to_string() })),
+                        )
+                    })?;
+
+                let event_id = created.id.ok_or_else(|| {
+                    let msg =
+                        "Google API did not return an event ID after task.updated fallback create";
+                    tracing::error!(task_id = task.id, msg);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": msg })),
+                    )
+                })?;
+
+                tracing::info!(
+                    task_id  = task.id,
+                    event_id = %event_id,
+                    "Vikunja task.updated created new Google Calendar event (no existing event found)",
+                );
+
+                Ok((
+                    StatusCode::CREATED,
+                    Json(json!({
+                        "status":   "success",
+                        "action":   "created",
+                        "event_id": event_id,
+                    })),
+                ))
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // task.deleted — remove the corresponding Google Calendar event
+        // ------------------------------------------------------------------
+        VikunjaAction::TaskDeleted => {
+            let task_id_str = task.id.to_string();
+
+            let existing = state
+                .calendar_client
+                .find_event_by_property("vikunja_task_id", &task_id_str)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "find_event_by_property failed during task.deleted",
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": e.to_string() })),
+                    )
+                })?;
+
+            if let Some(existing_event) = existing {
+                let google_id = existing_event.id.ok_or_else(|| {
+                    let msg = "existing event returned by property search had no id field";
+                    tracing::error!(task_id = task.id, msg);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": msg })),
+                    )
+                })?;
+
+                state
+                    .calendar_client
+                    .delete_event(&google_id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            task_id  = task.id,
+                            event_id = %google_id,
+                            error    = %e,
+                            "delete_event failed for Vikunja task.deleted",
+                        );
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({ "status": "error", "message": e.to_string() })),
+                        )
+                    })?;
+
+                tracing::info!(
+                    task_id  = task.id,
+                    event_id = %google_id,
+                    "Vikunja task.deleted removed corresponding Google Calendar event",
+                );
+
+                Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "status":           "success",
+                        "action":           "deleted",
+                        "deleted_event_id": google_id,
+                    })),
+                ))
+            } else {
+                // No matching event found — treat as idempotent success.
+                // This covers the case where the Calendar event was already
+                // manually deleted or was never successfully created.
+                tracing::warn!(
+                    task_id = task.id,
+                    "Vikunja task.deleted: no matching Google Calendar event found (already removed or never synced)",
+                );
+
+                Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "status":  "success",
+                        "action":  "no_op",
+                        "message": "no matching Google Calendar event found for this Vikunja task",
+                    })),
+                ))
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // task.overdue / tasks.overdue — mark the calendar event as overdue
+        // ------------------------------------------------------------------
+        VikunjaAction::TaskOverdue | VikunjaAction::TasksOverdue => {
+            let task_id_str = task.id.to_string();
+
+            let existing = state
+                .calendar_client
+                .find_event_by_property("vikunja_task_id", &task_id_str)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        task_id = task.id,
+                        error   = %e,
+                        "find_event_by_property failed during task.overdue",
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": e.to_string() })),
+                    )
+                })?;
+
+            if let Some(existing_event) = existing {
+                let google_id = existing_event.id.ok_or_else(|| {
+                    let msg = "existing event returned by property search had no id field";
+                    tracing::error!(task_id = task.id, msg);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error", "message": msg })),
+                    )
+                })?;
+
+                // Rebuild the event from current task data and force the
+                // colour to tomato to provide an overdue visual cue.
+                let mut event =
+                    build_google_event_from_task(task, &state.calendar_client.config).map_err(
+                        |e| {
+                            tracing::error!(
+                                task_id = task.id,
+                                error   = %e,
+                                "failed to map Vikunja task to Google Event during task.overdue",
+                            );
+                            (
+                                StatusCode::BAD_REQUEST,
+                                Json(json!({ "status": "error", "message": e })),
+                            )
+                        },
+                    )?;
+
+                let tomato_id = state
+                    .calendar_client
+                    .config
+                    .standard_colors
+                    .get("tomato")
+                    .cloned()
+                    .unwrap_or_else(|| "11".to_string());
+                event.color_id = Some(tomato_id);
+
+                let updated = state
+                    .calendar_client
+                    .update_event(&google_id, &event)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            task_id  = task.id,
+                            event_id = %google_id,
+                            error    = %e,
+                            "update_event failed for Vikunja task.overdue",
+                        );
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({ "status": "error", "message": e.to_string() })),
+                        )
+                    })?;
+
+                let updated_id = updated.id.unwrap_or(google_id);
+
+                tracing::info!(
+                    task_id  = task.id,
+                    event_id = %updated_id,
+                    "Vikunja task.overdue applied tomato colour to Google Calendar event",
+                );
+
+                Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "status":   "success",
+                        "action":   "marked_overdue",
+                        "event_id": updated_id,
+                    })),
+                ))
+            } else {
+                // No matching Calendar event — silently acknowledge so
+                // Vikunja does not retry.
+                tracing::warn!(
+                    task_id = task.id,
+                    "Vikunja task.overdue: no matching Google Calendar event found (skipping colour update)",
+                );
+
+                Ok((
+                    StatusCode::OK,
+                    Json(json!({
+                        "status":  "success",
+                        "action":  "no_op",
+                        "message": "no matching Google Calendar event found for this Vikunja task",
+                    })),
+                ))
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Unknown / unrecognised actions — acknowledge without acting
+        // ------------------------------------------------------------------
+        VikunjaAction::Unknown => {
+            tracing::warn!(
+                task_id = task.id,
+                "unrecognised Vikunja action received — no Google Calendar operation performed",
+            );
+
+            Ok((
+                StatusCode::OK,
+                Json(json!({
+                    "status":  "success",
+                    "action":  "no_op",
+                    "message": "unrecognised Vikunja action — no Google Calendar operation performed",
+                })),
+            ))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Async entry point
 // ---------------------------------------------------------------------------
 
@@ -1004,8 +1658,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     every handler can extract it with the State<Arc<AppState>> extractor.
     let router: Router = Router::new()
         .route("/api/v1/events/create", post(create_event_handler))
-        .route("/api/v1/events/update/:id", post(update_event_handler))
-        .route("/api/v1/events/delete/:id", post(delete_event_handler))
+        .route("/api/v1/events/update/{id}", post(update_event_handler))
+        .route("/api/v1/events/delete/{id}", post(delete_event_handler))
+        .route("/webhooks/vikunja", post(vikunja_webhook_handler))
         .with_state(app_state);
 
     // 10 — Bind the TCP listener to all network interfaces on port 8080.
