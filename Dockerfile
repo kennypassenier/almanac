@@ -21,7 +21,7 @@
 # because reqwest links against OpenSSL (or its dev headers) during the build.
 # The compiled binary is placed at /app/target/release/cal-stacean.
 # -----------------------------------------------------------------------------
-FROM rust:1.87-slim AS builder
+FROM rust:1.88-slim AS builder
 
 # Install compile-time dependencies.
 # - pkg-config   : allows the build system to locate system libraries
