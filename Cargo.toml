@@ -1,0 +1,38 @@
+[package]
+name = "cal-stacean"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Async runtime - "full" enables all features (I/O, timers, sync primitives, etc.)
+tokio = { version = "1", features = ["full"] }
+
+# Serialization / deserialization framework with derive macros
+serde = { version = "1", features = ["derive"] }
+
+# TOML file parsing (uses serde under the hood)
+toml = "0.8"
+
+# .env file loader - loads key=value pairs from a .env file into the process environment
+dotenvy = "0.15"
+
+# Structured, leveled logging facade
+tracing = "0.1"
+
+# Subscriber implementation that prints tracing events to stdout/stderr
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async HTTP client; rustls-tls avoids a hard dependency on the system OpenSSL
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
+# JWT construction and RS256 signing for the Google Service Account OAuth2 flow
+jsonwebtoken = "9"
+
+# JSON parsing for the Google Service Account key file
+serde_json = "1"
+
+# Web framework for the HTTP API server layer
+axum = "0.8"

@@ -1,0 +1,35 @@
+# cal-stacean configuration file
+# ---------------------------------------------------------------------------
+# This file is read at startup by the application.  All keys are required
+# unless explicitly marked as optional.
+# ---------------------------------------------------------------------------
+
+# The Google Calendar that is targeted when no explicit calendar ID is passed
+# by the caller.  Use "primary" to refer to the authenticated user's primary
+# calendar, or supply a full calendar address such as "user@example.com".
+default_calendar_id = "kennypersonalassistant@gmail.com"
+
+# The Google Calendar colour ID applied to new events when the caller does not
+# specify one.  Google's API accepts integer strings "1" through "11".
+# See: https://developers.google.com/calendar/api/v3/reference/colors/get
+default_color_id = "1"
+
+# Minimum log level to emit.  Valid values (case-insensitive):
+#   trace | debug | info | warn | error
+# The RUST_LOG environment variable overrides this value at runtime.
+log_level = "info"
+
+# Human-readable colour names mapped to Google Calendar colour IDs.
+# Add or remove entries freely; the map is loaded as-is by the application.
+[standard_colors]
+lavender = "1"
+sage = "2"
+grape = "3"
+flamingo = "4"
+banana = "5"
+tangerine = "6"
+peacock = "7"
+graphite = "8"
+blueberry = "9"
+basil = "10"
+tomato = "11"
