@@ -1,4 +1,4 @@
-name: CI/CD Pipeline with Deploy and Env Example
+name: CI/CD Pipeline
 
 on:
   push:
@@ -12,31 +12,39 @@ jobs:
       INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
       INFISICAL_API_URL: https://sec.kp-soft.dev/
     steps:
+
+      # 1. Checkout repository: Fetches the latest code from GitHub so all subsequent steps use the current source.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js (for Infisical CLI)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
+
+      # 2. Install Rust toolchain: Ensures the correct Rust version and tools are available for building the project.
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
 
+
+      # 3. Install Infisical CLI: Installs the CLI tool for securely fetching secrets from your Infisical instance.
       - name: Install Infisical CLI
         run: |
           curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
           sudo apt-get update && sudo apt-get install -y infisical
 
+
+      # 4. Fetch secrets from Infisical: Downloads environment secrets for the build and runtime, writing them to .env.
       - name: Fetch secrets from Infisical (.env)
         run: infisical export --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} --format=dotenv > .env
 
+
+      # 5. Generate .env.example: Creates a safe example env file for documentation and onboarding, based on Infisical config.
       - name: Generate .env.example
         run: infisical secrets generate-example-env --projectId=${{ secrets.INFISICAL_PROJECT_ID }}
 
+
+      # 6. Commit and push .env.example if changed: Ensures .env.example in the repo is always up to date and safe for sharing.
       - name: Commit and push .env.example if changed
         run: |
           git config --global user.name 'github-actions[bot]'
@@ -47,12 +55,18 @@ jobs:
             git push || echo 'No changes to push.'
           fi
 
+
+      # 7. Build release binary: Compiles the Rust project in release mode for optimal performance and size.
       - name: Build release binary
         run: cargo build --release
 
+
+      # 8. Copy binary to project root: Moves the built binary to the root for artifact upload and Docker build context.
       - name: Copy binary to project root
         run: cp target/release/cal-stacean ./cal-stacean
 
+
+      # 9. Upload build artifacts: Makes the compiled binary available for download from the workflow run.
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -62,13 +76,17 @@ jobs:
       - name: Clean build artifacts
         run: cargo clean
 
+
+      # 10. Log in to GitHub Container Registry: Authenticates Docker to push images to GHCR under your account.
       - name: Log in to GitHub Container Registry
         run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      # 11. Build Docker image: Builds the production Docker image for your application using the Dockerfile.
       - name: Build Docker image
         run: |
           docker build -t ghcr.io/${{ github.repository_owner }}/cal-stacean:latest .
 
+      # 12. Push Docker image to GHCR: Publishes the built image to GitHub Container Registry for use in deployments.
       - name: Push Docker image to GHCR
         run: |
           docker push ghcr.io/${{ github.repository_owner }}/cal-stacean:latest
