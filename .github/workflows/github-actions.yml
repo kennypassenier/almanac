@@ -62,7 +62,7 @@ jobs:
       - name: Generate .env.example
         run: infisical secrets generate-example-env --projectId=${{ secrets.INFISICAL_PROJECT_ID }}
 
-      # Verify .env contains all keys from .env.example
+      # 6. Verify .env contains all keys from .env.example
       - name: Verify .env matches .env.example keys
         run: |
           missing_keys=0
@@ -79,7 +79,7 @@ jobs:
           echo ".env contains all keys from .env.example"
 
 
-      # 6. Commit and push .env.example if changed: Ensures .env.example in the repo is always up to date and safe for sharing.
+      # 7. Commit and push .env.example if changed: Ensures .env.example in the repo is always up to date and safe for sharing.
       - name: Commit and push .env.example if changed
         run: |
           git config --global user.name 'github-actions[bot]'
@@ -91,37 +91,58 @@ jobs:
           fi
 
 
-      # 7. Build release binary: Compiles the Rust project in release mode for optimal performance and size.
+      # 8. Build release binary: Compiles the Rust project in release mode for optimal performance and size.
       - name: Build release binary
         run: cargo build --release
 
 
-      # 8. Copy binary to project root: Moves the built binary to the root for artifact upload and Docker build context.
+      # 9. Copy binary to project root: Moves the compiled binary to the project root for artifact upload and Docker build.
       - name: Copy binary to project root
         run: cp target/release/cal-stacean ./cal-stacean
 
+      # 10. Auto-bump patch version and tag
+      - name: Auto-bump patch version and tag
+        run: |
+          git fetch --tags
+          latest_tag=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [[ -z "$latest_tag" ]]; then
+            new_tag="v0.0.1"
+          else
+            major=$(echo $latest_tag | cut -d. -f1 | tr -d 'v')
+            minor=$(echo $latest_tag | cut -d. -f2)
+            patch=$(echo $latest_tag | cut -d. -f3)
+            new_patch=$((patch + 1))
+            new_tag="v${major}.${minor}.${new_patch}"
+          fi
+          echo "Bumping version: $latest_tag -> $new_tag"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $new_tag
+          git push origin $new_tag
 
-      # 9. Upload build artifacts: Makes the compiled binary available for download from the workflow run.
+
+      # 11. Upload build artifacts: Makes the compiled binary available for download from the workflow run.
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: cal-stacean-binary
           path: ./cal-stacean
 
+      # 12. Clean build artifacts: Removes build artifacts to keep the workspace clean and reduce artifact size.
       - name: Clean build artifacts
         run: cargo clean
 
 
-      # 10. Log in to GitHub Container Registry: Authenticates Docker to push images to GHCR under your account using a PAT.
+      # 13. Log in to GitHub Container Registry: Authenticates Docker to push images to GHCR under your account using a PAT.
       - name: Log in to GitHub Container Registry
         run: echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # 11. Build Docker image: Builds the production Docker image for your application using the Dockerfile.
+      # 14. Build Docker image: Builds the production Docker image for your application using the Dockerfile.
       - name: Build Docker image
         run: |
           docker build -t ghcr.io/${{ github.repository_owner }}/cal-stacean:latest .
 
-      # 12. Push Docker image to GHCR: Publishes the built image to GitHub Container Registry for use in deployments.
+      # 15. Push Docker image to GHCR: Publishes the built image to GitHub Container Registry for use in deployments.
       - name: Push Docker image to GHCR
         run: |
           docker push ghcr.io/${{ github.repository_owner }}/cal-stacean:latest
