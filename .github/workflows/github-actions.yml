@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
-      INFISICAL_SITE_URL: https://sec.kp-soft.dev/
+      INFISICAL_API_URL: https://sec.kp-soft.dev/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,10 +32,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y infisical
 
       - name: Fetch secrets from Infisical (.env)
-        run: infisical export --env=prod --format=dotenv > .env
+        run: infisical export --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} --format=dotenv > .env
 
       - name: Generate .env.example
-        run: infisical secrets generate-example-env
+        run: infisical secrets generate-example-env --projectId=${{ secrets.INFISICAL_PROJECT_ID }}
 
       - name: Commit and push .env.example if changed
         run: |
