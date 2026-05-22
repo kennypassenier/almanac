@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
+      INFISICAL_SITE_URL: https://sec.kp-soft.dev/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
