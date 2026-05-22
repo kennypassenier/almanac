@@ -1,0 +1,68 @@
+name: CI/CD Pipeline with Deploy and Env Example
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (for Infisical CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Infisical CLI
+        run: npm install -g infisical
+
+      - name: Fetch secrets from Infisical (.env)
+        run: infisical export --env=prod --format=dotenv > .env
+
+      - name: Generate .env.example
+        run: infisical secrets generate-example-env
+
+      - name: Commit and push .env.example if changed
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .env.example
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: update .env.example [auto]' || echo 'No changes to commit.'
+            git push || echo 'No changes to push.'
+          fi
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Copy binary to project root
+        run: cp target/release/cal-stacean ./cal-stacean
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cal-stacean-binary
+          path: ./cal-stacean
+
+      - name: Clean build artifacts
+        run: cargo clean
+
+      - name: Copy files to server
+        run: |
+          scp -o StrictHostKeyChecking=no docker-compose.yml .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_PATH }}
+
+      - name: Deploy on server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.REMOTE_PATH }} && docker compose up -d"
