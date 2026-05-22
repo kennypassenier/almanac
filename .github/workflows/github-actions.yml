@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
-      INFISICAL_API_URL: https://sec.kp-soft.dev/
+      INFISICAL_API_URL: ${{ secrets.INFISICAL_API_URL }}
     steps:
 
       # 1. Checkout repository: Fetches the latest code from GitHub so all subsequent steps use the current source.
@@ -45,6 +45,22 @@ jobs:
       # 5. Generate .env.example: Creates a safe example env file for documentation and onboarding, based on Infisical config.
       - name: Generate .env.example
         run: infisical secrets generate-example-env --projectId=${{ secrets.INFISICAL_PROJECT_ID }}
+
+      # Verify .env contains all keys from .env.example
+      - name: Verify .env matches .env.example keys
+        run: |
+          missing_keys=0
+          while IFS= read -r line; do
+            key=$(echo "$line" | grep -v '^#' | grep -o '^[A-Za-z0-9_]\+' || true)
+            if [ -n "$key" ]; then
+              grep -q "^$key=" .env || { echo "Missing key in .env: $key"; missing_keys=1; }
+            fi
+          done < .env.example
+          if [ "$missing_keys" -ne 0 ]; then
+            echo "Some keys from .env.example are missing in .env"
+            exit 1
+          fi
+          echo ".env contains all keys from .env.example"
 
 
       # 6. Commit and push .env.example if changed: Ensures .env.example in the repo is always up to date and safe for sharing.
