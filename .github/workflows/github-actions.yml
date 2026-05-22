@@ -53,7 +53,7 @@ jobs:
           echo "=== .env file line count ==="
           wc -l .env
           echo "=== .env file content (redacted values) ==="
-          grep -v '^#' .env | sed 's/=.*/=[REDACTED]/'
+          awk -F= '/^[A-Za-z0-9_]+=/{print $1 "=[REDACTED]"} !/^[A-Za-z0-9_]+=/ {print "[REDACTED]"}' .env
           echo "=== .env.example keys ==="
           grep -v '^#' .env.example | grep '=' | cut -d= -f1 | sort
 
