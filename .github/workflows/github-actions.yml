@@ -103,7 +103,8 @@ jobs:
       # 10. Auto-bump patch version and tag
       - name: Auto-bump patch version and tag
         run: |
-          git fetch --tags https://x-access-token:${{ secrets.CR_PAT }}@github.com/${{ github.repository }}
+          git remote set-url origin https://x-access-token:${{ secrets.CR_PAT }}@github.com/${{ github.repository }}
+          git fetch --tags
           latest_tag=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
           if [[ -z "$latest_tag" ]]; then
             new_tag="v0.0.1"
@@ -118,7 +119,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag $new_tag
-          git push https://x-access-token:${{ secrets.CR_PAT }}@github.com/${{ github.repository }} $new_tag
+          git push origin $new_tag
 
 
       # 11. Upload build artifacts: Makes the compiled binary available for download from the workflow run.
