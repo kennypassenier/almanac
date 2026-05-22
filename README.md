@@ -1,4 +1,3 @@
-{NEW_README}
 
 ## Overview
 
@@ -10,10 +9,10 @@ cal-stacean is a universal API gateway for Google Calendar, designed to provide 
 - **Google Calendar CRUD API**: Create, read, update, delete, and search events via REST endpoints.
 - **Service Account Authentication**: Uses Google Service Account JWT for secure, automated access.
 - **Configurable**: Reads from `config.toml` for calendar defaults, color mapping, and log level.
-- **Secrets Management**: Loads sensitive credentials from environment variables, injected securely via Infisical.
+- **Secrets Management**: Loads sensitive credentials from environment variables, injected securely via Infisical. `.env.example` is always up to date, auto-generated and committed by CI.
 - **Vikunja Integration**: Listens for Vikunja task webhooks and syncs them to Google Calendar.
 - **Containerized**: Multi-stage Dockerfile for minimal, secure production images.
-- **CI/CD**: Automated build, test, tag, and deploy pipeline using GitHub Actions.
+- **CI/CD**: Unified build, test, tag, .env.example, and deploy pipeline using GitHub Actions.
 
 ---
 
@@ -69,8 +68,9 @@ Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` fil
 
 ## CI/CD Pipeline (GitHub Actions)
 
+
 ### Automated Steps
-- On every push to `main`:
+- On every push to `main` (except when only markdown files like `README.md` are changed):
   - Fetch secrets from Infisical and generate `.env`
   - Build the Rust binary
   - Upload the binary as a downloadable artifact
@@ -78,6 +78,8 @@ Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` fil
   - Automatically bump the patch version and create a new git tag
 - On manual workflow dispatch:
   - Optionally bump and tag versions
+  
+**Note:** The CI/CD pipeline is configured to ignore pushes that only update markdown documentation (e.g., `README.md`). This prevents unnecessary workflow runs for documentation-only changes.
 
 ### Downloading Build Artifacts
 After a workflow run:
