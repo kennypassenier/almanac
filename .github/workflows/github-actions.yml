@@ -38,8 +38,24 @@ jobs:
 
 
       # 4. Fetch secrets from Infisical: Downloads environment secrets for the build and runtime, writing them to .env.
-      - name: Fetch secrets from Infisical (.env)
-        run: infisical export --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} --format=dotenv > .env
+
+      - name: Fetch secrets from Infisical (.env) and log output
+        id: infisical_export
+        run: |
+          set -e
+          infisical export --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} --format=dotenv > .env 2>infisical_export_stderr.log
+          export_status=$?
+          echo "=== Infisical export exit code: $export_status ==="
+          echo "=== Infisical export stderr (if any): ==="
+          cat infisical_export_stderr.log
+          echo "=== .env keys ==="
+          grep -v '^#' .env | grep '=' | cut -d= -f1 | sort
+          echo "=== .env file line count ==="
+          wc -l .env
+          echo "=== .env file content (redacted values) ==="
+          grep -v '^#' .env | sed 's/=.*/=[REDACTED]/'
+          echo "=== .env.example keys ==="
+          grep -v '^#' .env.example | grep '=' | cut -d= -f1 | sort
 
 
       # 5. Generate .env.example: Creates a safe example env file for documentation and onboarding, based on Infisical config.
