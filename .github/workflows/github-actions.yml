@@ -19,6 +19,8 @@ jobs:
       # 1. Checkout repository: Fetches the latest code from GitHub so all subsequent steps use the current source.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.CR_PAT }}
 
 
 
