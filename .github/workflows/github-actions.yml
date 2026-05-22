@@ -62,10 +62,13 @@ jobs:
       - name: Clean build artifacts
         run: cargo clean
 
-      - name: Copy files to server
-        run: |
-          scp -o StrictHostKeyChecking=no docker-compose.yml .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_PATH }}
+      - name: Log in to GitHub Container Registry
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Deploy on server
+      - name: Build Docker image
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.REMOTE_PATH }} && docker compose up -d"
+          docker build -t ghcr.io/${{ github.repository_owner }}/cal-stacean:latest .
+
+      - name: Push Docker image to GHCR
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/cal-stacean:latest
