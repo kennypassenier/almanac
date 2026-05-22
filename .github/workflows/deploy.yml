@@ -1,0 +1,33 @@
+name: Deploy with Docker Compose and Infisical
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Node.js (for Infisical CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Infisical CLI
+        run: npm install -g infisical
+
+      - name: Generate .env file from Infisical
+        run: infisical export --env=prod --format=dotenv > .env
+
+      - name: Copy files to server
+        run: |
+          scp -o StrictHostKeyChecking=no docker-compose.yml .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_PATH }}
+
+      - name: Deploy on server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ secrets.REMOTE_PATH }} && docker compose up -d"
