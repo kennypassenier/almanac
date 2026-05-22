@@ -2,7 +2,7 @@
 //!
 //! Step 1: Configuration layer  — parse `config.toml`, initialise tracing.
 //! Step 2: Authentication layer — Service Account JWT (RS256) via discrete
-//!         `.env` variables loaded from Doppler.
+//!         `.env` variables loaded from Infisical or local .env file.
 //! Step 3: Calendar client      — [`GoogleCalendarClient`] with connectivity probe.
 //! Step 4: CRUD operations      — `create_event` and `get_event` with a live
 //!         round-trip validation test.
@@ -185,9 +185,7 @@ struct Config {
 
 /// Service Account credentials loaded from discrete environment variables.
 ///
-/// Doppler automatically creates these variable names when a Google Service
-/// Account JSON key file is imported into a project, preserving the original
-/// field names from the JSON (e.g. `client_email` becomes `CLIENT_EMAIL`).
+/// Environment variables are loaded from Infisical or a local .env file, matching the field names from the Google Service Account JSON (e.g. `client_email` becomes `CLIENT_EMAIL`).
 struct ServiceAccountCredentials {
     /// Service account email address; becomes the JWT `iss` (issuer) claim.
     /// Loaded from `CLIENT_EMAIL`.
@@ -719,8 +717,7 @@ fn init_tracing(log_level: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Load Service Account credentials from discrete environment variables.
 ///
-/// The three expected variables are created automatically by Doppler when a
-/// Google Service Account JSON key file is imported into a Doppler project:
+/// The three expected variables are required in the environment (from Infisical or .env):
 ///
 /// | Variable       | Service Account JSON field | Content                        |
 /// |----------------|----------------------------|--------------------------------|
@@ -732,16 +729,15 @@ fn init_tracing(log_level: &str) -> Result<(), Box<dyn std::error::Error>> {
 /// Returns a descriptive error naming whichever variable is absent.
 fn load_service_account_credentials()
 -> Result<ServiceAccountCredentials, Box<dyn std::error::Error>> {
-    // Variable names match the keys Doppler creates when a Google Service
-    // Account JSON key file is imported directly into a Doppler project.
+    // Variable names match the keys from the Google Service Account JSON.
     let client_email = std::env::var("CLIENT_EMAIL").map_err(|_| {
         "environment variable CLIENT_EMAIL is not set; \
-         ensure the Google Service Account JSON has been imported into Doppler"
+         ensure the Google Service Account JSON has been imported into Infisical or your .env file"
     })?;
 
     let private_key = std::env::var("PRIVATE_KEY").map_err(|_| {
         "environment variable PRIVATE_KEY is not set; \
-         ensure the Google Service Account JSON has been imported into Doppler"
+         ensure the Google Service Account JSON has been imported into Infisical or your .env file"
     })?;
 
     let token_url = std::env::var("TOKEN_URI").map_err(|_| {
@@ -795,7 +791,7 @@ async fn get_google_auth_token(
     };
 
     // --- Sign the JWT (RS256) ----------------------------------------------
-    // Secret managers such as Doppler store multi-line PEM strings with
+    // Secret managers such as Infisical store multi-line PEM strings with
     // literal two-character `\n` sequences rather than real newline bytes.
     // Expand them so that the PEM parser receives structurally valid input.
     let pem_normalized = credentials.private_key.replace("\\n", "\n");
@@ -1593,7 +1589,7 @@ async fn vikunja_webhook_handler(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1 — Load the `.env` file FIRST, before any std::env::var() calls, so
-    //     that all secrets injected by Doppler (or a manually maintained .env)
+    //     that all secrets injected by Infisical (or a manually maintained .env)
     //     are available to every subsequent step.
     //     A missing .env file is silently ignored; only an unreadable file
     //     (e.g. wrong permissions) will surface through the tracing output

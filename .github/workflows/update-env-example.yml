@@ -1,0 +1,32 @@
+name: Update .env.example
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  update-env-example:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (for Infisical CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Infisical CLI
+        run: npm install -g infisical
+
+      - name: Generate .env.example
+        run: infisical secrets generate-example-env
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .env.example
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: update .env.example [auto]' || echo 'No changes to commit.'
+            git push || echo 'No changes to push.'
+          fi

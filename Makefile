@@ -1,5 +1,5 @@
 # =============================================================================
-# Makefile — cal-stacean (Smart Doppler Automation)
+# Makefile — cal-stacean (Universal Google Calendar API Gateway)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -30,9 +30,8 @@ FULL_IMAGE    = $(REGISTRY)/$(GH_USERNAME)/$(IMAGE_NAME):$(IMAGE_TAG)
 # Floating 'latest' reference updated on every push.
 LATEST_IMAGE  = $(REGISTRY)/$(GH_USERNAME)/$(IMAGE_NAME):latest
 
-.PHONY: all secrets example-env build run clean \
-        docker-build docker-login docker-push \
-        tag-patch tag-minor help
+.PHONY: all secrets example-env build run \
+	tag-major tag-minor help
 
 
 # -----------------------------------------------------------------------------
@@ -48,17 +47,13 @@ help:
 	@echo ""
 	@echo "cal-stacean — available make targets"
 	@echo "-------------------------------------"
-	@echo "  secrets        Fetch secrets from Doppler and write $(ENV_FILE)"
+	@echo "  secrets        Fetch secrets from Infisical and write $(ENV_FILE)"
 	@echo "  example-env    Generate $(ENV_EXAMPLE) key template (values stripped)"
 	@echo "  build          Compile release binary and copy to project root"
-	@echo "  run            Run binary with Doppler-injected secrets"
-	@echo "  clean          Remove build artefacts and local env files"
+	@echo "  run            Run binary with Infisical-injected secrets"
 	@echo ""
-	@echo "  docker-build   Build the Docker image and tag it for GHCR"
-	@echo "  docker-login   Authenticate against ghcr.io"
-	@echo "  docker-push    Build and push to GHCR (add AUTO_TAG=1 to bump patch first)"
-	@echo "  tag-patch      Bump patch digit and create git tag (v0.1.0 -> v0.1.1)"
 	@echo "  tag-minor      Bump minor digit and create git tag (v0.1.0 -> v0.2.0)"
+	@echo "  tag-major      Bump major digit and create git tag (v1.2.3 -> v2.0.0)"
 	@echo ""
 	@echo "  FULL_IMAGE   = $(FULL_IMAGE)"
 	@echo "  LATEST_IMAGE = $(LATEST_IMAGE)"
@@ -70,14 +65,13 @@ help:
 # =============================================================================
 
 secrets:
-	@echo "Fetching secrets from Doppler..."
-	@doppler secrets download --format=env --no-file > $(ENV_FILE)
+	@echo "Fetching secrets from Infisical..."
+	@infisical export --env=dev --format=dotenv > $(ENV_FILE)
 	@echo "$(ENV_FILE) successfully generated."
 
 example-env:
 	@echo "Generating $(ENV_EXAMPLE) template..."
-	@doppler secrets download --format=env --no-file \
-		| sed 's/=.*$$/=your_value_here/' > $(ENV_EXAMPLE)
+	@infisical secrets generate-example-env > $(ENV_EXAMPLE)
 	@echo "$(ENV_EXAMPLE) successfully generated."
 
 build: secrets example-env
@@ -86,69 +80,14 @@ build: secrets example-env
 	@cp target/release/$(BINARY_NAME) ./$(BINARY_NAME)
 	@echo "Build complete. Binary placed at: ./$(BINARY_NAME)"
 
-# Smart wrapper for run: automatically prefix with doppler run if not already wrapped
+# Run the binary with .env loaded (Infisical injects secrets in CI/CD; locally, use 'secrets' target)
 run: build
 	@echo "Starting daemon..."
-	@if [ -z "$$DOPPLER_PROJECT" ]; then \
-		echo "Doppler environment not detected, wrapping execution with 'doppler run'..."; \
-		doppler run -- ./$(BINARY_NAME); \
-	else \
-		./$(BINARY_NAME); \
-	fi
+	./$(BINARY_NAME)
 
 
-# =============================================================================
-# CONTAINER PIPELINE TARGETS
-# =============================================================================
 
-docker-build:
-	@echo "Building Docker image: $(FULL_IMAGE)"
-	docker build \
-		--tag $(FULL_IMAGE) \
-		--tag $(LATEST_IMAGE) \
-		.
-	@echo "Docker image built and tagged: $(FULL_IMAGE) and $(LATEST_IMAGE)"
 
-# Smart wrapper for login: fetches CR_PAT via Doppler on-the-fly if missing
-docker-login:
-	@echo "Checking authentication state against $(REGISTRY)..."
-	@if [ -z "$$CR_PAT" ]; then \
-		echo "CR_PAT missing from environment, fetching token directly from Doppler..."; \
-		doppler run -- make docker-login; \
-	else \
-		echo "Authenticating against $(REGISTRY) as $(GH_USERNAME)..."; \
-		echo "$$CR_PAT" | docker login $(REGISTRY) \
-			--username $(GH_USERNAME) \
-			--password-stdin; \
-		echo "Login to $(REGISTRY) succeeded."; \
-	fi
-
-# Set AUTO_TAG=1 on the command line to automatically bump the patch digit
-# and create a new git tag before the image is built and pushed.
-# Default is 0 (off) so a plain 'make docker-push' never mutates tags.
-#
-# Usage:
-#   make docker-push             # push current version, no tag change
-#   make docker-push AUTO_TAG=1  # bump patch (v0.1.0 -> v0.1.1) then push
-AUTO_TAG = 1
-
-# Smart wrapper for push: ensures login is valid via Doppler before pushing
-docker-push:
-	@if [ -z "$$CR_PAT" ]; then \
-		echo "Doppler environment not active. Re-executing pipeline inside a Doppler context..."; \
-		doppler run -- make docker-push AUTO_TAG=$(AUTO_TAG); \
-	else \
-		if [ "$(AUTO_TAG)" = "1" ]; then \
-			echo "AUTO_TAG=1 — bumping patch version before push..."; \
-			make tag-patch; \
-		fi; \
-		make docker-build; \
-		make docker-login; \
-		echo "Pushing image to $(REGISTRY)..."; \
-		docker push $(FULL_IMAGE); \
-		docker push $(LATEST_IMAGE); \
-		echo "Image pushed successfully: $(FULL_IMAGE) and $(LATEST_IMAGE)"; \
-	fi
 
 # ---------------------------------------------------------------------------
 # Versioning helpers — create the next git tag without pushing it to remote.
@@ -163,9 +102,10 @@ _MAJOR        = $(word 1,$(_VER_PARTS))
 _MINOR        = $(word 2,$(_VER_PARTS))
 _PATCH        = $(word 3,$(_VER_PARTS))
 
-# tag-patch — increment the patch digit (v0.1.0 -> v0.1.1).
-tag-patch:
-	$(eval NEXT_TAG := v$(_MAJOR).$(_MINOR).$(shell echo $$(($(_PATCH) + 1))))
+
+# tag-major — increment the major digit and reset minor/patch (v1.2.3 -> v2.0.0).
+tag-major:
+	$(eval NEXT_TAG := v$(shell echo $$(($(_MAJOR) + 1))).0.0)
 	@echo "Current tag: $(CURRENT_TAG) -> New tag: $(NEXT_TAG)"
 	git tag $(NEXT_TAG)
 	@echo "Tag $(NEXT_TAG) created locally. Run 'git push --tags' to publish it."
@@ -177,7 +117,6 @@ tag-minor:
 	git tag $(NEXT_TAG)
 	@echo "Tag $(NEXT_TAG) created locally. Run 'git push --tags' to publish it."
 
-clean:
 	@echo "Cleaning build artefacts and local env files..."
 	@cargo clean
 	@rm -f $(BINARY_NAME)

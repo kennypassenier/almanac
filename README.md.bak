@@ -1,4 +1,4 @@
-{NEW_README}
+# cal-stacean — Universal Google Calendar API Gateway
 
 ## Overview
 
@@ -10,10 +10,10 @@ cal-stacean is a universal API gateway for Google Calendar, designed to provide 
 - **Google Calendar CRUD API**: Create, read, update, delete, and search events via REST endpoints.
 - **Service Account Authentication**: Uses Google Service Account JWT for secure, automated access.
 - **Configurable**: Reads from `config.toml` for calendar defaults, color mapping, and log level.
-- **Secrets Management**: Loads sensitive credentials from environment variables, injected securely via Infisical.
+- **Secrets Management**: Loads sensitive credentials from environment variables, injected securely via Infisical. `.env.example` is always up to date, auto-generated and committed by CI.
 - **Vikunja Integration**: Listens for Vikunja task webhooks and syncs them to Google Calendar.
 - **Containerized**: Multi-stage Dockerfile for minimal, secure production images.
-- **CI/CD**: Automated build, test, tag, and deploy pipeline using GitHub Actions.
+- **CI/CD**: Unified build, test, tag, .env.example, and deploy pipeline using GitHub Actions.
 
 ---
 
@@ -22,8 +22,8 @@ cal-stacean is a universal API gateway for Google Calendar, designed to provide 
 - `src/main.rs` — Main application logic, API server, and integrations.
 - `config.toml` — Application configuration (calendar defaults, log level, color mapping).
 - `Dockerfile` — Multi-stage build for production containers.
-- `Makefile` — Local development, build, and release automation.
-- `.github/workflows/` — CI/CD pipelines for build, test, Docker, and tagging.
+- `Makefile` — Local development, build, and release automation (no longer manages Docker or .env.example).
+- `.github/workflows/` — Unified CI/CD pipeline for build, secrets, .env.example, tagging, and deployment.
 
 ---
 
@@ -36,7 +36,7 @@ cal-stacean is a universal API gateway for Google Calendar, designed to provide 
 - `[standard_colors]`: Map of color names to Google Calendar color IDs.
 
 ### Environment Variables (.env)
-Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` file, which is generated securely via Infisical in CI/CD or locally.
+Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` file, generated securely via Infisical in CI/CD or locally. The `.env.example` file is always kept up to date by the CI pipeline and committed automatically.
 
 ---
 
@@ -52,32 +52,30 @@ Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` fil
 1. **Fetch secrets**: `make secrets` (requires Infisical CLI and access)
 2. **Build**: `make build` (compiles release binary)
 3. **Run**: `make run` (runs with secrets injected)
-4. **Clean**: `make clean` (removes build artifacts and env files)
-5. **Test**: Use `cargo test` for Rust unit/integration tests
+4. **Test**: Use `cargo test` for Rust unit/integration tests
+5. **Generate .env.example (optional)**: `infisical secrets generate-example-env` (not required unless you want to preview locally; CI will always keep it up to date)
 
 ### 3. Docker
-- **Build image**: `make docker-build`
-- **Login to GHCR**: `make docker-login`
-- **Push image**: `make docker-push` (optionally with `AUTO_TAG=1` to bump patch)
+Docker build and push are now handled automatically by GitHub Actions on every push to `main`. Manual Makefile Docker targets have been removed for safety and consistency.
 
 ### 4. Versioning
 - **Bump patch**: `make tag-patch`
 - **Bump minor**: `make tag-minor`
 - **Push tags**: `git push --tags`
+  (CI will also auto-bump patch and tag on every push to `main`.)
 
 ---
 
 ## CI/CD Pipeline (GitHub Actions)
 
-### Automated Steps
-- On every push to `main`:
-  - Fetch secrets from Infisical and generate `.env`
-  - Build the Rust binary
-  - Upload the binary as a downloadable artifact
-  - Build and push Docker images to GHCR
-  - Automatically bump the patch version and create a new git tag
-- On manual workflow dispatch:
-  - Optionally bump and tag versions
+All automation is now handled by a single workflow (`ci-cd-pipeline.yml`) on every push to `main`:
+- Fetch secrets from Infisical and generate `.env`
+- Generate and commit `.env.example` if changed
+- Build the Rust binary and upload as artifact
+- Build and push Docker images to GHCR
+- Automatically bump the patch version and create a new git tag
+- Deploy to your server using Docker Compose
+On manual workflow dispatch, you can optionally bump and tag versions.
 
 ### Downloading Build Artifacts
 After a workflow run:
@@ -128,7 +126,7 @@ After a workflow run:
 - Name: `INFISICAL_TOKEN`, Value: (your service token)
 
 ### 3. Workflow Usage
-- The GitHub Actions workflow uses the Infisical CLI to fetch secrets and generate `.env` before build/deploy steps.
+- The GitHub Actions workflow uses the Infisical CLI to fetch secrets and generate `.env` and `.env.example` before build/deploy steps. `.env.example` is committed automatically if changed.
 - No secrets are stored in the repo or Docker image.
 
 ---
@@ -151,6 +149,7 @@ After a workflow run:
 4. Run `make build` and `make run` to start the API locally.
 5. Use the provided endpoints to interact with Google Calendar.
 6. For deployment, use Docker or download the binary from GitHub Actions.
+7. `.env.example` is always up to date in the repository; you can generate it locally with `infisical secrets generate-example-env` if needed.
 
 ---
 
