@@ -12,8 +12,9 @@ decisions below the milestone table).
 | L0 · Walking skeleton & hygiene | [meta], K13 | **done**, report approved 2026-08-28 — CI run https://github.com/kennypassenier/almanac/actions/runs/33173304996 |
 | L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | **done incl. live proof**, report approved 2026-08-28 (CI https://github.com/kennypassenier/almanac/actions/runs/33174789576). The create→read→update→find→delete round-trip ran green against the real `almanac-test` calendar on 2026-08-28 via `latch run -- cargo test --test calendar_e2e -- --ignored` |
 | L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | **done**, report approved 2026-08-28 — CI https://github.com/kennypassenier/almanac/actions/runs/33177366789. M7 is a deliberate, ratified partial (schema support only; the HTTP-layer idempotency-key mechanism needs L3's ingest endpoint) |
-| L3 · Durable ingest & access | K6, K7, K8, M2 (AR16, AR17) | not started |
+| L3 · Durable ingest & access | K6, K7, K8, M2, M7 (AR16, AR17) | **code done**, CI https://github.com/kennypassenier/almanac/actions/runs/33185972306 — both live power-loss drills green against the real scratch calendar; M7 now complete (schema in L2 + the Idempotency-Key header here); pending Kenny's report sign-off |
 | L4 · Sources & visibility | K9, K11, M1, M9, M11 | not started |
+| L4b · Dashboard & token management | M12 (AR17 amendment) | not started — added 2026-08-28, see note below |
 | L5 · Release, deployment & self-update | M8, M10 (AR19) | not started |
 
 Deferred (rated Later, not planned into a milestone): K10 (Super
@@ -79,6 +80,30 @@ request reads back byte-identical, with cap and expiry both proven;
 health reachable
 without token; dry-run yields the expected event without a Google
 call.
+
+### L4b · Dashboard & token management
+*Added 2026-08-28 as the consequence of the M12 mini-round (see
+`FEATURES.md`). Splitting it out rather than swelling L4 keeps the two
+concerns separately reviewable — L4 is about what Almanac can see, L4b
+about how it is administered. **This restructure is a deviation from
+the Phase 5 plan Kenny approved and is put to him for ratification in
+the L4 report**, per the Phase 6 gate's deviation item.*
+
+M12 dashboard on the AR17-amended model: bootstrap token from the
+environment for login (remember-me cookie + logout, not browser basic
+auth); an encrypted app-token store with a mandatory separate
+encryption key; register/generate/revoke a source's token; copy-paste
+commands carrying a real token, masked with a 10-second reveal and a
+copy-without-display control; the K11/M11 views rendered as pages.
+Bootstrap CSS vendored into the repo and image (no CDN — a LAN-only
+service must not need the internet to render its own status page).
+Removes `token_hash` from the profile schema and retires
+`examples/issue_token.rs`.
+**Exit criteria:** every page renders with seeded state; a revoked
+token stops working immediately; a printed command's token actually
+works; plaintext-scan proves no token reaches logs, metrics or any
+page except behind the reveal control; `/healthz` still answers
+without a token.
 
 ### L5 · Release, deployment & self-update
 M8 single version scheme (Docker image tagged exactly as the git tag;

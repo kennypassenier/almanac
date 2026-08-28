@@ -60,3 +60,50 @@ with a key that never lives on any server; the updater verifies
 against the public key embedded in the binary. Consequences for built
 work: none (nothing built yet); L5's release flow signs the manifest
 instead of merely hashing it.
+
+**Amendment to AR17 (mini-round, 2026-08-28, during the L3 report):**
+token storage changes from per-profile hashes to an encrypted store,
+adopting the pattern Kenny already designed for `mailbox` (its W2 and
+AR11 amendment).
+
+*Why the original decision pinched.* A SHA-256 hash cannot be reversed,
+so a token is visible exactly once — at creation. That is fine for a
+CLI, but it makes a management dashboard impossible: it could never
+show a working copy-paste command again. Kenny's actual constraint is
+that tokens must be manageable without SSH-ing into the LXC for every
+one.
+
+*What replaces it.*
+- A **bootstrap token** from the environment (via Latch, AR8) is what
+  Kenny logs into the dashboard with. Something has to be trusted
+  first.
+- **App tokens live encrypted in a local store**, created and revoked
+  from the dashboard, so a working command can always be reproduced.
+- A **separate encryption key is mandatory whenever the bootstrap
+  token is set.** Deriving the key from the bootstrap token would
+  work right up until the day a leaked bootstrap token is rotated, at
+  which point every stored app token silently becomes undecryptable.
+  A bootstrap token without an encryption key is a configuration
+  error and startup refuses it.
+- Tokens never appear in logs, metrics or any rendered page except
+  behind the dashboard's deliberate reveal control; a plaintext-scan
+  test is mandatory.
+
+*One path, not two (Kenny's correction to Claude's proposal).* Claude
+proposed keeping per-profile `token_hash` for hand-managed sources
+alongside the new store. Kenny rejected that: every token will come
+from the dashboard, and two parallel authentication paths are exactly
+the kind of thing that drifts apart and rots. So **`token_hash` is
+removed from the profile schema entirely** and the encrypted store is
+the only source of truth for who may post.
+
+*Consequences for built work.* The L3 ingest layer keeps its shape —
+the URL still selects the profile and the presented token is still
+verified against what that source is allowed to use — but the lookup
+moves from the profile file to the store. `examples/issue_token.rs`
+becomes redundant once the dashboard exists and is removed with it.
+The profile schema stays at `schema_version = 1`: no profile has ever
+been deployed, so there is nothing in the field to migrate, and
+bumping the version would imply a compatibility story that does not
+exist. `core::token`'s hashing and constant-time comparison are
+unaffected and stay as they are.
