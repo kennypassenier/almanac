@@ -223,4 +223,120 @@ mod tests {
             "different keys must not share a lock"
         );
     }
+
+    /// A profile that maps a trivial payload onto `calendar`.
+    fn profile_for(source_id: &str, calendar: &str) -> Profile {
+        let toml = format!(
+            r#"
+schema_version = 1
+source_id = "{source_id}"
+target_calendar_id = "{calendar}"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+duration_minutes = 30
+timezone = "Europe/Brussels"
+"#
+        );
+        Profile::parse(&toml, "test.toml").unwrap()
+    }
+
+    fn payload_entry(source_id: &str, title: &str) -> Entry {
+        Entry {
+            id: format!("j-{title}"),
+            source_id: source_id.to_string(),
+            received_at: "2026-08-28T09:00:00+00:00".to_string(),
+            payload: json!({"title": title, "start": "2026-08-28T09:00:00+00:00"}),
+            idempotency_key: None,
+        }
+    }
+
+    async fn stubbed_client(
+        calendar: &crate::shell::testing::CalendarStub,
+    ) -> GoogleCalendarClient {
+        let tokens = crate::shell::testing::TokenStub::start(3600).await;
+        GoogleCalendarClient::with_base_url(
+            reqwest::Client::new(),
+            crate::shell::auth::TokenManager::new(
+                reqwest::Client::new(),
+                crate::shell::testing::stub_credentials(&tokens.url),
+            ),
+            &calendar.base_url,
+        )
+    }
+
+    #[tokio::test]
+    async fn each_source_lands_on_its_own_calendar() {
+        // K3's acceptance criterion, and the point of the whole
+        // project: two profiles writing to two different calendars,
+        // with nothing crossing over. It had no test at any level —
+        // the calendar id is read inside `deliver`, which until now
+        // could only be reached by talking to the real Google.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let client = stubbed_client(&calendar).await;
+        let locks = KeyLocks::new();
+
+        deliver(
+            &payload_entry("home-assistant", "bin day"),
+            &profile_for("home-assistant", "household@group.calendar.google.com"),
+            &client,
+            &locks,
+        )
+        .await
+        .unwrap();
+
+        deliver(
+            &payload_entry("uptime-kuma", "jellyfin down"),
+            &profile_for("uptime-kuma", "infra@group.calendar.google.com"),
+            &client,
+            &locks,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            calendar.state.calendars_written().await,
+            vec![
+                "household@group.calendar.google.com".to_string(),
+                "infra@group.calendar.google.com".to_string()
+            ],
+            "an infra alert on the household calendar is exactly what K3 exists to prevent"
+        );
+
+        let created = calendar.state.created.lock().await;
+        let household: Vec<&str> = created
+            .iter()
+            .filter(|(cal, _)| cal.starts_with("household"))
+            .map(|(_, body)| body["summary"].as_str().unwrap())
+            .collect();
+        assert_eq!(household, vec!["bin day"], "no cross-contamination");
+    }
+
+    #[tokio::test]
+    async fn the_lookup_before_an_upsert_uses_the_profiles_own_calendar() {
+        // Reading from the wrong calendar would make every delivery
+        // look new, so a redelivery would duplicate rather than update
+        // — K2 broken by a K3 bug.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let client = stubbed_client(&calendar).await;
+        let locks = KeyLocks::new();
+
+        deliver(
+            &payload_entry("uptime-kuma", "jellyfin down"),
+            &profile_for("uptime-kuma", "infra@group.calendar.google.com"),
+            &client,
+            &locks,
+        )
+        .await
+        .unwrap();
+
+        let requests = calendar.state.requests.lock().await;
+        assert!(
+            requests
+                .iter()
+                .all(|(_, cal)| cal == "infra@group.calendar.google.com"),
+            "every request for this delivery must name the profile's calendar, got {requests:?}"
+        );
+    }
 }

@@ -46,6 +46,16 @@ fn in_call_backoff() -> ExponentialBackoff {
 pub struct GoogleCalendarClient {
     http: Client,
     tokens: Arc<TokenManager>,
+    /// Where the Calendar API lives. A field rather than a constant so
+    /// a test can point the client at a local stub (T0).
+    ///
+    /// Without this the retry loop, the create-vs-update decision and
+    /// the per-profile calendar routing were unreachable for anything
+    /// but a live test against Kenny's real calendar — which is why
+    /// all three went untested, and why a misclassified connection
+    /// failure survived in the retry loop until an audit read it.
+    /// Production never sets it; the default is the real endpoint.
+    base_url: String,
 }
 
 #[derive(Serialize)]
@@ -60,7 +70,25 @@ struct CalendarResource {
 
 impl GoogleCalendarClient {
     pub fn new(http: Client, tokens: Arc<TokenManager>) -> Self {
-        Self { http, tokens }
+        Self {
+            http,
+            tokens,
+            base_url: CALENDAR_EVENTS_BASE.to_string(),
+        }
+    }
+
+    /// The same client pointed at somewhere else — a local stub in
+    /// tests. Never used in production.
+    pub fn with_base_url(
+        http: Client,
+        tokens: Arc<TokenManager>,
+        base_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            http,
+            tokens,
+            base_url: base_url.into().trim_end_matches('/').to_string(),
+        }
     }
 
     /// Runs `build` (given the HTTP client and a fresh bearer token) —
@@ -148,7 +176,7 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event: &GoogleEvent,
     ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events");
+        let url = format!("{}/{calendar_id}/events", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.post(&url).bearer_auth(token).json(event))
             .await?;
@@ -160,7 +188,7 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event_id: &str,
     ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events/{event_id}");
+        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.get(&url).bearer_auth(token))
             .await?;
@@ -175,7 +203,7 @@ impl GoogleCalendarClient {
         event_id: &str,
         event: &GoogleEvent,
     ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events/{event_id}");
+        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.put(&url).bearer_auth(token).json(event))
             .await?;
@@ -187,7 +215,7 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event_id: &str,
     ) -> Result<(), AlmanacError> {
-        let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events/{event_id}");
+        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
             .await?;
         Ok(())
@@ -219,7 +247,7 @@ impl GoogleCalendarClient {
         key: &str,
         value: &str,
     ) -> Result<Vec<GoogleEvent>, AlmanacError> {
-        let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events");
+        let url = format!("{}/{calendar_id}/events", self.base_url);
         let filter = format!("{key}={value}");
         let response = self
             .send_with_retry(|http, token| {
@@ -250,11 +278,7 @@ impl GoogleCalendarClient {
     pub async fn create_calendar(&self, summary: &str) -> Result<String, AlmanacError> {
         let body = NewCalendar { summary };
         let response = self
-            .send_with_retry(|http, token| {
-                http.post(CALENDAR_EVENTS_BASE)
-                    .bearer_auth(token)
-                    .json(&body)
-            })
+            .send_with_retry(|http, token| http.post(&self.base_url).bearer_auth(token).json(&body))
             .await?;
 
         let parsed: CalendarResource =
@@ -265,5 +289,104 @@ impl GoogleCalendarClient {
             })?;
 
         Ok(parsed.id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::calendar::GoogleEvent;
+    use crate::shell::testing::{CalendarStub, TokenStub, stub_credentials};
+
+    /// A client wired to both stubs.
+    async fn stubbed(calendar: &CalendarStub) -> GoogleCalendarClient {
+        let tokens = TokenStub::start(3600).await;
+        GoogleCalendarClient::with_base_url(
+            Client::new(),
+            TokenManager::new(Client::new(), stub_credentials(&tokens.url)),
+            &calendar.base_url,
+        )
+    }
+
+    fn event(title: &str) -> GoogleEvent {
+        use crate::core::calendar::EventDateTime;
+        GoogleEvent {
+            id: None,
+            summary: title.to_string(),
+            description: None,
+            location: None,
+            color_id: None,
+            start: EventDateTime {
+                date_time: "2026-08-28T09:00:00+00:00".to_string(),
+                time_zone: "Europe/Brussels".to_string(),
+            },
+            end: EventDateTime {
+                date_time: "2026-08-28T10:00:00+00:00".to_string(),
+                time_zone: "Europe/Brussels".to_string(),
+            },
+            extended_properties: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_transient_failure_is_retried_and_the_event_still_lands() {
+        // M3's acceptance criterion, written when the feature was
+        // frozen and never built until now: "simulate a 429/503
+        // followed by success; the event still lands."
+        let calendar = CalendarStub::start().await;
+        calendar.fail_next(2);
+        let client = stubbed(&calendar).await;
+
+        let created = client
+            .create_event("household", &event("dentist"))
+            .await
+            .expect("two 503s in a row must not lose the event");
+
+        assert!(!created.id.unwrap_or_default().is_empty());
+        assert_eq!(
+            calendar.state.request_count().await,
+            3,
+            "two failures and the successful third attempt"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_permanent_failure_is_not_retried() {
+        // The other half of the classification: hammering a 403 that
+        // says "this service account cannot access this calendar"
+        // would burn the retry window on something that will never
+        // succeed, and delay every other pending entry behind it.
+        let calendar = CalendarStub::start().await;
+        calendar.reject_next(99);
+        let client = stubbed(&calendar).await;
+
+        let error = client
+            .create_event("household", &event("dentist"))
+            .await
+            .unwrap_err();
+
+        assert!(!error.is_transient());
+        assert_eq!(
+            calendar.state.request_count().await,
+            1,
+            "a permanent rejection must be attempted exactly once"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_transient_failure_on_the_lookup_is_retried_too() {
+        // The upsert path reads before it writes; a 503 on the read
+        // must not surface as a failed delivery.
+        let calendar = CalendarStub::start().await;
+        calendar.fail_next(1);
+        let client = stubbed(&calendar).await;
+
+        let found = client
+            .find_event_by_property("household", "almanac_source_id", "home-assistant:42")
+            .await
+            .expect("a transient failure on the lookup must be ridden out");
+
+        assert!(found.is_none());
+        assert_eq!(calendar.state.request_count().await, 2);
     }
 }

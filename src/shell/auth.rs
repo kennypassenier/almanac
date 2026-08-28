@@ -197,7 +197,7 @@ impl TokenManager {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A throwaway RSA key, generated locally purely for this test
@@ -205,7 +205,7 @@ mod tests {
     /// not a real credential. Needed only so `jsonwebtoken::encode`
     /// succeeds and a test can reach the network layer; tests that
     /// only need *some* failure keep using an invalid string instead.
-    const TEST_ONLY_THROWAWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----
+    pub(crate) const TEST_ONLY_THROWAWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCzEluLXIZ/BS/L
 w29MNxikrQDpi6rp68cJ+hbiaSHdBRWx3fJqnzlxhl4PtVKyef7zVa9WcvhgOzSi
 ZzCwEUprF8vAVMbFQOhPK1xSh3YuxpH9RoFceuoPk1B6j1SuJqkX65e5KaeI4kby
@@ -295,5 +295,98 @@ Mv4b6oszn6H7ZA5VPrqSeE8=
             err.is_transient(),
             "a network-level failure reaching the token endpoint must be classified transient"
         );
+    }
+
+    #[tokio::test]
+    async fn a_successful_refresh_is_stored_and_the_next_call_reuses_it() {
+        // K4's whole point. The three tests that existed proved a
+        // refresh was *attempted*; none proved one could succeed, so a
+        // regression in storing or reading back the new token would
+        // reproduce the original "dies after an hour" defect with CI
+        // fully green.
+        let stub = crate::shell::testing::TokenStub::start(3600).await;
+        let manager = TokenManager::new(
+            Client::new(),
+            crate::shell::testing::stub_credentials(&stub.url),
+        );
+
+        let first = manager.token().await.unwrap();
+        assert_eq!(first, "stub-token-0");
+        assert_eq!(stub.state.hits(), 1);
+
+        let second = manager.token().await.unwrap();
+        assert_eq!(second, first, "a valid token must be reused, not refetched");
+        assert_eq!(stub.state.hits(), 1, "no second request to Google");
+    }
+
+    #[tokio::test]
+    async fn a_token_inside_the_refresh_margin_is_replaced_by_the_new_one() {
+        // expires_in = 0 means every check falls inside the 5-minute
+        // refresh margin, so this exercises the refresh path itself —
+        // and asserts the caller gets the *new* token back, not the
+        // stale one it was holding.
+        let stub = crate::shell::testing::TokenStub::start(0).await;
+        let manager = TokenManager::new(
+            Client::new(),
+            crate::shell::testing::stub_credentials(&stub.url),
+        );
+
+        let first = manager.token().await.unwrap();
+        let second = manager.token().await.unwrap();
+
+        assert_eq!(first, "stub-token-0");
+        assert_eq!(
+            second, "stub-token-1",
+            "an expired token must be replaced, and the fresh one returned"
+        );
+        assert_eq!(stub.state.hits(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn twenty_concurrent_callers_share_one_refresh() {
+        // AR18. Without the single-flight lock, a burst of deliveries
+        // after a restart each fetch their own token — twenty requests
+        // to Google for one credential, which is both wasteful and a
+        // good way to get rate limited at exactly the wrong moment.
+        let stub = crate::shell::testing::TokenStub::start(3600).await;
+        let manager = TokenManager::new(
+            Client::new(),
+            crate::shell::testing::stub_credentials(&stub.url),
+        );
+
+        let mut handles = Vec::new();
+        for _ in 0..20 {
+            let manager = Arc::clone(&manager);
+            handles.push(tokio::spawn(async move { manager.token().await }));
+        }
+
+        let mut tokens = Vec::new();
+        for handle in handles {
+            tokens.push(handle.await.unwrap().unwrap());
+        }
+
+        assert_eq!(
+            stub.state.hits(),
+            1,
+            "twenty callers must share one refresh, not start twenty"
+        );
+        assert!(
+            tokens.iter().all(|t| t == "stub-token-0"),
+            "and they must all end up with the same token"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_first_call_on_a_cold_manager_fetches_rather_than_failing() {
+        // The None state: nothing cached yet, which is every process
+        // start and therefore every reboot.
+        let stub = crate::shell::testing::TokenStub::start(3600).await;
+        let manager = TokenManager::new(
+            Client::new(),
+            crate::shell::testing::stub_credentials(&stub.url),
+        );
+
+        assert_eq!(manager.token().await.unwrap(), "stub-token-0");
+        assert_eq!(stub.state.hits(), 1);
     }
 }

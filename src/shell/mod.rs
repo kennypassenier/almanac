@@ -18,6 +18,8 @@ pub mod ingest;
 pub mod journal;
 pub mod notify;
 pub mod profiles;
+#[cfg(test)]
+pub mod testing;
 pub mod token_store;
 pub mod update;
 pub mod worker;
