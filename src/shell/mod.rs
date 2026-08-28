@@ -10,6 +10,7 @@
 
 pub mod auth;
 pub mod calendar_client;
+pub mod profiles;
 
 use axum::Router;
 

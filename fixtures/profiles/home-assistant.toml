@@ -1,0 +1,17 @@
+# AR15 regression fixture — pinned mapping-profile format. Changing
+# this file's shape is a breaking change to every deployed profile;
+# tests/mapping_regression.rs fails loudly if the resulting event
+# stops matching fixtures/expected/home-assistant_sample_event.json.
+
+schema_version = 1
+source_id = "home-assistant"
+target_calendar_id = "primary"
+token_hash = "0000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+[mapping]
+title_field = "title"
+description_field = "description"
+external_id_field = "entity_id"
+start_field = "start"
+duration_minutes = 60
+timezone = "UTC"

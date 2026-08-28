@@ -1,0 +1,9 @@
+{
+  "summary": "Wasmachine klaar",
+  "description": "Cyclus voltooid",
+  "start": { "dateTime": "2026-08-28T09:00:00+00:00", "timeZone": "UTC" },
+  "end": { "dateTime": "2026-08-28T10:00:00+00:00", "timeZone": "UTC" },
+  "extendedProperties": {
+    "private": { "almanac_source_id": "home-assistant:switch.wasmachine" }
+  }
+}

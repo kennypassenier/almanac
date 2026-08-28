@@ -11,7 +11,7 @@
 pub mod auth;
 pub mod calendar;
 pub mod error;
+pub mod mapping;
+pub mod profile;
 pub mod retry;
-
-// Mapping-profile transformation and upsert-decision logic lands
-// starting with milestone L2.
+pub mod upsert;

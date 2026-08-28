@@ -47,6 +47,9 @@ jsonwebtoken = { version = "10", default-features = false, features = [
 # L1: RFC3339 timestamps for JWT iat/exp claims and event start/end.
 chrono = { version = "0.4", features = ["serde"] }
 
+# L2 (AR7): mapping-profile file format.
+toml = "0.9"
+
 # L1 (M3/AR9): exponential backoff for transient Google API failures —
 # jitter, max-tries and transient-vs-permanent handling are exactly
 # what this crate exists for; AR11 judged hand-rolling it a net loss.
