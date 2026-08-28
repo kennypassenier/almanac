@@ -38,13 +38,24 @@ cp "$binary" "$outdir/almanac"
 # small and lets a future release carry several files.
 (cd "$outdir" && sha256sum almanac > SHA256SUMS)
 
+# How a running Almanac discovers that a newer version exists: it
+# fetches this one asset from GitHub's "latest release" URL. Deliberately
+# a plain file rather than the GitHub API — no token, no rate limit, and
+# nothing to parse that an attacker could confuse.
+echo "$version" > "$outdir/VERSION"
+
 echo
 echo "Signing $outdir/SHA256SUMS — minisign will ask for your key's password."
 minisign -Sm "$outdir/SHA256SUMS"
 
 echo
-echo "Signed. Upload these three to the GitHub release for v$version:"
+echo "Signed. Attach all four to the GitHub release for v$version:"
 ls -1 "$outdir"
+echo
+echo "  gh release create v$version $outdir/* --title v$version --generate-notes"
+echo
+echo "Until VERSION is attached to the *latest* release, no running"
+echo "instance will see this version at all."
 echo
 echo "The public key baked into the binary must match ~/.minisign/minisign.pub."
 echo "If you ever regenerate the key, update RELEASE_PUBKEY in"

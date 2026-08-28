@@ -38,6 +38,18 @@ WorkingDirectory=/opt/almanac
 # the project key opens only Almanac's five values. If this LXC ever
 # leaks, the blast radius is one project instead of everything.
 EnvironmentFile=/etc/almanac/latch.env
+
+# Where releases are published and where operational events go. Both
+# are addresses rather than secrets, so they live here instead of in
+# Latch. Leaving ALMANAC_UPDATE_URL out is a supported configuration:
+# self-update simply stays off and versions are installed by hand.
+Environment=ALMANAC_UPDATE_URL=https://github.com/kennypassenier/almanac/releases
+Environment=ALMANAC_NOTIFY_WEBHOOK=http://10.10.10.2:8123/api/webhook/homelab-ops-c4d81f26
+Environment=ALMANAC_PROFILES_DIR=/opt/almanac/profiles
+Environment=ALMANAC_DATA_DIR=/opt/almanac/data
+Environment=ALMANAC_JOURNAL=/opt/almanac/data/journal.jsonl
+Environment=ALMANAC_TOKEN_STORE=/opt/almanac/data/tokens.json
+
 ExecStart=/usr/local/bin/latch run -- /opt/almanac/almanac
 
 # No start limit (AR21). A power cut can start Almanac before DNS is
@@ -54,12 +66,17 @@ StartLimitIntervalSec=0
 KillSignal=SIGTERM
 TimeoutStopSec=60
 
-# The service needs its data directory and nothing else.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/almanac/data
+
+# The whole install directory, not just data/ — M10's self-update
+# writes the new binary next to the running one and keeps the replaced
+# one beside it for AR23's revert. With only data/ writable the update
+# would verify, download, and then fail at the swap on every single
+# check, forever.
+ReadWritePaths=/opt/almanac
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

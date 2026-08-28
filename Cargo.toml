@@ -76,6 +76,12 @@ chacha20poly1305 = { version = "0.11", default-features = false, features = [
 ] }
 hex = "0.4"
 libc = "0.2.189"
+# L5 (M10/AR19): verifies the minisign signature over a release
+# manifest. By the minisign author, ~400 lines, verification only — no
+# key handling, no signing. Hand-rolling Ed25519 signature parsing for
+# the one check standing between an unattended updater and a
+# compromised release host is exactly the trade AR11 says not to make.
+minisign-verify = "0.2.5"
 
 # L3: drive the Axum router directly in tests, so the ingest surface
 # (auth, status codes, journalling) is exercised as real HTTP without

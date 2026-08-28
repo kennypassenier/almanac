@@ -124,11 +124,28 @@ found four blocking and seven serious objections. Kenny's decisions:
 | AR25 | **Sessions, captures and routes are in memory, so every update logs Kenny out** — sharpest for M11, which is used precisely while reverse-engineering an unknown webhook. | **Sessions move into the encrypted store** so they survive updates and restarts while logout stays a real server-side revocation. Self-update is suppressed while captures are still retained. |
 | AR26 | **A long Google outage degrades badly unattended.** The worker never compacts during an outage while re-reading and re-attempting the whole journal every 5s, and hitting the size cap turns into lost events once HA's retry script gives up. | **Back off as failure persists**, and warn through the notification system well before the hard cap — intervene before loss, not after. |
 
-Deferred: the critic's objection about Latch on a headless LXC (an
+### The deferred Latch objection, decided (2026-08-28)
+
+The critic's remaining objection was about Latch on a headless LXC: an
 unattended restart needs the credential that opens the store to live on
-the machine, which vzdump then backs up beside the values it protects).
-Kenny is evaluating that with the Latch project before deciding, since
-the gap is on Latch's side of the contract rather than Almanac's.
+the machine, which vzdump then backs up beside the values it protects.
+Kenny took it to the Latch project and came back with four decisions.
+
+| ID | Question | Decision |
+|---|---|---|
+| L1 | Which credential goes on the LXC — the passphrase or the per-project key? | **The project key** (`LATCH_KEY_ALMANAC`). The passphrase opens every project's secrets and the GitHub token; the project key opens Almanac's five values and nothing else. A leaked LXC then costs one project rather than everything. |
+| L2 | Exclude that key from vzdump, or accept that the backup contains it? | **Include it.** The backup is then as sensitive as the secrets and is treated that way. Excluding it would produce a restore that stops halfway for manual work — precisely what nobody wants during a real outage. |
+| L3 | Almanac accepted a key that does not open the store and only failed later, as a 401 on every source. | **Repair it.** Latch fails loudly on a wrong key; Almanac did not. `TokenStore::verify_key_opens_store()` now proves at startup that the configured key opens the store, so a wrong key is a refusal to start instead of a service that looks healthy and rejects everyone. |
+| L4 | Earlier documents in this repo called losing the key catastrophic — every token re-issued. | **Correct them.** Latch keeps all credentials in one passphrase-encrypted escrow file held offline, so recovery is `latch key restore` or a `latch clone` from Kenny's desktop. The backup section of REALIZATION_PLAN.md and the runbook now say so. |
+
+### Decisions taken while building L5 (2026-08-28)
+
+| ID | Question | Decision |
+|---|---|---|
+| AR27 | AR23, AR24 and AR26 all require a notification, and Almanac has no notification channel. | **Reuse Home Assistant's homelab-ops webhook** rather than build a second channel. It already archives every event to `/media/homelab_events.log`, mirrors it to the Homelab dashboard tab, and pushes *only failures*, and only when `input_boolean.homelab_event_notifications` is on — so Almanac's events inherit Do Not Disturb, the active-hours schedule and the acknowledgement bus for free. The payload shape (`op`/`ok`/`version`/`error`) is the one that automation already parses, and `op` doubles as the deduplication key, so a repeated failure collapses to one line instead of stacking. Consequence accepted: the webhook id is the only authentication and it is `local_only`, so nothing sensitive is ever sent through it. |
+| AR28 | Where do releases live for the updater to find? | **GitHub Releases**, because the repository is already there and it means no extra host to keep alive. Discovery is one plain asset — `latest/download/VERSION` — rather than the GitHub API: no token, no rate limit, and nothing to parse that an attacker could confuse. The updater is not otherwise GitHub-specific; any host serving `latest/download/VERSION` and `download/v<version>/<file>` works, which is exactly what the E2E test does. |
+| AR29 | The `--check` probe has to decide what "can this version start here?" means. | **Everything that can differ between two versions on one machine, and no network.** It loads profiles, checks the secrets Latch injects, and proves the key opens the token store — then exits. It deliberately does not call Google, so the answer is about this build and this configuration rather than about whether Google happens to be reachable in that second. It also takes neither the port nor the data-directory lock, both of which the running process still holds. |
+| AR30 | How does the process get from "new binary installed" to "running the new binary"? | **Raise SIGTERM on itself and let the supervisor restart it.** That reuses M2's graceful drain exactly as `systemctl restart` would, instead of adding a second shutdown path that would have to be kept correct in parallel. It also means a failure to restart looks like any other stopped unit, which is already monitored. |
 
 Also accepted without needing a decision: the version number has no
 single source (the binary says 0.1.0, the only tag is v0.0.1, and

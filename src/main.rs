@@ -17,7 +17,9 @@ use almanac::shell::calendar_client::GoogleCalendarClient;
 use almanac::shell::datadir::DataDirLock;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::notify::Notifier;
 use almanac::shell::token_store::TokenStore;
+use almanac::shell::update::{self, Startup, Updater};
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
 
@@ -25,6 +27,13 @@ const DEFAULT_PROFILES_DIR: &str = "profiles";
 const DEFAULT_JOURNAL_PATH: &str = "data/journal.jsonl";
 const DEFAULT_TOKEN_STORE: &str = "data/tokens.json";
 const DEFAULT_DATA_DIR: &str = "data";
+
+/// How long a freshly-installed version has to stay up before the
+/// update is confirmed and the previous binary stops being a fallback
+/// (AR23). Long enough to cover a panic on the first request or a
+/// worker that dies on its first drain; short enough that an ordinary
+/// update is settled within a minute.
+const HEALTH_CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Backoff between startup authentication attempts, in seconds; the
 /// last value repeats. Never gives up: a wedged unit that nobody
@@ -37,6 +46,55 @@ fn die(e: impl std::fmt::Display) -> ! {
     std::process::exit(1);
 }
 
+fn profiles_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var("ALMANAC_PROFILES_DIR").unwrap_or_else(|_| DEFAULT_PROFILES_DIR.to_string()),
+    )
+}
+
+fn data_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var("ALMANAC_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()),
+    )
+}
+
+fn token_store_path() -> PathBuf {
+    PathBuf::from(
+        std::env::var("ALMANAC_TOKEN_STORE").unwrap_or_else(|_| DEFAULT_TOKEN_STORE.to_string()),
+    )
+}
+
+/// `--check` (AR22): prove this binary can start on this machine, then
+/// exit, without claiming the port or the data-directory lock that the
+/// running process still holds.
+///
+/// It deliberately checks everything that can differ between versions
+/// on one machine — profiles, the secrets Latch injects, the key that
+/// opens the token store — and deliberately touches no network, so the
+/// answer is about this build and this configuration rather than about
+/// whether Google happens to be reachable this second.
+async fn check_mode() -> ! {
+    let version = env!("CARGO_PKG_VERSION");
+
+    if let Err(e) = shell::profiles::load_all(&profiles_dir()) {
+        die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
+    }
+    if let Err(e) = load_credentials() {
+        die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
+    }
+    match TokenStore::load(token_store_path()) {
+        Ok(store) => {
+            if let Err(e) = store.verify_key_opens_store().await {
+                die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
+            }
+        }
+        Err(e) => die(format!("--check failed: {e}\n  remedy: {}", e.remedy())),
+    }
+
+    println!("almanac {version} --check: ok");
+    std::process::exit(0);
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -45,11 +103,48 @@ async fn main() {
         )
         .init();
 
+    if std::env::args().any(|arg| arg == update::CHECK_ARG) {
+        check_mode().await;
+    }
+
+    let data_dir = data_dir();
+
+    // AR22: take the data-directory lock before anything reads or
+    // writes the journal, and before the startup work that can take
+    // minutes — a self-update handover must not run two workers over
+    // one journal, and the second process should say so at once
+    // rather than after retrying Google for five minutes.
+    let _data_lock = match DataDirLock::acquire(&data_dir) {
+        Ok(lock) => lock,
+        Err(e) => die(e),
+    };
+
+    let http = reqwest::Client::new();
+    let notifier = Notifier::from_env(http.clone());
+
+    // AR23: settle a pending self-update before doing anything else.
+    // This start counts as the new version's attempt, and it is
+    // recorded now rather than later, so a version that dies in the
+    // next few lines is still reverted on the following start.
+    match update::handle_pending_update(
+        &data_dir,
+        &std::env::current_exe().unwrap_or_else(|_| PathBuf::from("almanac")),
+        &notifier,
+    )
+    .await
+    {
+        Startup::Reverted => {
+            tracing::error!(
+                "the previous binary is back in place; exiting so the supervisor starts it"
+            );
+            std::process::exit(0);
+        }
+        Startup::OnProbation | Startup::Continue => {}
+    }
+
     // Profiles first: a typo in a profile should stop the process
     // before it has authenticated against anything (M4).
-    let profiles_dir = PathBuf::from(
-        std::env::var("ALMANAC_PROFILES_DIR").unwrap_or_else(|_| DEFAULT_PROFILES_DIR.to_string()),
-    );
+    let profiles_dir = profiles_dir();
     let profiles = match shell::profiles::load_all(&profiles_dir) {
         Ok(profiles) => profiles,
         Err(e) => die(e),
@@ -76,7 +171,6 @@ async fn main() {
         Err(e) => die(e),
     };
 
-    let http = reqwest::Client::new();
     let tokens = TokenManager::new(http.clone(), credentials);
 
     // AR21: distinguish a broken key from an unreachable Google. A
@@ -124,23 +218,10 @@ async fn main() {
         }
     };
 
-    // AR22: take the data-directory lock before anything reads or
-    // writes the journal, so a self-update handover cannot run two
-    // workers over one journal.
-    let data_dir = PathBuf::from(
-        std::env::var("ALMANAC_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()),
-    );
-    let _data_lock = match DataDirLock::acquire(&data_dir) {
-        Ok(lock) => lock,
-        Err(e) => die(e),
-    };
-
     // The encrypted token store is the only authority on who may post
     // (AR17 as amended). It refuses to load without its key rather than
     // falling back to something unencrypted.
-    let token_store = match TokenStore::load(PathBuf::from(
-        std::env::var("ALMANAC_TOKEN_STORE").unwrap_or_else(|_| DEFAULT_TOKEN_STORE.to_string()),
-    )) {
+    let token_store = match TokenStore::load(token_store_path()) {
         Ok(store) => store,
         Err(e) => die(e),
     };
@@ -155,7 +236,7 @@ async fn main() {
     let state = Arc::new(AppState::new(
         profiles,
         Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
-        GoogleCalendarClient::new(http, tokens),
+        GoogleCalendarClient::new(http.clone(), tokens),
         bootstrap_token_hash,
         token_store,
     ));
@@ -175,7 +256,11 @@ async fn main() {
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let worker = tokio::spawn(shell::worker::run(Arc::clone(&state), shutdown_rx));
+    let worker = tokio::spawn(shell::worker::run(
+        Arc::clone(&state),
+        shutdown_rx.clone(),
+        notifier.clone(),
+    ));
 
     let listener = match tokio::net::TcpListener::bind(BIND_ADDRESS).await {
         Ok(listener) => listener,
@@ -184,6 +269,28 @@ async fn main() {
         )),
     };
     tracing::info!(address = BIND_ADDRESS, "almanac listening");
+
+    // AR23: the listener is up, so a freshly-installed version has
+    // done the one thing a broken one cannot. Confirm it after a
+    // settling period rather than immediately, so a version that binds
+    // and then panics on its first request is still reverted.
+    let confirm_dir = data_dir.clone();
+    let confirm_notifier = notifier.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(HEALTH_CONFIRM_DELAY).await;
+        update::confirm_healthy(&confirm_dir, &confirm_notifier).await;
+    });
+
+    // M10: check for new releases in the background. Configuration
+    // decides whether this does anything at all — no URL, no compiled
+    // release key, or ALMANAC_SELF_UPDATE=off and it never runs.
+    if let Some(updater) = Updater::from_env(http, notifier.clone(), data_dir.clone()) {
+        tokio::spawn(shell::update::run(
+            updater,
+            Arc::clone(&state),
+            shutdown_rx.clone(),
+        ));
+    }
 
     let router = shell::build_router(state);
     let server = axum::serve(listener, router).with_graceful_shutdown(shutdown_signal());

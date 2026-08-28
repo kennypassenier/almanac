@@ -20,6 +20,7 @@ use tokio::sync::RwLock;
 
 use crate::core::error::AlmanacError;
 use crate::core::secrets::{KEY_BYTES, open, parse_key, seal};
+use crate::shell::durability::fsync_parent_dir;
 
 /// Environment variable holding the hex encryption key. Mandatory
 /// whenever the bootstrap token is set (AR17): deriving this key from
@@ -326,29 +327,6 @@ fn read_store_file(path: &Path) -> Result<StoreContents, AlmanacError> {
             message: format!("failed to read the token store {}: {e}", path.display()),
             remedy: format!("check permissions on {}", path.display()),
         }),
-    }
-}
-
-/// Best-effort fsync of a file's parent directory, so an atomic
-/// rename survives a real power cut. Failure is logged, not fatal:
-/// the data is already written, and refusing to continue over an
-/// unsynced directory entry would be worse than the risk.
-fn fsync_parent_dir(path: &Path) {
-    let Some(parent) = path.parent() else { return };
-    let dir = if parent.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        parent
-    };
-    match File::open(dir) {
-        Ok(handle) => {
-            if let Err(e) = handle.sync_all() {
-                tracing::warn!(dir = %dir.display(), error = %e, "could not fsync the directory");
-            }
-        }
-        Err(e) => {
-            tracing::warn!(dir = %dir.display(), error = %e, "could not open the directory to fsync it")
-        }
     }
 }
 

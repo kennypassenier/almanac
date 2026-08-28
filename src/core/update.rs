@@ -6,6 +6,8 @@
 //! touching the network — which is where the security-relevant
 //! mistakes are.
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::error::AlmanacError;
 
 /// A semantic version, compared numerically. Comparing version strings
@@ -105,9 +107,84 @@ pub fn hash_matches(expected: &str, actual: &str) -> bool {
     crate::core::token::constant_time_eq(&expected.to_lowercase(), &actual.to_lowercase())
 }
 
+/// How many starts a freshly-installed version gets to prove itself
+/// before the previous binary is put back (AR23).
+///
+/// Two, not one: the start that applies the update is followed by
+/// exactly one start of the new binary, so a second start of the same
+/// pending update means that one did not reach healthy. Three would
+/// mean a crash-looping version keeps the service down longer for no
+/// extra information.
+pub const MAX_START_ATTEMPTS: u32 = 2;
+
+/// What a self-update left behind for the next start to find.
+///
+/// Written before the restart and cleared once the new version has
+/// proved itself, so this file existing at startup is exactly the
+/// statement "an update is on probation" (AR23).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateState {
+    pub from_version: String,
+    pub to_version: String,
+    /// Where the binary that was replaced was kept, so a revert is a
+    /// rename rather than another download from a host that may be
+    /// exactly what went wrong.
+    pub previous_binary: String,
+    /// How many times a process has started while this update was
+    /// still unproven. Defaulted so a hand-written state file (a
+    /// manual recovery, most likely) is still understood.
+    #[serde(default)]
+    pub attempts: u32,
+}
+
+/// What to do about a pending update at startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartAction {
+    /// No update is pending; start normally.
+    Normal,
+    /// A freshly-installed version is starting for the first time.
+    /// Persist the returned state, start normally, and clear it once
+    /// the service is actually serving.
+    Probation(UpdateState),
+    /// The new version has now failed to prove itself. Put the
+    /// previous binary back, notify, and exit so the supervisor starts
+    /// the restored one.
+    Revert(UpdateState),
+}
+
+/// Decides what a starting process should do about a pending update,
+/// counting this start as an attempt.
+///
+/// Deliberately pure: the interesting mistakes here — reverting on the
+/// very start that is meant to succeed, or never reverting because the
+/// counter is written after the crash instead of before — are logic
+/// errors, and this way they are provable without a real crash loop.
+pub fn decide_at_startup(state: Option<UpdateState>) -> StartAction {
+    let Some(mut state) = state else {
+        return StartAction::Normal;
+    };
+
+    state.attempts = state.attempts.saturating_add(1);
+
+    if state.attempts >= MAX_START_ATTEMPTS {
+        StartAction::Revert(state)
+    } else {
+        StartAction::Probation(state)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pending(attempts: u32) -> UpdateState {
+        UpdateState {
+            from_version: "0.1.0".to_string(),
+            to_version: "0.2.0".to_string(),
+            previous_binary: "/opt/almanac/almanac.prev".to_string(),
+            attempts,
+        }
+    }
 
     fn v(major: u64, minor: u64, patch: u64) -> Version {
         Version {
@@ -192,5 +269,66 @@ def456  something-else
         assert!(hash_matches("abc123", "abc123"));
         assert!(!hash_matches("abc123", "abc124"));
         assert!(!hash_matches("abc123", "abc12"));
+    }
+
+    #[test]
+    fn an_ordinary_start_with_nothing_pending_is_left_alone() {
+        assert_eq!(decide_at_startup(None), StartAction::Normal);
+    }
+
+    #[test]
+    fn the_first_start_after_an_update_runs_on_probation_not_reverted() {
+        // Reverting here would undo every update the moment it was
+        // installed — the new version has not had a chance to fail yet.
+        match decide_at_startup(Some(pending(0))) {
+            StartAction::Probation(state) => assert_eq!(state.attempts, 1),
+            other => panic!("expected probation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_second_start_with_the_update_still_unproven_reverts() {
+        // The first start never cleared the state, so it never became
+        // healthy: the new binary is broken in a way `--check` did not
+        // catch.
+        match decide_at_startup(Some(pending(1))) {
+            StartAction::Revert(state) => {
+                assert_eq!(state.attempts, 2);
+                assert_eq!(state.previous_binary, "/opt/almanac/almanac.prev");
+            }
+            other => panic!("expected a revert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_state_file_that_somehow_survived_more_starts_still_reverts() {
+        // Rather than counting past the threshold and doing nothing.
+        assert!(matches!(
+            decide_at_startup(Some(pending(7))),
+            StartAction::Revert(_)
+        ));
+        assert!(matches!(
+            decide_at_startup(Some(pending(u32::MAX))),
+            StartAction::Revert(_)
+        ));
+    }
+
+    #[test]
+    fn the_attempt_count_is_optional_so_a_hand_written_state_file_still_parses() {
+        // Manual recovery is a documented path; a missing counter
+        // must not make the file unreadable at the worst moment.
+        let state: UpdateState = serde_json::from_str(
+            r#"{"from_version":"0.1.0","to_version":"0.2.0",
+                "previous_binary":"/opt/almanac/almanac.prev"}"#,
+        )
+        .unwrap();
+        assert_eq!(state.attempts, 0);
+    }
+
+    #[test]
+    fn the_state_file_round_trips() {
+        let state = pending(1);
+        let text = serde_json::to_string(&state).unwrap();
+        assert_eq!(serde_json::from_str::<UpdateState>(&text).unwrap(), state);
     }
 }

@@ -16,6 +16,7 @@ use tokio::sync::watch;
 
 use crate::core::observability::{RouteOutcome, RouteRecord};
 use crate::shell::ingest::AppState;
+use crate::shell::notify::{Event, Notifier, ops};
 
 /// How often to look for work the asynchronous ingest path accepted
 /// while deliveries are succeeding.
@@ -157,13 +158,17 @@ pub async fn drain_once_detailed(state: &AppState) -> DrainOutcome {
 
 /// Warns when the journal is filling up, so the operator can act
 /// before ingest starts refusing events (AR26).
-async fn warn_if_journal_filling(state: &AppState) {
+///
+/// Returns whether the threshold is crossed, so the caller can notify
+/// once instead of on every backoff cycle — an alert that repeats
+/// every fifteen seconds through an outage is an alert nobody reads.
+async fn warn_if_journal_filling(state: &AppState) -> bool {
     let Ok(size) = std::fs::metadata(state.journal.path()).map(|m| m.len()) else {
-        return;
+        return false;
     };
     let cap = state.journal.max_bytes();
     if (size as f64) < cap as f64 * JOURNAL_WARN_FRACTION {
-        return;
+        return false;
     }
     tracing::warn!(
         bytes = size,
@@ -171,12 +176,13 @@ async fn warn_if_journal_filling(state: &AppState) {
         "the journal is over half its cap — deliveries have been failing long enough to build a \
          backlog; check the delivery errors before it fills and ingest starts refusing events"
     );
+    true
 }
 
 /// Runs the loop until `shutdown` flips. On exit it drains once more,
 /// so a graceful stop (M2) hands over a journal with as little
 /// outstanding work as possible.
-pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>) {
+pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, notifier: Notifier) {
     // Startup replay: whatever a crash or power cut left behind goes
     // out before anything new is accepted for delivery.
     let replayed = drain_once(&state).await;
@@ -186,6 +192,10 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>) {
 
     let mut since_compaction = replayed;
     let mut consecutive_failures = 0usize;
+    // AR26: the backlog warning goes out once per outage, not once per
+    // pass. Reset when deliveries recover, so a second outage is
+    // reported again.
+    let mut backlog_reported = false;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
 
     loop {
@@ -200,7 +210,22 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>) {
                     let wait = FAILURE_BACKOFF_SECS
                         [consecutive_failures.min(FAILURE_BACKOFF_SECS.len() - 1)];
                     consecutive_failures += 1;
-                    warn_if_journal_filling(&state).await;
+                    if warn_if_journal_filling(&state).await && !backlog_reported {
+                        backlog_reported = true;
+                        notifier
+                            .send(Event {
+                                op: ops::JOURNAL_BACKLOG,
+                                ok: false,
+                                version: env!("CARGO_PKG_VERSION").to_string(),
+                                error: Some(
+                                    "deliveries keep failing and the journal is over half its \
+                                     cap; once it fills, ingest starts refusing events and the \
+                                     sources' own retries will eventually give up"
+                                        .to_string(),
+                                ),
+                            })
+                            .await;
+                    }
                     tracing::warn!(
                         consecutive_failures,
                         wait_seconds = wait,
@@ -211,6 +236,7 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>) {
                 } else if consecutive_failures > 0 {
                     tracing::info!("deliveries recovered; returning to the normal poll interval");
                     consecutive_failures = 0;
+                    backlog_reported = false;
                     ticker = tokio::time::interval(POLL_INTERVAL);
                     ticker.tick().await;
                 }
@@ -285,7 +311,7 @@ mod tests {
         let (state, dir) = state_with_empty_journal();
         let (tx, rx) = watch::channel(false);
 
-        let worker = tokio::spawn(run(state, rx));
+        let worker = tokio::spawn(run(state, rx, crate::shell::notify::Notifier::disabled()));
         tx.send(true).unwrap();
 
         let result = tokio::time::timeout(Duration::from_secs(5), worker).await;

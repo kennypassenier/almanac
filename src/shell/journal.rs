@@ -241,6 +241,10 @@ impl Journal {
             ),
             remedy: "check permissions on the journal directory".to_string(),
         })?;
+        // The rename lives in the directory, not in the file: without
+        // this a power cut can bring back a directory entry pointing
+        // at the pre-compaction file, replaying delivered entries.
+        crate::shell::durability::fsync_parent_dir(&self.path);
 
         Ok(pending.len())
     }
