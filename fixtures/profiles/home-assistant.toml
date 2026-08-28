@@ -6,7 +6,6 @@
 schema_version = 1
 source_id = "home-assistant"
 target_calendar_id = "primary"
-token_hash = "0000000000000000000000000000000000000000000000000000000000000000000000000000"
 
 [mapping]
 title_field = "title"

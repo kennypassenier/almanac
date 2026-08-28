@@ -135,7 +135,6 @@ mod tests {
 schema_version = 1
 source_id = "home-assistant"
 target_calendar_id = "primary"
-token_hash = "deadbeef"
 
 [mapping]
 title_field = "title"
@@ -215,7 +214,6 @@ duration_minutes = 60
 schema_version = 1
 source_id = "uptime-kuma"
 target_calendar_id = "infra"
-token_hash = "deadbeef"
 
 [mapping]
 title_field = "monitor.name"
@@ -253,7 +251,6 @@ duration_minutes = 15
 schema_version = 1
 source_id = "claude-session"
 target_calendar_id = "primary"
-token_hash = "deadbeef"
 
 [mapping]
 title_field = "title"

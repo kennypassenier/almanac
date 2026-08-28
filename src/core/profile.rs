@@ -62,11 +62,6 @@ pub struct Profile {
     /// renaming either never silently orphans already-created events.
     pub source_id: String,
     pub target_calendar_id: String,
-    /// SHA-256 hex hash of this source's bearer token (AR17); the
-    /// plaintext token is never stored here. Unused until L3 wires the
-    /// ingest HTTP layer, but part of the schema from the start so it
-    /// doesn't need to change shape later.
-    pub token_hash: String,
     pub mapping: FieldMapping,
 }
 
@@ -165,7 +160,6 @@ mod tests {
 schema_version = 1
 source_id = "home-assistant"
 target_calendar_id = "primary"
-token_hash = "deadbeef"
 
 [mapping]
 title_field = "title"

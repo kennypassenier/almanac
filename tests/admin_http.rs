@@ -18,6 +18,10 @@ use tower::ServiceExt;
 
 const ADMIN_TOKEN: &str = "bootstrap-admin-token";
 
+fn store_at(dir: &std::path::Path) -> almanac::shell::token_store::TokenStore {
+    almanac::shell::token_store::TokenStore::with_key(dir.join("tokens.json"), [5u8; 32])
+}
+
 fn scratch_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "almanac-admin-{}-{}-{name}",
@@ -31,12 +35,12 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
     dir
 }
 
-fn state(journal_path: std::path::PathBuf, admin: Option<&str>) -> Arc<AppState> {
+fn state(dir: &std::path::Path, admin: Option<&str>) -> Arc<AppState> {
+    let journal_path = dir.join("journal.jsonl");
     let toml = r#"
 schema_version = 1
 source_id = "home-assistant"
 target_calendar_id = "primary"
-token_hash = "409e0a333bd76871853626d35492d87e5226d3a0e4788bca07261ad3436b5b93"
 
 [mapping]
 title_field = "title"
@@ -65,6 +69,7 @@ duration_minutes = 60
         Journal::new(journal_path, DEFAULT_MAX_BYTES),
         GoogleCalendarClient::new(http, tokens),
         admin.map(hash_token),
+        store_at(dir),
     ))
 }
 
@@ -97,7 +102,7 @@ async fn health_answers_without_a_token() {
     // M1: a monitoring stack that fails closed lies to you during an
     // outage, so this must never require credentials.
     let dir = scratch_dir("health");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app.oneshot(get("/healthz", None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -109,7 +114,7 @@ async fn health_answers_without_a_token() {
 #[tokio::test]
 async fn health_still_answers_when_no_admin_token_is_configured() {
     let dir = scratch_dir("health-noadmin");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), None));
+    let app = almanac::shell::build_router(state(&dir, None));
 
     let response = app.oneshot(get("/healthz", None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -120,7 +125,7 @@ async fn health_still_answers_when_no_admin_token_is_configured() {
 #[tokio::test]
 async fn the_debug_status_needs_the_admin_token() {
     let dir = scratch_dir("status-auth");
-    let st = state(dir.join("j.jsonl"), Some(ADMIN_TOKEN));
+    let st = state(&dir, Some(ADMIN_TOKEN));
 
     let no_token = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(get("/v1/debug/status", None))
@@ -140,7 +145,7 @@ async fn the_debug_status_needs_the_admin_token() {
 #[tokio::test]
 async fn the_debug_status_reports_profiles_and_the_journal() {
     let dir = scratch_dir("status");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(get("/v1/debug/status", Some(ADMIN_TOKEN)))
@@ -161,7 +166,7 @@ async fn an_unconfigured_admin_surface_refuses_rather_than_opening_up() {
     // Fail-closed: a forgotten ALMANAC_BOOTSTRAP_TOKEN must not leave
     // the debug views readable by anyone on the LAN.
     let dir = scratch_dir("noadmin");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), None));
+    let app = almanac::shell::build_router(state(&dir, None));
 
     let response = app
         .oneshot(get("/v1/debug/status", Some("anything")))
@@ -186,7 +191,7 @@ async fn a_captured_request_reads_back_verbatim() {
     // If the body came back altered, the profile written from it would
     // be wrong.
     let dir = scratch_dir("capture");
-    let st = state(dir.join("j.jsonl"), Some(ADMIN_TOKEN));
+    let st = state(&dir, Some(ADMIN_TOKEN));
     let payload = r#"{"weird":{"nested":[1,2,3]},"unicode":"héllo"}"#;
 
     let posted = almanac::shell::build_router(Arc::clone(&st))
@@ -221,7 +226,7 @@ async fn a_captured_authorization_header_is_redacted() {
     // including its own credentials. Those must not become readable
     // afterwards just because someone pointed it here.
     let dir = scratch_dir("capture-redact");
-    let st = state(dir.join("j.jsonl"), Some(ADMIN_TOKEN));
+    let st = state(&dir, Some(ADMIN_TOKEN));
 
     let posted = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post("/v1/debug/capture/x", Some(ADMIN_TOKEN), "{}"))
@@ -250,7 +255,7 @@ async fn a_captured_authorization_header_is_redacted() {
 #[tokio::test]
 async fn capturing_needs_the_admin_token_too() {
     let dir = scratch_dir("capture-auth");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post("/v1/debug/capture/x", None, "{}"))
@@ -266,7 +271,7 @@ async fn dry_run_shows_the_event_without_writing_it() {
     // M9: check a profile against a real payload before letting it
     // near a calendar.
     let dir = scratch_dir("dryrun");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post(
@@ -296,7 +301,7 @@ async fn dry_run_shows_the_event_without_writing_it() {
 #[tokio::test]
 async fn dry_run_explains_a_payload_the_profile_cannot_map() {
     let dir = scratch_dir("dryrun-bad");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post(
@@ -318,7 +323,7 @@ async fn dry_run_explains_a_payload_the_profile_cannot_map() {
 #[tokio::test]
 async fn dry_run_on_an_unknown_source_says_where_to_look() {
     let dir = scratch_dir("dryrun-unknown");
-    let app = almanac::shell::build_router(state(dir.join("j.jsonl"), Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post("/v1/debug/dry-run/nope", Some(ADMIN_TOKEN), "{}"))

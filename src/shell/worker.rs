@@ -194,6 +194,7 @@ mod tests {
             Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
             GoogleCalendarClient::new(http, tokens),
             None,
+            crate::shell::token_store::TokenStore::with_key(dir.join("tokens.json"), [5u8; 32]),
         ));
 
         (state, dir)

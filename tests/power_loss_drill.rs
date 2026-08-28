@@ -48,7 +48,6 @@ fn profile_for(calendar_id: &str) -> Profile {
 schema_version = 1
 source_id = "drill-source"
 target_calendar_id = "{calendar_id}"
-token_hash = "409e0a333bd76871853626d35492d87e5226d3a0e4788bca07261ad3436b5b93"
 
 [mapping]
 title_field = "title"
@@ -61,6 +60,7 @@ duration_minutes = 60
 }
 
 fn state_for(calendar_id: &str, journal_path: std::path::PathBuf) -> Arc<AppState> {
+    let journal_path_dir = journal_path.parent().unwrap().to_path_buf();
     let credentials = load_credentials().expect("service-account credentials via latch run");
     let http = reqwest::Client::new();
     let tokens = TokenManager::new(http.clone(), credentials);
@@ -73,6 +73,10 @@ fn state_for(calendar_id: &str, journal_path: std::path::PathBuf) -> Arc<AppStat
         Journal::new(journal_path, DEFAULT_MAX_BYTES),
         GoogleCalendarClient::new(http, tokens),
         None,
+        almanac::shell::token_store::TokenStore::with_key(
+            journal_path_dir.join("tokens.json"),
+            [5u8; 32],
+        ),
     ))
 }
 

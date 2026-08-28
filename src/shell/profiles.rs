@@ -56,7 +56,6 @@ mod tests {
 schema_version = 1
 source_id = "{source_id}"
 target_calendar_id = "primary"
-token_hash = "deadbeef"
 
 [mapping]
 title_field = "title"

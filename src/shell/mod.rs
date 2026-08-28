@@ -10,10 +10,12 @@
 pub mod admin;
 pub mod auth;
 pub mod calendar_client;
+pub mod dashboard;
 pub mod delivery;
 pub mod ingest;
 pub mod journal;
 pub mod profiles;
+pub mod token_store;
 pub mod worker;
 
 use std::sync::Arc;
@@ -24,5 +26,8 @@ use crate::shell::ingest::AppState;
 
 /// Builds the application's Axum router.
 pub fn build_router(state: Arc<AppState>) -> Router {
-    ingest::routes().merge(admin::routes()).with_state(state)
+    ingest::routes()
+        .merge(admin::routes())
+        .merge(dashboard::routes())
+        .with_state(state)
 }

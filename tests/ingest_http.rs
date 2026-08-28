@@ -25,6 +25,10 @@ const HA_TOKEN: &str = "home-assistant-token";
 const KUMA_TOKEN: &str = "uptime-kuma-token";
 const ADMIN_TOKEN: &str = "bootstrap-admin-token";
 
+fn store_at(dir: &std::path::Path) -> almanac::shell::token_store::TokenStore {
+    almanac::shell::token_store::TokenStore::with_key(dir.join("tokens.json"), [5u8; 32])
+}
+
 fn scratch_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "almanac-http-{}-{}-{name}",
@@ -38,35 +42,37 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
     dir
 }
 
-fn profile(source_id: &str, token: &str) -> Profile {
+fn profile(source_id: &str) -> Profile {
     let toml = format!(
         r#"
 schema_version = 1
 source_id = "{source_id}"
 target_calendar_id = "primary"
-token_hash = "{}"
 
 [mapping]
 title_field = "title"
 external_id_field = "entity_id"
 start_field = "start"
 duration_minutes = 60
-"#,
-        hash_token(token)
+"#
     );
     Profile::parse(&toml, "test.toml").unwrap()
 }
 
-fn state(journal_path: std::path::PathBuf) -> Arc<AppState> {
+async fn state(dir: &std::path::Path) -> Arc<AppState> {
+    let journal_path = dir.join("journal.jsonl");
     let mut profiles = HashMap::new();
-    profiles.insert(
-        "home-assistant".to_string(),
-        profile("home-assistant", HA_TOKEN),
-    );
-    profiles.insert(
-        "uptime-kuma".to_string(),
-        profile("uptime-kuma", KUMA_TOKEN),
-    );
+    profiles.insert("home-assistant".to_string(), profile("home-assistant"));
+    profiles.insert("uptime-kuma".to_string(), profile("uptime-kuma"));
+
+    // Tokens live in the encrypted store, not the profile — the single
+    // authentication path since the AR17 amendment.
+    let store = store_at(dir);
+    store
+        .issue("home-assistant", HA_TOKEN, "now")
+        .await
+        .unwrap();
+    store.issue("uptime-kuma", KUMA_TOKEN, "now").await.unwrap();
 
     // Points at an unreachable host: these tests exercise the ingest
     // surface only, and the asynchronous path never calls Google.
@@ -85,6 +91,7 @@ fn state(journal_path: std::path::PathBuf) -> Arc<AppState> {
         Journal::new(journal_path, DEFAULT_MAX_BYTES),
         GoogleCalendarClient::new(http, tokens),
         Some(hash_token(ADMIN_TOKEN)),
+        store,
     ))
 }
 
@@ -106,7 +113,7 @@ fn post(uri: &str, token: Option<&str>, body: &str) -> Request<Body> {
 #[tokio::test]
 async fn a_valid_home_assistant_payload_is_accepted_and_journalled() {
     let dir = scratch_dir("accept");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
     let app = almanac::shell::build_router(Arc::clone(&state));
 
     let response = app
@@ -132,7 +139,7 @@ async fn a_valid_home_assistant_payload_is_accepted_and_journalled() {
 #[tokio::test]
 async fn a_request_with_no_token_is_rejected_and_journals_nothing() {
     let dir = scratch_dir("no-token");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
     let app = almanac::shell::build_router(Arc::clone(&state));
 
     let response = app
@@ -152,7 +159,7 @@ async fn a_request_with_no_token_is_rejected_and_journals_nothing() {
 #[tokio::test]
 async fn a_request_with_a_wrong_token_is_rejected() {
     let dir = scratch_dir("wrong-token");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
     let app = almanac::shell::build_router(Arc::clone(&state));
 
     let response = app
@@ -175,7 +182,7 @@ async fn one_sources_token_cannot_post_as_another_source() {
     // K6's actual promise: tokens are per source, so a leaked or
     // revoked one is contained to that source.
     let dir = scratch_dir("cross-source");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
     let app = almanac::shell::build_router(Arc::clone(&state));
 
     let response = app
@@ -194,7 +201,7 @@ async fn an_unknown_source_answers_the_same_401_as_a_bad_token() {
     // Answering 404 here would let an unauthenticated caller
     // enumerate which sources exist.
     let dir = scratch_dir("unknown-source");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
 
     let unknown = almanac::shell::build_router(Arc::clone(&state))
         .oneshot(post(
@@ -224,7 +231,7 @@ async fn an_idempotency_key_header_is_recorded_on_the_journal_entry() {
     // M7: the header is what lets a source without a natural external
     // id have its retries converge instead of duplicating.
     let dir = scratch_dir("idempotency");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
     let app = almanac::shell::build_router(Arc::clone(&state));
 
     let request = Request::builder()
@@ -248,7 +255,7 @@ async fn an_idempotency_key_header_is_recorded_on_the_journal_entry() {
 #[tokio::test]
 async fn two_accepted_payloads_both_survive_in_the_journal() {
     let dir = scratch_dir("two");
-    let state = state(dir.join("journal.jsonl"));
+    let state = state(&dir).await;
 
     for _ in 0..2 {
         let response = almanac::shell::build_router(Arc::clone(&state))

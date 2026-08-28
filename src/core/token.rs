@@ -28,6 +28,17 @@ pub fn verify_token(presented: &str, expected_hash: &str) -> bool {
     actual.as_bytes().ct_eq(expected_hash.as_bytes()).into()
 }
 
+/// Constant-time string equality, for comparing a decrypted token
+/// against a presented one (M12). Same reasoning as `verify_token`: a
+/// byte-by-byte early return leaks how much of a guess was right
+/// through response timing.
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
+}
+
 /// Extracts the token from an `Authorization: Bearer <token>` header
 /// value. Returns `None` for any other scheme or a malformed value.
 pub fn parse_bearer(header_value: &str) -> Option<&str> {
@@ -77,6 +88,15 @@ mod tests {
     #[test]
     fn different_tokens_hash_differently() {
         assert_ne!(hash_token("token-a"), hash_token("token-b"));
+    }
+
+    #[test]
+    fn constant_time_equality_matches_ordinary_equality() {
+        assert!(constant_time_eq("abc", "abc"));
+        assert!(!constant_time_eq("abc", "abd"));
+        assert!(!constant_time_eq("abc", "ab"));
+        assert!(!constant_time_eq("", "x"));
+        assert!(constant_time_eq("", ""));
     }
 
     #[test]

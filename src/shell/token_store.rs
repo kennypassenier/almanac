@@ -1,0 +1,380 @@
+//! The encrypted app-token store (M12/AR17). One record per source:
+//! which source it is, its token sealed with the encryption key, and
+//! when it was issued.
+//!
+//! Written atomically (temp + rename, standing rule 12) so a crash
+//! mid-write leaves the previous store intact rather than a truncated
+//! one — losing every source's token to a half-written file would take
+//! the whole hub down until each was re-issued.
+//!
+//! Held in memory while running so authenticating a request never
+//! touches the disk; the file is the durable copy.
+
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+
+use crate::core::error::AlmanacError;
+use crate::core::secrets::{KEY_BYTES, open, parse_key, seal};
+
+/// Environment variable holding the hex encryption key. Mandatory
+/// whenever the bootstrap token is set (AR17): deriving this key from
+/// the bootstrap token instead would work right up until that token is
+/// rotated, at which point every stored app token silently becomes
+/// undecryptable.
+pub const SECRET_KEY_ENV: &str = "ALMANAC_SECRET_KEY";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenRecord {
+    pub source_id: String,
+    /// Hex of nonce + ciphertext; never the token itself.
+    pub sealed_token: String,
+    pub issued_at: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct StoreFile {
+    #[serde(default)]
+    tokens: BTreeMap<String, TokenRecord>,
+}
+
+pub struct TokenStore {
+    path: PathBuf,
+    key: [u8; KEY_BYTES],
+    tokens: RwLock<BTreeMap<String, TokenRecord>>,
+}
+
+impl TokenStore {
+    /// Reads the encryption key from the environment and loads the
+    /// store. Refuses rather than starting without a key: an
+    /// unencrypted fallback would put plaintext tokens on disk exactly
+    /// when the operator believed the opposite.
+    pub fn load(path: PathBuf) -> Result<Self, AlmanacError> {
+        let hex_key = std::env::var(SECRET_KEY_ENV).map_err(|_| AlmanacError::Config {
+            message: format!("{SECRET_KEY_ENV} is not set"),
+            remedy: format!(
+                "generate one with `openssl rand -hex {KEY_BYTES}` and supply it via `latch run \
+                 --`; it is required whenever a bootstrap token is configured, and must stay \
+                 stable or previously issued tokens become unreadable"
+            ),
+        })?;
+        let key = parse_key(&hex_key)?;
+
+        let tokens = match std::fs::read_to_string(&path) {
+            Ok(contents) => {
+                let parsed: StoreFile =
+                    serde_json::from_str(&contents).map_err(|e| AlmanacError::Config {
+                        message: format!("failed to parse the token store {}: {e}", path.display()),
+                        remedy: "the store is damaged; restore it from backup, or delete it and \
+                                 re-issue every source's token"
+                            .to_string(),
+                    })?;
+                parsed.tokens
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(e) => {
+                return Err(AlmanacError::Config {
+                    message: format!("failed to read the token store {}: {e}", path.display()),
+                    remedy: format!("check permissions on {}", path.display()),
+                });
+            }
+        };
+
+        Ok(Self {
+            path,
+            key,
+            tokens: RwLock::new(tokens),
+        })
+    }
+
+    /// Builds a store around an explicit key, for tests and for the
+    /// dry-run paths that must not depend on the environment.
+    pub fn with_key(path: PathBuf, key: [u8; KEY_BYTES]) -> Self {
+        Self {
+            path,
+            key,
+            tokens: RwLock::new(BTreeMap::new()),
+        }
+    }
+
+    async fn persist(&self, tokens: &BTreeMap<String, TokenRecord>) -> Result<(), AlmanacError> {
+        let file = StoreFile {
+            tokens: tokens.clone(),
+        };
+        let body = serde_json::to_string_pretty(&file).map_err(|e| AlmanacError::Config {
+            message: format!("failed to serialize the token store: {e}"),
+            remedy: "this is a bug in almanac".to_string(),
+        })?;
+
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| AlmanacError::Config {
+                message: format!("failed to create {}: {e}", parent.display()),
+                remedy: format!("check permissions on {}", parent.display()),
+            })?;
+        }
+
+        let temp = self.path.with_extension("writing");
+        {
+            let mut handle = std::fs::File::create(&temp).map_err(|e| AlmanacError::Config {
+                message: format!("failed to create {}: {e}", temp.display()),
+                remedy: "check free disk space and permissions".to_string(),
+            })?;
+            handle
+                .write_all(body.as_bytes())
+                .map_err(|e| AlmanacError::Config {
+                    message: format!("failed to write {}: {e}", temp.display()),
+                    remedy: "check free disk space".to_string(),
+                })?;
+            handle.sync_all().map_err(|e| AlmanacError::Config {
+                message: format!("failed to fsync {}: {e}", temp.display()),
+                remedy: "check disk health".to_string(),
+            })?;
+        }
+
+        std::fs::rename(&temp, &self.path).map_err(|e| AlmanacError::Config {
+            message: format!("failed to replace {}: {e}", self.path.display()),
+            remedy: "check permissions on the store's directory".to_string(),
+        })
+    }
+
+    /// Stores a source's token, replacing any it already had. Returns
+    /// once the new store is durably on disk.
+    pub async fn issue(&self, source_id: &str, token: &str, now: &str) -> Result<(), AlmanacError> {
+        let record = TokenRecord {
+            source_id: source_id.to_string(),
+            sealed_token: seal(&self.key, token)?,
+            issued_at: now.to_string(),
+        };
+
+        let mut tokens = self.tokens.write().await;
+        tokens.insert(source_id.to_string(), record);
+        self.persist(&tokens).await
+    }
+
+    /// Removes a source's token. Returns whether there was one — the
+    /// dashboard says "revoked" or "there was nothing to revoke"
+    /// rather than implying it did something it did not.
+    pub async fn revoke(&self, source_id: &str) -> Result<bool, AlmanacError> {
+        let mut tokens = self.tokens.write().await;
+        let existed = tokens.remove(source_id).is_some();
+        if existed {
+            self.persist(&tokens).await?;
+        }
+        Ok(existed)
+    }
+
+    /// Whether `presented` is the token issued to `source_id`.
+    ///
+    /// Compares the decrypted token rather than re-encrypting the
+    /// candidate: a fresh nonce per record makes two sealings of the
+    /// same value differ, so ciphertext comparison would never match.
+    pub async fn verify(&self, source_id: &str, presented: &str) -> bool {
+        let tokens = self.tokens.read().await;
+        let Some(record) = tokens.get(source_id) else {
+            return false;
+        };
+        match open(&self.key, &record.sealed_token) {
+            Ok(actual) => crate::core::token::constant_time_eq(&actual, presented),
+            Err(e) => {
+                tracing::error!(
+                    source_id = %source_id, error = %e, remedy = %e.remedy(),
+                    "a stored token could not be decrypted; treating it as no match"
+                );
+                false
+            }
+        }
+    }
+
+    /// The plaintext token for a source, so the dashboard can render a
+    /// working command. The one place that decrypts for display.
+    pub async fn reveal(&self, source_id: &str) -> Result<Option<String>, AlmanacError> {
+        let tokens = self.tokens.read().await;
+        match tokens.get(source_id) {
+            Some(record) => open(&self.key, &record.sealed_token).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Which sources have a token, and when it was issued. Never
+    /// returns the tokens themselves.
+    pub async fn list(&self) -> Vec<(String, String)> {
+        self.tokens
+            .read()
+            .await
+            .values()
+            .map(|r| (r.source_id.clone(), r.issued_at.clone()))
+            .collect()
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_store(name: &str) -> (TokenStore, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "almanac-tokenstore-{}-{}-{name}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tokens.json");
+        (TokenStore::with_key(path, [3u8; KEY_BYTES]), dir)
+    }
+
+    #[tokio::test]
+    async fn an_issued_token_verifies_and_a_wrong_one_does_not() {
+        let (store, dir) = temp_store("verify");
+        store
+            .issue("home-assistant", "tok-abc", "now")
+            .await
+            .unwrap();
+
+        assert!(store.verify("home-assistant", "tok-abc").await);
+        assert!(!store.verify("home-assistant", "tok-xyz").await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn one_sources_token_does_not_verify_for_another() {
+        let (store, dir) = temp_store("cross");
+        store
+            .issue("home-assistant", "ha-tok", "now")
+            .await
+            .unwrap();
+        store.issue("uptime-kuma", "kuma-tok", "now").await.unwrap();
+
+        assert!(!store.verify("uptime-kuma", "ha-tok").await);
+        assert!(store.verify("uptime-kuma", "kuma-tok").await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_revoked_token_stops_working_immediately() {
+        // M12's sharpest exit criterion: revocation must take effect on
+        // the next request, not on the next restart.
+        let (store, dir) = temp_store("revoke");
+        store
+            .issue("home-assistant", "tok-abc", "now")
+            .await
+            .unwrap();
+        assert!(store.verify("home-assistant", "tok-abc").await);
+
+        assert!(store.revoke("home-assistant").await.unwrap());
+        assert!(!store.verify("home-assistant", "tok-abc").await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn revoking_something_that_was_never_issued_says_so() {
+        let (store, dir) = temp_store("revoke-missing");
+        assert!(!store.revoke("never-existed").await.unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn reissuing_replaces_the_previous_token() {
+        let (store, dir) = temp_store("reissue");
+        store.issue("home-assistant", "old", "t1").await.unwrap();
+        store.issue("home-assistant", "new", "t2").await.unwrap();
+
+        assert!(
+            !store.verify("home-assistant", "old").await,
+            "the old one must stop working"
+        );
+        assert!(store.verify("home-assistant", "new").await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn the_file_on_disk_never_contains_the_plaintext_token() {
+        // Standing rule 10, asserted rather than assumed.
+        let (store, dir) = temp_store("plaintext");
+        store
+            .issue("home-assistant", "PLAINTEXT-MARKER-9f3", "now")
+            .await
+            .unwrap();
+
+        let contents = std::fs::read_to_string(store.path()).unwrap();
+        assert!(
+            !contents.contains("PLAINTEXT-MARKER-9f3"),
+            "the token leaked into the store file:\n{contents}"
+        );
+        assert!(
+            contents.contains("home-assistant"),
+            "but the source id is fine to store"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn reveal_returns_a_working_token_and_none_for_an_unknown_source() {
+        let (store, dir) = temp_store("reveal");
+        store
+            .issue("home-assistant", "tok-abc", "now")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.reveal("home-assistant").await.unwrap().as_deref(),
+            Some("tok-abc")
+        );
+        assert_eq!(store.reveal("nobody").await.unwrap(), None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn listing_reports_sources_without_their_tokens() {
+        let (store, dir) = temp_store("list");
+        store
+            .issue("home-assistant", "tok-abc", "2026-08-28")
+            .await
+            .unwrap();
+
+        let listed = store.list().await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].0, "home-assistant");
+        assert_eq!(listed[0].1, "2026-08-28");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_store_written_with_one_key_does_not_verify_under_another() {
+        // Why the encryption key must stay stable, demonstrated: a
+        // changed key does not silently accept or reject at random, it
+        // consistently fails to match.
+        let (store, dir) = temp_store("keychange");
+        store
+            .issue("home-assistant", "tok-abc", "now")
+            .await
+            .unwrap();
+
+        let reopened = TokenStore::with_key(store.path().to_path_buf(), [4u8; KEY_BYTES]);
+        {
+            let mut tokens = reopened.tokens.write().await;
+            *tokens = store.tokens.read().await.clone();
+        }
+        assert!(!reopened.verify("home-assistant", "tok-abc").await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

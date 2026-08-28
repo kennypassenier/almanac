@@ -18,7 +18,6 @@ fn profiles_dir() -> std::path::PathBuf {
 schema_version = 1
 source_id = "test-source"
 target_calendar_id = "primary"
-token_hash = "409e0a333bd76871853626d35492d87e5226d3a0e4788bca07261ad3436b5b93"
 
 [mapping]
 title_field = "title"

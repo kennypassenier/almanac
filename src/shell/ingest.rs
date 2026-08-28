@@ -28,10 +28,12 @@ use tokio::sync::Mutex;
 use crate::core::journal::Entry;
 use crate::core::observability::{CaptureRecord, RingBuffer, RouteRecord};
 use crate::core::profile::Profile;
-use crate::core::token::{parse_bearer, verify_token};
+use crate::core::token::parse_bearer;
 use crate::shell::calendar_client::GoogleCalendarClient;
+use crate::shell::dashboard::Session;
 use crate::shell::delivery::{KeyLocks, deliver};
 use crate::shell::journal::Journal;
+use crate::shell::token_store::TokenStore;
 
 /// Header a source may send to make a redelivery converge instead of
 /// duplicating, when it has no natural per-payload id (M7).
@@ -57,6 +59,13 @@ pub struct AppState {
     pub routes: Mutex<RingBuffer<RouteRecord>>,
     /// Verbatim captured requests, for the M11 capture surface.
     pub captures: Mutex<RingBuffer<CaptureRecord>>,
+    /// Encrypted per-source tokens (M12/AR17) — the single source of
+    /// truth for who may post, replacing the profile's `token_hash`.
+    pub tokens: TokenStore,
+    /// Live dashboard sessions, keyed by cookie value. In memory only:
+    /// a restart logs the operator out, which is the right trade for a
+    /// LAN tool behind a token.
+    pub sessions: Mutex<HashMap<String, Session>>,
 }
 
 /// How many recent routes and captures to keep. Enough to debug what
@@ -74,11 +83,14 @@ impl AppState {
         journal: Journal,
         client: GoogleCalendarClient,
         bootstrap_token_hash: Option<String>,
+        tokens: TokenStore,
     ) -> Self {
         Self {
             profiles,
             journal,
             client,
+            tokens,
+            sessions: Mutex::new(HashMap::new()),
             locks: KeyLocks::new(),
             now: Box::new(|| chrono::Utc::now().to_rfc3339()),
             now_unix: Box::new(|| {
@@ -101,11 +113,12 @@ impl AppState {
         journal: Journal,
         client: GoogleCalendarClient,
         bootstrap_token_hash: Option<String>,
+        tokens: TokenStore,
     ) -> Self {
         Self {
             now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
             now_unix: Box::new(|| 1_787_000_000),
-            ..Self::new(profiles, journal, client, bootstrap_token_hash)
+            ..Self::new(profiles, journal, client, bootstrap_token_hash, tokens)
         }
     }
 }
@@ -125,7 +138,7 @@ fn error(status: StatusCode, message: &str, remedy: &str) -> Reply {
 /// An unknown source and a wrong token both answer 401 with the same
 /// body: distinguishing them would tell an unauthenticated caller
 /// which source ids exist.
-fn authenticate<'a>(
+async fn authenticate<'a>(
     state: &'a AppState,
     source_id: &str,
     headers: &HeaderMap,
@@ -148,7 +161,7 @@ fn authenticate<'a>(
         .and_then(parse_bearer);
 
     match presented {
-        Some(token) if verify_token(token, &profile.token_hash) => Ok(profile),
+        Some(token) if state.tokens.verify(source_id, token).await => Ok(profile),
         _ => Err(unauthorized()),
     }
 }
@@ -176,7 +189,7 @@ async fn ingest(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Reply {
-    let profile = match authenticate(&state, &source_id, &headers) {
+    let profile = match authenticate(&state, &source_id, &headers).await {
         Ok(profile) => profile,
         Err(reply) => return reply,
     };
@@ -209,7 +222,7 @@ async fn ingest_sync(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> Reply {
-    let profile = match authenticate(&state, &source_id, &headers) {
+    let profile = match authenticate(&state, &source_id, &headers).await {
         Ok(profile) => profile,
         Err(reply) => return reply,
     };
@@ -269,33 +282,52 @@ pub fn routes() -> Router<Arc<AppState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::token::hash_token;
+    use crate::shell::token_store::TokenStore;
 
-    fn profile(source_id: &str, token: &str) -> Profile {
+    fn profile(source_id: &str) -> Profile {
         let toml = format!(
             r#"
 schema_version = 1
 source_id = "{source_id}"
 target_calendar_id = "primary"
-token_hash = "{}"
 
 [mapping]
 title_field = "title"
 start_field = "start"
 duration_minutes = 60
-"#,
-            hash_token(token)
+"#
         );
         Profile::parse(&toml, "test.toml").unwrap()
     }
 
-    fn state_with(source_id: &str, token: &str) -> AppState {
+    fn scratch_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "almanac-ingest-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// State holding one source whose token is already issued in the
+    /// encrypted store — the only place ingest auth consults since the
+    /// AR17 amendment.
+    async fn state_with(source_id: &str, token: &str) -> AppState {
+        let dir = scratch_dir();
+        let store = TokenStore::with_key(dir.join("tokens.json"), [5u8; 32]);
+        store.issue(source_id, token, "now").await.unwrap();
+
         let mut profiles = HashMap::new();
-        profiles.insert(source_id.to_string(), profile(source_id, token));
+        profiles.insert(source_id.to_string(), profile(source_id));
+
         AppState::new_for_test(
             profiles,
             Journal::new(
-                std::env::temp_dir().join("almanac-ingest-test-unused.jsonl"),
+                dir.join("journal.jsonl"),
                 crate::shell::journal::DEFAULT_MAX_BYTES,
             ),
             GoogleCalendarClient::new(
@@ -310,6 +342,7 @@ duration_minutes = 60
                 ),
             ),
             None,
+            store,
         )
     }
 
@@ -322,80 +355,144 @@ duration_minutes = 60
         headers
     }
 
-    #[test]
-    fn the_right_token_authenticates() {
-        let state = state_with("home-assistant", "correct-token");
+    #[tokio::test]
+    async fn the_right_token_authenticates() {
+        let state = state_with("home-assistant", "correct-token").await;
         let result = authenticate(
             &state,
             "home-assistant",
             &headers_with_token("correct-token"),
-        );
+        )
+        .await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn a_wrong_token_is_rejected_with_401() {
-        let state = state_with("home-assistant", "correct-token");
-        let err =
-            authenticate(&state, "home-assistant", &headers_with_token("wrong-token")).unwrap_err();
+    #[tokio::test]
+    async fn a_wrong_token_is_rejected_with_401() {
+        let state = state_with("home-assistant", "correct-token").await;
+        let err = authenticate(&state, "home-assistant", &headers_with_token("wrong-token"))
+            .await
+            .unwrap_err();
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
-    #[test]
-    fn a_missing_authorization_header_is_rejected() {
-        let state = state_with("home-assistant", "correct-token");
-        let err = authenticate(&state, "home-assistant", &HeaderMap::new()).unwrap_err();
+    #[tokio::test]
+    async fn a_missing_authorization_header_is_rejected() {
+        let state = state_with("home-assistant", "correct-token").await;
+        let err = authenticate(&state, "home-assistant", &HeaderMap::new())
+            .await
+            .unwrap_err();
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
-    #[test]
-    fn one_sources_token_does_not_open_another_source() {
-        // The whole point of per-source tokens (K6): revoking or
-        // leaking one must not affect the others.
-        let mut state = state_with("home-assistant", "ha-token");
-        state.profiles.insert(
-            "uptime-kuma".to_string(),
-            profile("uptime-kuma", "kuma-token"),
+    #[tokio::test]
+    async fn one_sources_token_does_not_open_another_source() {
+        // K6's actual promise: revoking or leaking one source's token
+        // must not affect the others.
+        let state = state_with("home-assistant", "ha-token").await;
+        state
+            .tokens
+            .issue("uptime-kuma", "kuma-token", "now")
+            .await
+            .unwrap();
+
+        let mut profiles = state.profiles.clone();
+        profiles.insert("uptime-kuma".to_string(), profile("uptime-kuma"));
+        let state = AppState { profiles, ..state };
+
+        assert!(
+            authenticate(&state, "uptime-kuma", &headers_with_token("kuma-token"))
+                .await
+                .is_ok()
         );
-
-        assert!(authenticate(&state, "uptime-kuma", &headers_with_token("kuma-token")).is_ok());
         assert_eq!(
             authenticate(&state, "uptime-kuma", &headers_with_token("ha-token"))
+                .await
                 .unwrap_err()
                 .0,
             StatusCode::UNAUTHORIZED
         );
     }
 
-    #[test]
-    fn an_unknown_source_is_indistinguishable_from_a_bad_token() {
+    #[tokio::test]
+    async fn an_unknown_source_is_indistinguishable_from_a_bad_token() {
         // Answering 404 for an unknown source would let an
         // unauthenticated caller enumerate which sources exist.
-        let state = state_with("home-assistant", "correct-token");
+        let state = state_with("home-assistant", "correct-token").await;
         let unknown = authenticate(
             &state,
             "does-not-exist",
             &headers_with_token("correct-token"),
         )
+        .await
         .unwrap_err();
-        let bad_token =
-            authenticate(&state, "home-assistant", &headers_with_token("wrong")).unwrap_err();
+        let bad_token = authenticate(&state, "home-assistant", &headers_with_token("wrong"))
+            .await
+            .unwrap_err();
         assert_eq!(unknown.0, bad_token.0);
         assert_eq!(format!("{:?}", unknown.1.0), format!("{:?}", bad_token.1.0));
     }
 
-    #[test]
-    fn an_idempotency_key_header_lands_on_the_entry() {
-        let state = state_with("home-assistant", "t");
+    #[tokio::test]
+    async fn a_revoked_token_stops_working_immediately() {
+        // M12's sharpest promise: revocation takes effect on the next
+        // request, not on the next restart.
+        let state = state_with("home-assistant", "correct-token").await;
+        assert!(
+            authenticate(
+                &state,
+                "home-assistant",
+                &headers_with_token("correct-token")
+            )
+            .await
+            .is_ok()
+        );
+
+        state.tokens.revoke("home-assistant").await.unwrap();
+
+        assert_eq!(
+            authenticate(
+                &state,
+                "home-assistant",
+                &headers_with_token("correct-token")
+            )
+            .await
+            .unwrap_err()
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn a_source_with_no_issued_token_cannot_post_at_all() {
+        // A profile existing is not permission; the token store is the
+        // only authority since the AR17 amendment.
+        let state = state_with("home-assistant", "correct-token").await;
+        let mut profiles = state.profiles.clone();
+        profiles.insert("uptime-kuma".to_string(), profile("uptime-kuma"));
+        let state = AppState { profiles, ..state };
+
+        assert_eq!(
+            authenticate(&state, "uptime-kuma", &headers_with_token("anything"))
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn an_idempotency_key_header_lands_on_the_entry() {
+        let state = state_with("home-assistant", "t").await;
         let mut headers = headers_with_token("t");
         headers.insert(IDEMPOTENCY_HEADER, "abc123".parse().unwrap());
         let entry = build_entry(&state, "home-assistant", &headers, json!({}));
         assert_eq!(entry.idempotency_key.as_deref(), Some("abc123"));
     }
 
-    #[test]
-    fn an_absent_or_blank_idempotency_key_is_none_not_an_empty_string() {
-        let state = state_with("home-assistant", "t");
+    #[tokio::test]
+    async fn an_absent_or_blank_idempotency_key_is_none_not_an_empty_string() {
+        let state = state_with("home-assistant", "t").await;
         let entry = build_entry(
             &state,
             "home-assistant",
@@ -410,9 +507,9 @@ duration_minutes = 60
         assert_eq!(entry.idempotency_key, None);
     }
 
-    #[test]
-    fn each_accepted_payload_gets_its_own_entry_id() {
-        let state = state_with("home-assistant", "t");
+    #[tokio::test]
+    async fn each_accepted_payload_gets_its_own_entry_id() {
+        let state = state_with("home-assistant", "t").await;
         let a = build_entry(
             &state,
             "home-assistant",

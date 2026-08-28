@@ -16,11 +16,13 @@ use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::token_store::TokenStore;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_PROFILES_DIR: &str = "profiles";
 const DEFAULT_JOURNAL_PATH: &str = "data/journal.jsonl";
+const DEFAULT_TOKEN_STORE: &str = "data/tokens.json";
 const BIND_ADDRESS: &str = "0.0.0.0:8080";
 
 fn die(e: impl std::fmt::Display) -> ! {
@@ -94,11 +96,22 @@ async fn main() {
         }
     };
 
+    // The encrypted token store is the only authority on who may post
+    // (AR17 as amended). It refuses to load without its key rather than
+    // falling back to something unencrypted.
+    let token_store = match TokenStore::load(PathBuf::from(
+        std::env::var("ALMANAC_TOKEN_STORE").unwrap_or_else(|_| DEFAULT_TOKEN_STORE.to_string()),
+    )) {
+        Ok(store) => store,
+        Err(e) => die(e),
+    };
+
     let state = Arc::new(AppState::new(
         profiles,
         Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
         GoogleCalendarClient::new(http, tokens),
         bootstrap_token_hash,
+        token_store,
     ));
 
     // Surface a damaged journal before binding rather than letting the

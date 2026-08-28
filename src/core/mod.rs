@@ -11,10 +11,12 @@
 pub mod auth;
 pub mod calendar;
 pub mod error;
+pub mod html;
 pub mod journal;
 pub mod mapping;
 pub mod observability;
 pub mod profile;
 pub mod retry;
+pub mod secrets;
 pub mod token;
 pub mod upsert;

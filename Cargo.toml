@@ -11,7 +11,7 @@ edition = "2024"
 tokio = { version = "1", features = ["full"] }
 
 # Web framework for the HTTP API server layer
-axum = "0.8"
+axum = { version = "0.8", features = ["form"] }
 
 # Structured, leveled logging facade
 tracing = "0.1"
@@ -66,6 +66,15 @@ backoff = { version = "0.4", features = ["tokio"] }
 
 # L3 (K6/AR17): OS randomness for minting per-source bearer tokens.
 getrandom = "0.4"
+# L4b (M12/AR17): app tokens are stored encrypted at rest so the
+# dashboard can always reproduce a working command. XChaCha20-Poly1305
+# matches what Latch already uses, so both projects rest on the same
+# primitive rather than two different ones.
+chacha20poly1305 = { version = "0.11", default-features = false, features = [
+    "alloc",
+    "getrandom",
+] }
+hex = "0.4"
 
 # L3: drive the Axum router directly in tests, so the ingest surface
 # (auth, status codes, journalling) is exercised as real HTTP without
