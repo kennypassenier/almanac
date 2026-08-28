@@ -85,9 +85,9 @@ call.
 *Added 2026-08-28 as the consequence of the M12 mini-round (see
 `FEATURES.md`). Splitting it out rather than swelling L4 keeps the two
 concerns separately reviewable — L4 is about what Almanac can see, L4b
-about how it is administered. **This restructure is a deviation from
-the Phase 5 plan Kenny approved and is put to him for ratification in
-the L4 report**, per the Phase 6 gate's deviation item.*
+about how it is administered. **Ratified by Kenny on 2026-08-28**
+("Klopt") as a deviation from the six milestones he approved at the
+Phase 5 gate.*
 
 M12 dashboard on the AR17-amended model: bootstrap token from the
 environment for login (remember-me cookie + logout, not browser basic

@@ -54,8 +54,12 @@ Two pieces are **not** installed yet, deliberately:
    `!secret almanac_base_url` and `!secret almanac_token`, and neither
    exists yet because Almanac has no deployment and no issued token
    (tokens come from the L4b dashboard). Installing it now would make
-   HA's config check fail on the missing secrets. It lands with the L5
-   deployment, once there is an address and a token to point it at.
+   HA's config check fail on the missing secrets.
+
+**Both land with the L5 deployment — Kenny's decision, 2026-08-28**
+("wachten tot L5"): doing them then means one pass with a real address
+and a real token, instead of placeholders now that have to be found
+again later.
 
 ## Usage, once complete
 
