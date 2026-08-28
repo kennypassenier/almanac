@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 # AR11: dependency list stays minimal to what each milestone actually
-# needs. L1 reintroduces serde/toml/reqwest/jsonwebtoken; L4/M3
-# reintroduces backoff; etc. — see docs/REALIZATION_PLAN.md.
+# needs. L2 reintroduces toml; M3/AR9 reintroduces backoff on top of
+# what L1 adds; etc. — see docs/REALIZATION_PLAN.md.
 [dependencies]
 # Async runtime - "full" enables all features (I/O, timers, sync primitives, etc.)
 tokio = { version = "1", features = ["full"] }
@@ -18,3 +18,28 @@ tracing = "0.1"
 
 # Subscriber implementation that prints tracing events to stdout/stderr
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# L1 (AR14): typed error enum with a required per-instance remedy field.
+thiserror = "2"
+
+# L1: serialization for the GoogleEvent model and Google API payloads.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# L1 (AR5/AR6): hand-rolled Google Calendar HTTP client; rustls-tls
+# avoids a hard dependency on the system OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
+# L1 (AR6): RS256 JWT signing for the Google service-account OAuth2 flow.
+jsonwebtoken = "9"
+
+# L1: RFC3339 timestamps for JWT iat/exp claims and event start/end.
+chrono = { version = "0.4", features = ["serde"] }
+
+# L1 (M3/AR9): exponential backoff for transient Google API failures —
+# jitter, max-tries and transient-vs-permanent handling are exactly
+# what this crate exists for; AR11 judged hand-rolling it a net loss.
+backoff = { version = "0.4", features = ["tokio"] }

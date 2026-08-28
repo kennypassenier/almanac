@@ -8,5 +8,10 @@
 //! and the CI `gates` job fail the build if this module imports an I/O
 //! crate — see AR13 in `docs/ARCHITECTURE_DECISIONS.md`.
 //!
-//! Populated starting with milestone L1 (calendar core) and L2
-//! (mapping profiles).
+pub mod auth;
+pub mod calendar;
+pub mod error;
+pub mod retry;
+
+// Mapping-profile transformation and upsert-decision logic lands
+// starting with milestone L2.

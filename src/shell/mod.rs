@@ -4,9 +4,12 @@
 //! learns from the outside world reaches `core` through explicit
 //! function calls and trait implementations, never the reverse.
 //!
-//! Empty at L0 (walking skeleton) — routes and the real client land
-//! starting with milestone L1 (calendar core) through L4 (sources &
-//! visibility).
+//! Routes land starting with milestone L3 (durable ingest & access)
+//! through L4 (sources & visibility); L1 lands the calendar client and
+//! auth first, since everything else calls through them.
+
+pub mod auth;
+pub mod calendar_client;
 
 use axum::Router;
 
