@@ -1030,4 +1030,93 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[tokio::test]
+    async fn a_release_that_fails_verification_is_reported_after_three_tries_not_the_first() {
+        // AR24. A truncated download is normal and self-healing, so
+        // crying wolf about the first one trains the alert away. Three
+        // in a row is not a download problem — it means the release
+        // host is serving something it should not, or the signing key
+        // changed — and until now nobody was ever told, which is the
+        // exact silence AR24 was written to end.
+        let notify = crate::shell::testing::NotifyStub::start().await;
+        let releases = crate::shell::testing::ReleaseStub::start_unverifiable().await;
+        let dir = scratch("verify-threshold");
+        std::fs::write(dir.join("almanac"), b"running").unwrap();
+
+        let updater = Updater::new(
+            reqwest::Client::new(),
+            &releases.base_url,
+            crate::shell::testing::THROWAWAY_RELEASE_PUBKEY,
+            dir.join("almanac"),
+            dir.clone(),
+            Version::parse("0.1.0").unwrap(),
+            Notifier::to(reqwest::Client::new(), &notify.url),
+        );
+
+        for _ in 0..2 {
+            assert!(updater.check_once().await.is_err());
+        }
+        assert_eq!(
+            notify.count().await,
+            0,
+            "one or two failures must stay in the log"
+        );
+
+        assert!(updater.check_once().await.is_err());
+        assert_eq!(
+            notify.ops().await,
+            vec![ops::UPDATE_UNVERIFIED.to_string()],
+            "the third consecutive failure must be reported"
+        );
+
+        // And only once — a six-hourly alert about the same thing is
+        // an alert nobody reads.
+        assert!(updater.check_once().await.is_err());
+        assert_eq!(notify.count().await, 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_reverted_update_is_always_reported() {
+        // AR23 is explicit that a revert must never be silent, and the
+        // notification path was exercised by nothing — every
+        // self-update test used a disabled notifier.
+        let notify = crate::shell::testing::NotifyStub::start().await;
+        let dir = scratch("revert-notify");
+        let binary = dir.join("almanac");
+        let previous = dir.join("almanac.prev");
+        std::fs::write(&binary, b"new").unwrap();
+        std::fs::write(&previous, b"old").unwrap();
+
+        write_state_to(
+            &dir.join(STATE_FILE),
+            &UpdateState {
+                previous_binary: previous.display().to_string(),
+                attempts: 1,
+                ..state()
+            },
+        )
+        .unwrap();
+
+        let notifier = Notifier::to(reqwest::Client::new(), &notify.url);
+        let action = handle_pending_update(&dir, &binary, &notifier).await;
+
+        assert!(matches!(action, Startup::Reverted));
+        assert_eq!(notify.ops().await, vec![ops::UPDATE_REVERTED.to_string()]);
+
+        let events = notify.events.lock().await;
+        assert_eq!(events[0]["ok"], false, "a revert is a failure event");
+        assert_eq!(events[0]["version"], "0.2.0");
+        assert!(
+            events[0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("did not come up"),
+            "the notification has to say what happened"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

@@ -273,3 +273,119 @@ async fn two_accepted_payloads_both_survive_in_the_journal() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn a_journal_that_cannot_be_written_answers_500_so_the_sender_retries() {
+    // AR16's one silent-data-loss path. The rule is: if the write
+    // fails, say so, because Home Assistant's retry script only tries
+    // again on a failure. A regression to "log it and answer 202
+    // anyway" means a full disk quietly eats events while every sender
+    // believes it succeeded — and nothing on the dashboard would show
+    // it either.
+    let dir = scratch_dir("journal-readonly");
+    let readonly = dir.join("readonly");
+    std::fs::create_dir_all(&readonly).unwrap();
+
+    // A state whose journal points inside a directory nothing may
+    // write to, but whose token store is perfectly normal — otherwise
+    // the request would be rejected before it ever reached the write.
+    let store = store_at(&dir);
+    store
+        .issue("home-assistant", HA_TOKEN, "now")
+        .await
+        .unwrap();
+
+    let mut profiles = HashMap::new();
+    profiles.insert("home-assistant".to_string(), profile("home-assistant"));
+
+    let http = reqwest::Client::new();
+    let state = Arc::new(AppState::new(
+        profiles,
+        Journal::new(readonly.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+        GoogleCalendarClient::new(
+            http.clone(),
+            TokenManager::new(
+                http,
+                almanac::core::auth::ServiceAccountCredentials {
+                    client_email: "unused".to_string(),
+                    private_key: "unused".to_string(),
+                    token_url: "https://example.invalid/token".to_string(),
+                },
+            ),
+        ),
+        Some(hash_token(ADMIN_TOKEN)),
+        store,
+    ));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o500)).unwrap();
+    }
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(post(
+            "/v1/ingest/home-assistant",
+            Some(HA_TOKEN),
+            ha_payload(),
+        ))
+        .await
+        .unwrap();
+
+    // Restore permissions before asserting, so a failure still cleans up.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o700)).ok();
+    }
+    let status = response.status();
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert_eq!(
+        status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "an unwritable journal must be reported, never answered with 202"
+    );
+}
+
+#[tokio::test]
+async fn both_alert_sources_are_accepted_at_the_http_layer() {
+    // K9's criterion says "an E2E test per system". The two alert
+    // sources were only ever exercised as pure mapping fixtures; their
+    // payloads never passed through authentication, the router, or the
+    // journal. A content type or auth shape the ingest layer rejects
+    // would only surface when a real outage alert failed to appear.
+    let dir = scratch_dir("alert-sources");
+    let state = state(&dir).await;
+
+    let grafana = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/fixtures/payloads/grafana_sample.json"
+    ))
+    .unwrap();
+    let kuma = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/fixtures/payloads/uptime-kuma_sample.json"
+    ))
+    .unwrap();
+
+    for payload in [&grafana, &kuma] {
+        let response = almanac::shell::build_router(Arc::clone(&state))
+            .oneshot(post("/v1/ingest/uptime-kuma", Some(KUMA_TOKEN), payload))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::ACCEPTED,
+            "a real alert payload must be accepted as it is actually sent"
+        );
+    }
+
+    assert_eq!(
+        state.journal.pending().unwrap().len(),
+        2,
+        "and both must be durably journalled"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}

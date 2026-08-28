@@ -292,3 +292,101 @@ pub fn stub_credentials(token_url: &str) -> crate::core::auth::ServiceAccountCre
         token_url: token_url.to_string(),
     }
 }
+
+/// A stand-in for Home Assistant's homelab-ops webhook, so a test can
+/// assert what Almanac actually reported rather than only that it did
+/// not crash.
+pub struct NotifyStub {
+    pub url: String,
+    pub events: Arc<Mutex<Vec<Value>>>,
+}
+
+async fn record_event(
+    State(events): State<Arc<Mutex<Vec<Value>>>>,
+    axum::Json(body): axum::Json<Value>,
+) -> StatusCode {
+    events.lock().await.push(body);
+    StatusCode::OK
+}
+
+impl NotifyStub {
+    pub async fn start() -> Self {
+        let events = Arc::new(Mutex::new(Vec::new()));
+
+        let router = Router::new()
+            .route("/webhook", axum::routing::post(record_event))
+            .with_state(Arc::clone(&events));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.ok();
+        });
+
+        Self {
+            url: format!("http://{address}/webhook"),
+            events,
+        }
+    }
+
+    pub async fn count(&self) -> usize {
+        self.events.lock().await.len()
+    }
+
+    /// The `op` field of every event received, in order.
+    pub async fn ops(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .await
+            .iter()
+            .filter_map(|e| e["op"].as_str().map(str::to_string))
+            .collect()
+    }
+}
+
+/// The public half of a throwaway minisign key. Its secret half was
+/// generated once, used to sign the fixtures in `tests/self_update.rs`,
+/// and never kept. It is not the release key and grants nothing.
+pub const THROWAWAY_RELEASE_PUBKEY: &str =
+    "RWSD7EDZN4XNRaGibu+cfLqrMzCOC0pAyW/CCeNTg5A1BcZMfHalxTx4";
+
+/// A stand-in for the release host.
+pub struct ReleaseStub {
+    pub base_url: String,
+}
+
+impl ReleaseStub {
+    /// Serves a release whose manifest does not match its signature —
+    /// the shape of a compromised release host, and what the
+    /// verification-failure threshold counts.
+    pub async fn start_unverifiable() -> Self {
+        async fn version() -> &'static str {
+            "0.2.0"
+        }
+        async fn manifest() -> &'static str {
+            // One byte different from what was signed.
+            "306d6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb  almanac\n"
+        }
+        async fn signature() -> &'static str {
+            "untrusted comment: signature from minisign secret key\nRUSD7EDZN4XNRWzTd/nVYZPGWVHFhAdBbUgEuUgnG8PNvVN24ZFFhkXVQRLam6HmQw9bcUwAMGbUi7Rgew5LWC0DGlLbmbcy9g8=\ntrusted comment: timestamp:1787940761\tfile:SHA256SUMS\thashed\nsR1goffxRR5oeoS6no0+GjFuKrSt4UannaugGwWSe5Ahv3f5bAmd7nCCRA/a/sYW5TO00kNiMYb2yXKigUm5CA==\n"
+        }
+
+        let router = Router::new()
+            .route("/latest/download/VERSION", axum::routing::get(version))
+            .route("/download/v0.2.0/SHA256SUMS", axum::routing::get(manifest))
+            .route(
+                "/download/v0.2.0/SHA256SUMS.minisig",
+                axum::routing::get(signature),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.ok();
+        });
+
+        Self {
+            base_url: format!("http://{address}"),
+        }
+    }
+}

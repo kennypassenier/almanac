@@ -113,6 +113,35 @@ impl Profile {
             });
         }
 
+        if profile.mapping.start_field.trim().is_empty() {
+            return Err(AlmanacError::ProfileValidation {
+                message: format!("{origin}: mapping.start_field is empty"),
+                remedy: format!(
+                    "set mapping.start_field in {origin} to the payload field holding the event's \
+                     start timestamp"
+                ),
+            });
+        }
+
+        // A timezone Google rejects is a *permanent* failure on every
+        // event this source ever sends, discovered days later as an
+        // unexplained Google error — so it is checked here, once, where
+        // the fix is obvious. "Europe/Brussel" is the mistake this
+        // catches; the real name is "Europe/Brussels".
+        if profile.mapping.timezone.parse::<chrono_tz::Tz>().is_err() {
+            return Err(AlmanacError::ProfileValidation {
+                message: format!(
+                    "{origin}: mapping.timezone \"{}\" is not an IANA time zone",
+                    profile.mapping.timezone
+                ),
+                remedy: format!(
+                    "use a name from the IANA database in {origin}, e.g. \"Europe/Brussels\" or \
+                     \"UTC\" — Google rejects anything else, permanently, on every event from \
+                     this source"
+                ),
+            });
+        }
+
         if profile.mapping.duration_minutes <= 0 {
             return Err(AlmanacError::ProfileValidation {
                 message: format!(
@@ -240,5 +269,77 @@ duration_minutes = 60
         let mut b = Profile::parse(valid_profile_toml(), "b.toml").unwrap();
         b.source_id = "uptime-kuma".to_string();
         assert!(validate_unique_source_ids(&[a, b]).is_ok());
+    }
+
+    #[test]
+    fn a_misspelled_timezone_is_caught_at_startup_not_by_google_days_later() {
+        // The real failure this prevents: "Europe/Brussel" is one
+        // letter short of a real zone. Almanac used to start happily
+        // and then fail permanently on every event from that source,
+        // with nothing in the log naming the cause.
+        let toml = r#"
+schema_version = 1
+source_id = "home-assistant"
+target_calendar_id = "household"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+duration_minutes = 30
+timezone = "Europe/Brussel"
+"#;
+        let err = Profile::parse(toml, "bad-tz.toml").unwrap_err();
+        assert!(err.to_string().contains("not an IANA time zone"));
+        assert!(err.to_string().contains("bad-tz.toml"), "name the file");
+        assert!(
+            err.remedy().contains("Europe/Brussels"),
+            "show the real one"
+        );
+    }
+
+    #[test]
+    fn real_time_zones_are_accepted() {
+        for tz in [
+            "Europe/Brussels",
+            "UTC",
+            "America/New_York",
+            "Australia/Eucla",
+        ] {
+            let toml = format!(
+                r#"
+schema_version = 1
+source_id = "s"
+target_calendar_id = "c"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+duration_minutes = 30
+timezone = "{tz}"
+"#
+            );
+            assert!(
+                Profile::parse(&toml, "tz.toml").is_ok(),
+                "{tz} is a real zone and must be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_start_field_is_rejected() {
+        // Without it every payload from this source fails to map, and
+        // the entry sits in the journal forever.
+        let toml = r#"
+schema_version = 1
+source_id = "s"
+target_calendar_id = "c"
+
+[mapping]
+title_field = "title"
+start_field = ""
+duration_minutes = 30
+"#;
+        let err = Profile::parse(toml, "no-start.toml").unwrap_err();
+        assert!(err.to_string().contains("start_field is empty"));
     }
 }

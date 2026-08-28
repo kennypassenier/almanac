@@ -82,6 +82,13 @@ libc = "0.2.189"
 # the one check standing between an unattended updater and a
 # compromised release host is exactly the trade AR11 says not to make.
 minisign-verify = "0.2.5"
+# T2: validates a profile's `timezone` against the IANA database at
+# startup. Without it any string is accepted and handed to Google, so
+# `Europe/Brussel` (the real one is Brussels) starts cleanly and then
+# fails permanently on every single event from that source — feeding
+# straight into the poison-entry behaviour, with nothing in the logs
+# naming the cause. Data only; no runtime, no C dependency.
+chrono-tz = { version = "0.10.4", default-features = false }
 
 # L3: drive the Axum router directly in tests, so the ingest surface
 # (auth, status codes, journalling) is exercised as real HTTP without

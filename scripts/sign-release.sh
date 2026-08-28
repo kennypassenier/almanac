@@ -26,6 +26,23 @@ fi
 
 ./scripts/check-version.sh
 
+# T20: a release built without the signing key baked in has self-update
+# permanently disabled, and nothing about it looks wrong — the binary
+# runs, serves, and simply never updates again. You would notice months
+# later, by realising nothing had moved. Refuse to sign one.
+if grep -q 'pub const RELEASE_PUBKEY: &str = "";' src/shell/update.rs; then
+    cat >&2 <<'EOF'
+RELEASE_PUBKEY is still empty in src/shell/update.rs.
+
+Signing this would produce a release whose every installed copy has
+self-update switched off, silently and permanently. Paste the base64
+line from your minisign.pub into that constant, rebuild, and try again.
+
+See docs/OPERATIONS_RUNBOOK.md R6.
+EOF
+    exit 1
+fi
+
 version=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
 outdir="dist/v$version"
 mkdir -p "$outdir"
