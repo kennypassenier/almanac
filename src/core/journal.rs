@@ -3,11 +3,12 @@
 //! a record *is* and how a replay reconstructs "what still needs
 //! delivering" from an append-only log.
 //!
-//! The log holds two kinds of line: an `Entry` (a payload accepted
-//! from a source but not yet delivered to Google) and a `Done` marker
-//! naming an entry that has been delivered. Nothing is ever mutated in
-//! place — a crash can therefore only ever lose the tail of the file,
-//! never corrupt an earlier record.
+//! The log holds three kinds of line: an `Entry` (a payload accepted
+//! from a source but not yet delivered to Google), a `Done` marker
+//! naming an entry that has been delivered, and a `Dead` marker naming
+//! one that never can be. Nothing is ever mutated in place — a crash
+//! can therefore only ever lose the tail of the file, never corrupt an
+//! earlier record.
 
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +36,45 @@ pub struct Entry {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Record {
     Entry(Entry),
-    Done { id: String },
+    Done {
+        id: String,
+    },
+    /// T1: an entry that failed permanently, repeatedly, and will
+    /// never succeed — a mapping error, a calendar the service account
+    /// cannot write to, a timestamp Google refuses.
+    ///
+    /// Set aside rather than deleted, deliberately. The source was
+    /// told 202 ("durably accepted"), so throwing the payload away
+    /// would make that a lie; and the reason is what you need to fix
+    /// the profile. Left pending instead, it would be retried forever,
+    /// hold the worker in its slowest backoff, and eventually raise a
+    /// backlog alert about a queue of one dead payload.
+    Dead {
+        id: String,
+        reason: String,
+        at: String,
+    },
+}
+
+/// Entries set aside as undeliverable, most recent last.
+pub fn dead(records: &[Record]) -> Vec<(&Entry, &str, &str)> {
+    let reasons: std::collections::HashMap<&str, (&str, &str)> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Dead { id, reason, at } => Some((id.as_str(), (reason.as_str(), at.as_str()))),
+            _ => None,
+        })
+        .collect();
+
+    records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Entry(e) => reasons
+                .get(e.id.as_str())
+                .map(|(reason, at)| (e, *reason, *at)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Reconstructs the still-undelivered entries from a replayed log, in
@@ -50,6 +89,9 @@ pub fn pending(records: &[Record]) -> Vec<&Entry> {
         .iter()
         .filter_map(|r| match r {
             Record::Done { id } => Some(id.as_str()),
+            // A dead entry is not pending either: it is kept for
+            // reading, not for retrying (T1).
+            Record::Dead { id, .. } => Some(id.as_str()),
             Record::Entry(_) => None,
         })
         .collect();
@@ -138,5 +180,67 @@ mod tests {
         let line = serde_json::to_string(&d).unwrap();
         let back: Record = serde_json::from_str(&line).unwrap();
         assert_eq!(back, d);
+    }
+
+    fn dead_marker(id: &str, reason: &str) -> Record {
+        Record::Dead {
+            id: id.to_string(),
+            reason: reason.to_string(),
+            at: "2026-08-29T09:00:00+00:00".to_string(),
+        }
+    }
+
+    #[test]
+    fn an_entry_set_aside_as_dead_is_no_longer_pending() {
+        // Otherwise one payload that can never succeed is retried
+        // forever, holds the worker at its slowest backoff, and
+        // eventually raises a backlog alert about a queue of one.
+        let records = vec![entry("a"), entry("b"), dead_marker("a", "unmappable")];
+        let pending = pending(&records);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "b");
+    }
+
+    #[test]
+    fn a_dead_entry_is_still_readable_with_its_reason() {
+        // Set aside, not deleted: the source was told 202, and the
+        // reason is what you need to fix the profile.
+        let records = vec![
+            entry("a"),
+            dead_marker("a", "mapping.title_field is missing"),
+        ];
+        let dead = dead(&records);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].0.id, "a");
+        assert_eq!(dead[0].1, "mapping.title_field is missing");
+        assert_eq!(dead[0].2, "2026-08-29T09:00:00+00:00");
+    }
+
+    #[test]
+    fn nothing_is_dead_in_an_ordinary_log() {
+        assert!(
+            dead(&[
+                entry("a"),
+                Record::Done {
+                    id: "a".to_string()
+                }
+            ])
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_dead_marker_for_an_unknown_entry_is_inert() {
+        // Same rule as a Done marker after compaction.
+        assert!(dead(&[dead_marker("gone", "whatever")]).is_empty());
+        assert!(pending(&[dead_marker("gone", "whatever")]).is_empty());
+    }
+
+    #[test]
+    fn records_including_dead_round_trip_through_json_lines() {
+        let record = dead_marker("a", "unmappable");
+        let line = serde_json::to_string(&record).unwrap();
+        assert_eq!(serde_json::from_str::<Record>(&line).unwrap(), record);
+        assert!(line.contains("\"kind\":\"dead\""), "{line}");
     }
 }

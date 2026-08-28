@@ -24,3 +24,43 @@ jobs:
             echo "src/core imports an I/O crate (AR13) — move it behind a shell trait"
             exit 1
           fi
+
+  # T11: the Dockerfile is the homelab-v2 migration path (AR20) and was
+  # built by nothing. L5 found that the committed one could not run
+  # Almanac at all — no WORKDIR, no volume — and without this nothing
+  # stops that coming back until the migration itself.
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t almanac:ci .
+      - name: Prove the built image can actually start
+        run: |
+          # --check is the same probe the self-updater uses: it loads
+          # the profiles, checks the secrets and opens the token store,
+          # then exits. Passing it means this image is runnable, which
+          # is exactly what the committed Dockerfile once was not.
+          docker run --rm \
+            -v "$PWD/fixtures/profiles:/etc/almanac/profiles:ro" \
+            -e ALMANAC_SECRET_KEY=$(printf '1%.0s' $(seq 64)) \
+            -e CLIENT_EMAIL=ci@example.iam.gserviceaccount.com \
+            -e PRIVATE_KEY=not-a-real-key \
+            -e TOKEN_URI=https://oauth2.googleapis.com/token \
+            almanac:ci /usr/local/bin/almanac --check 2>&1 | tee output.txt
+          grep -q -- "--check: ok" output.txt
+
+  # T21: informational only. Not a percentage to hit — the number that
+  # matters is which files are never touched at all, which is how the
+  # gaps this phase closed went unnoticed for so long.
+  coverage:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Measure coverage
+        run: cargo llvm-cov --all --summary-only

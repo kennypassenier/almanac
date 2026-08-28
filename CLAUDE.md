@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 6 · Development loop **complete** (L0–L5 all approved) |
-| Last completed gate | L5 milestone report approved (version scheme, signed releases, self-update) — 2026-08-28 |
-| Next gate | Phase 7 hardening, or the deployment — Kenny's call |
+| Current phase | 7 · Hardening |
+| Last completed gate | Phase 7 gap form answered — 22 of 24 gaps closed, 2 accepted — 2026-08-29 |
+| Next gate | Phase 7 report, then the deployment |
 | AFK mode | off since 2026-08-28 |
 | Open, gated on Kenny | the rollout itself (D9: go per action), generating the minisign release key, and the two manual Home Assistant steps |
 
@@ -39,7 +39,8 @@ blocked), `src/core`/`src/shell` split in place per AR13.
 | docs/FEATURES.md | rated feature list with permanent IDs (Phase 2) — done, frozen, 24 features (M10, M11 added via mini-rounds) |
 | docs/ARCHITECTURE_DECISIONS.md | frozen AR decisions incl. tech choice (Phases 3-4) — done, AR1–AR19 frozen |
 | docs/REALIZATION_PLAN.md | milestones + status table (Phase 5) — done, L0–L5 approved |
-| docs/TEST_PLAN.md | what is proven where + accepted limitations (Phase 7) |
+| docs/TEST_PLAN.md | what is proven where + accepted limitations (Phase 7) — done |
+| docs/OPERATIONS_RUNBOOK.md | releasing, installing, and what to do about each notification |
 
 ## History
 

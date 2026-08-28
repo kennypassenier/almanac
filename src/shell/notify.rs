@@ -67,6 +67,9 @@ pub mod ops {
     /// Either the release host is compromised or the signing key
     /// changed; both need a human.
     pub const UPDATE_UNVERIFIED: &str = "almanac-update-unverified";
+    /// An event can never be delivered and was set aside (T1). The
+    /// source was told it was accepted, so this must be said out loud.
+    pub const ENTRY_SET_ASIDE: &str = "almanac-entry-set-aside";
     /// The journal is filling up because deliveries keep failing
     /// (AR26) — warn while there is still room, not once events are
     /// already being refused.

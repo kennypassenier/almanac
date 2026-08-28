@@ -1,0 +1,63 @@
+name: Live tests
+
+# T19. The two ignored suites — the Google Calendar CRUD round-trip
+# (K1), the upsert that stops a redelivery duplicating (K2), and both
+# power-loss drills (AR16) — are the *only* proof those features work.
+# They have been run green by hand, but nothing notices when they rot:
+# a change to the event-lookup query or the upsert key format breaks K2
+# with CI fully green, and you find out by seeing duplicate events in
+# your calendar.
+#
+# Not on every push, deliberately. These write to a real calendar with
+# real credentials, so they run when asked, and nightly so a slow rot
+# surfaces within a day.
+#
+# They need three secrets in the repository settings:
+#   ALMANAC_TEST_CALENDAR_ID   a throwaway calendar, never the household one
+#   CLIENT_EMAIL               the service account
+#   PRIVATE_KEY                its PEM
+#
+# Until those exist this workflow fails on purpose rather than passing
+# vacuously — a green run that tested nothing is worse than a red one.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:00 UTC, so a failure is waiting in the morning rather than
+    # interrupting the evening.
+    - cron: "0 4 * * *"
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Refuse to pass without credentials
+        env:
+          CALENDAR: ${{ secrets.ALMANAC_TEST_CALENDAR_ID }}
+        run: |
+          if [ -z "$CALENDAR" ]; then
+            echo "ALMANAC_TEST_CALENDAR_ID is not set in this repository's secrets."
+            echo "These tests exist to catch rot in K1, K2 and the power-loss"
+            echo "guarantees. Skipping them silently would make this workflow a"
+            echo "green tick that proves nothing, so it fails instead."
+            exit 1
+          fi
+
+      - name: Calendar round-trip and upsert (K1, K2)
+        env:
+          ALMANAC_TEST_CALENDAR_ID: ${{ secrets.ALMANAC_TEST_CALENDAR_ID }}
+          CLIENT_EMAIL: ${{ secrets.CLIENT_EMAIL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          TOKEN_URI: https://oauth2.googleapis.com/token
+        run: cargo test --test calendar_e2e -- --ignored --nocapture
+
+      - name: Power-loss drills (AR16)
+        env:
+          ALMANAC_TEST_CALENDAR_ID: ${{ secrets.ALMANAC_TEST_CALENDAR_ID }}
+          CLIENT_EMAIL: ${{ secrets.CLIENT_EMAIL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          TOKEN_URI: https://oauth2.googleapis.com/token
+        run: cargo test --test power_loss_drill -- --ignored --nocapture

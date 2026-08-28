@@ -15,6 +15,7 @@ pub mod html;
 pub mod journal;
 pub mod mapping;
 pub mod observability;
+pub mod pacing;
 pub mod profile;
 pub mod retry;
 pub mod secrets;

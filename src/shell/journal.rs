@@ -125,6 +125,29 @@ impl Journal {
         self.append(&Record::Done { id: id.to_string() }).await
     }
 
+    /// Sets an entry aside as permanently undeliverable (T1).
+    ///
+    /// A marker, like `mark_done` — the payload itself stays in the
+    /// log, because the source was told 202 and because the reason is
+    /// what you need in order to fix the profile.
+    pub async fn mark_dead(&self, id: &str, reason: &str, at: &str) -> Result<(), AlmanacError> {
+        self.append(&Record::Dead {
+            id: id.to_string(),
+            reason: reason.to_string(),
+            at: at.to_string(),
+        })
+        .await
+    }
+
+    /// Entries that were set aside, with the reason each was.
+    pub fn dead(&self) -> Result<Vec<(crate::core::journal::Entry, String, String)>, AlmanacError> {
+        let records = self.read_records()?;
+        Ok(crate::core::journal::dead(&records)
+            .into_iter()
+            .map(|(entry, reason, at)| (entry.clone(), reason.to_string(), at.to_string()))
+            .collect())
+    }
+
     /// Reads every intact record from the log.
     ///
     /// A trailing partial line — the signature of a crash mid-append —
@@ -200,11 +223,24 @@ impl Journal {
         let _guard = self.write_lock.lock().await;
 
         let records = self.read_records()?;
-        let pending: Vec<Record> = crate::core::journal::pending(&records)
+        let mut pending: Vec<Record> = crate::core::journal::pending(&records)
             .into_iter()
             .cloned()
             .map(Record::Entry)
             .collect();
+
+        // Dead entries survive compaction with their markers (T1).
+        // Dropping them would silently discard a payload the source
+        // was told had been accepted, and lose the reason it failed —
+        // which is the only thing that makes it fixable.
+        for (entry, reason, at) in crate::core::journal::dead(&records) {
+            pending.push(Record::Entry(entry.clone()));
+            pending.push(Record::Dead {
+                id: entry.id.clone(),
+                reason: reason.to_string(),
+                at: at.to_string(),
+            });
+        }
 
         let mut body = String::new();
         for record in &pending {
