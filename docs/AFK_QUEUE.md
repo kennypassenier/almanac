@@ -52,4 +52,27 @@ _none yet_
 
 ## Completed while AFK
 
-_see the combined report_
+Two commits on `main`, CI green (run 33199983137):
+
+- `0b92213` — version scheme (M8), release signing (AR19), systemd unit
+  and compose file (AR20), a working Dockerfile, and the startup key
+  check the Latch project's L3 decision asked for.
+- `9fe80ce` — full self-update (M10): signature-before-download,
+  checksum against the signed manifest, the `--check` probe (AR22), and
+  automatic revert with notification (AR23). Plus the notification
+  channel (AR27), the release layout (AR28), what `--check` means
+  (AR29) and how the restart happens (AR30) — four decisions taken
+  while building, all recorded and all in the report form.
+- README rewritten (it still described cal-stacean, Vikunja, Infisical
+  and five endpoints that do not exist) and `docs/OPERATIONS_RUNBOOK.md`
+  written — the file AR24 and `sign-release.sh` were already pointing at.
+
+Three bugs found and fixed on the way: the systemd unit made the
+install directory read-only so every self-update would have failed at
+the swap; journal compaction never fsynced its parent directory; and
+executing a just-written binary can fail with `ETXTBSY` when another
+thread forks at the wrong moment.
+
+169 unit + 9 self-update E2E + 15 dashboard + 11 admin + 7 ingest + 3
+fixture + 1 secrets-scan tests green. `--check` verified against the
+real binary with the real Latch secrets.

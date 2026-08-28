@@ -1,173 +1,122 @@
+# Almanac
 
-## Overview
+An adapter that turns webhooks from anything into Google Calendar
+events, across several calendars.
 
-cal-stacean is a universal API gateway for Google Calendar, designed to provide a secure, auditable, and extensible interface for calendar event management. It exposes a RESTful API for CRUD operations on Google Calendar events and integrates with external systems (like Vikunja) via webhooks. The project is production-ready, containerized, and supports secret management via Infisical for secure deployments.
+## Why "Almanac"
 
----
+An almanac is not a calendar. A calendar is the grid; an almanac is the
+book that gathers what is *going to happen* — from many unrelated
+sources, each with its own way of saying it — and lays it out on one
+set of dates. Tide tables, planting dates, eclipses, feast days:
+different observers, different formats, one volume.
 
-## Features
-- **Google Calendar CRUD API**: Create, read, update, delete, and search events via REST endpoints.
-- **Service Account Authentication**: Uses Google Service Account JWT for secure, automated access.
-- **Configurable**: Reads from `config.toml` for calendar defaults, color mapping, and log level.
-- **Secrets Management**: Loads sensitive credentials from environment variables, injected securely via Infisical. `.env.example` is always up to date, auto-generated and committed by CI.
-- **Vikunja Integration**: Listens for Vikunja task webhooks and syncs them to Google Calendar.
-- **Containerized**: Multi-stage Dockerfile for minimal, secure production images.
-- **CI/CD**: Unified build, test, tag, .env.example, and deploy pipeline using GitHub Actions.
+That is exactly this service. Home Assistant, Grafana, Uptime Kuma and
+a Claude session each speak their own webhook dialect; Almanac
+translates each one and writes it onto the right calendar. It is a
+gatherer, not the calendar itself — the calendar stays at Google.
 
----
+The name also survives the project growing. "cal-stacean" was a pun on
+Rust's crab tied to one integration that no longer exists; "Almanac"
+still fits the day a fifth source is added.
 
-## Project Structure
+## What it does
 
-- `src/main.rs` — Main application logic, API server, and integrations.
-- `config.toml` — Application configuration (calendar defaults, log level, color mapping).
-- `Dockerfile` — Multi-stage build for production containers.
-- `Makefile` — Local development, build, and release automation.
-- `.github/workflows/` — CI/CD pipelines for build, test, Docker, and tagging.
+- **Many sources, one hub.** Each source gets its own ingest endpoint
+  and its own bearer token, so one can be revoked without touching the
+  others.
+- **Many calendars.** A source's mapping profile decides which calendar
+  its events land on — "infra", "hobbies", whatever the split is. This
+  is the point of the project, not a feature bolted on.
+- **Nothing is lost.** Every accepted payload is written to a durable
+  journal and fsynced *before* the request is answered, so a crash or a
+  power cut costs nothing. Undelivered entries go out on the next start.
+- **Redelivery converges.** Events are upserted by a private property
+  on the Google event, so retrying never produces a duplicate.
+- **It explains itself.** A dry-run endpoint shows what a payload would
+  become without writing it, and a capture surface records incoming
+  requests verbatim — so a new source is reverse-engineered from what
+  it actually sends rather than from a guess.
+- **It runs unattended.** It survives reboots and power cuts, retries
+  through outages instead of giving up, updates itself from signed
+  releases, and puts the previous version back if a new one does not
+  come up.
 
----
+Google's credentials live in exactly one place — this service. Nothing
+else in the homelab ever holds them.
+
+## Documentation
+
+| Document | What is in it |
+|---|---|
+| [docs/SCOPE.md](docs/SCOPE.md) | What Almanac is for, and what it deliberately is not |
+| [docs/FEATURES.md](docs/FEATURES.md) | The frozen feature list with acceptance criteria |
+| [docs/ARCHITECTURE_DECISIONS.md](docs/ARCHITECTURE_DECISIONS.md) | Every architectural decision and the objection that forced it |
+| [docs/REALIZATION_PLAN.md](docs/REALIZATION_PLAN.md) | Milestones, status, and the decisions taken at each gate |
+| [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Releasing, installing, and what to do when a notification arrives |
+| [docs/integrations/home-assistant.md](docs/integrations/home-assistant.md) | The Home Assistant side, including the generic retrying HTTP helper |
+
+## HTTP surface
+
+| Method | Path | What it is |
+|---|---|---|
+| `POST` | `/v1/ingest/{source_id}` | Accept a payload, journal it durably, answer 202 |
+| `POST` | `/v1/ingest/{source_id}/sync` | The same, but wait for delivery and return the Google event id |
+| `GET` | `/healthz` | Liveness, no authentication — this is what Uptime Kuma watches |
+| `GET` | `/v1/debug/status` | Profiles, journal depth and recent routing decisions |
+| `GET` | `/v1/debug/capture` | Recently captured requests, verbatim |
+| `GET` | `/dashboard` | Operator UI: status, sources and tokens, captures |
+
+Ingest endpoints authenticate with that source's own bearer token. The
+debug endpoints and the dashboard use the operator's credential, and
+refuse every request when none is configured — an unconfigured admin
+surface closes rather than opens.
 
 ## Configuration
 
-### config.toml
-- `default_calendar_id`: The calendar to use if none is specified (e.g., "primary" or an email address).
-- `default_color_id`: Default color for new events (Google API accepts "1"–"11").
-- `log_level`: Minimum log level (trace, debug, info, warn, error).
-- `[standard_colors]`: Map of color names to Google Calendar color IDs.
+Secrets come from [Latch](https://github.com/kennypassenier/latch) and
+are injected straight into the process, never written to disk:
 
-### Environment Variables (.env)
-Sensitive values (Google credentials, tokens, etc.) are loaded from a `.env` file, which is generated securely via Infisical in CI/CD or locally.
+```bash
+latch run -- ./target/release/almanac
+```
 
----
+Everything else is environment variables and mapping profiles. See
+[.env.example](.env.example) for the complete contract — it is the
+real list, checked against the code, rather than whatever a secrets
+manager happened to hold.
 
-## Development Workflow
+A mapping profile is a small TOML file per source, naming the target
+calendar and how to read that source's payload. There are working
+examples in [fixtures/profiles](fixtures/profiles), which are also what
+the regression tests pin.
 
-### 1. Prerequisites
-- Rust toolchain (stable)
-- Docker (for container builds)
-- Node.js/NPM (for Infisical CLI)
-- Infisical account and service token (for secrets)
+## Development
 
-### 2. Local Development
-1. **Fetch secrets**: `make secrets` (requires Infisical CLI and access)
-2. **Build**: `make build` (compiles release binary)
-3. **Run**: `make run` (runs with secrets injected)
-4. **Clean**: `make clean` (removes build artifacts and env files)
-5. **Test**: Use `cargo test` for Rust unit/integration tests
+```bash
+cargo test --all          # the whole suite
+./.claude/hooks/gates.sh   # what a commit has to pass: fmt, clippy -D warnings, tests, boundaries
+```
 
-### 3. Docker
-- **Build image**: `make docker-build`
-- **Login to GHCR**: `make docker-login`
-- **Push image**: `make docker-push` (optionally with `AUTO_TAG=1` to bump patch)
+The code splits into `src/core` (pure logic, no I/O) and `src/shell`
+(HTTP, files, Google). That boundary is enforced by a gate rather than
+by convention, because a single crate gives the compiler no way to
+enforce it.
 
-### 4. Versioning
-- **Bump patch**: `make tag-patch`
-- **Bump minor**: `make tag-minor`
-- **Push tags**: `git push --tags`
+Releases are cut and signed locally, never in CI — see the runbook.
 
----
+## Deployment
 
-## CI/CD Pipeline (GitHub Actions)
+systemd on its own LXC ([deploy/almanac.service](deploy/almanac.service)),
+because self-update replaces the running binary and a container would
+silently discard that on the next recreation. A compose file
+([deploy/docker-compose.yml](deploy/docker-compose.yml)) ships alongside
+it for the future homelab-v2 migration; in that mode self-update turns
+itself off and homelab v2 owns updates.
 
-
-### Automated Steps
-- On every push to `main` (except when only markdown files like `README.md` are changed):
-  - Fetch secrets from Infisical and generate `.env`
-  - Build the Rust binary
-  - Upload the binary as a downloadable artifact
-  - Build and push Docker images to GHCR
-  - Automatically bump the patch version and create a new git tag
-- On manual workflow dispatch:
-  - Optionally bump and tag versions
-  
-**Note:** The CI/CD pipeline is configured to ignore pushes that only update markdown documentation (e.g., `README.md`). This prevents unnecessary workflow runs for documentation-only changes.
-
-### Downloading Build Artifacts
-After a workflow run:
-1. Go to the "Actions" tab in your GitHub repository.
-2. Click on the latest workflow run.
-3. Scroll to the "Artifacts" section at the bottom.
-4. Click the artifact (e.g., `cal-stacean-binary`) to download the built binary.
-
----
-
-## Deployment Options
-
-### 1. Docker Compose
-- Use the built Docker image from GHCR.
-- Mount your own `config.toml` and inject secrets via `.env`.
-- Example `docker-compose.yml`:
-  ```yaml
-  version: '3.8'
-  services:
-    cal-stacean:
-      image: ghcr.io/<your-gh-username>/cal-stacean:latest
-      ports:
-        - "8080:8080"
-      env_file:
-        - .env
-      volumes:
-        - ./config.toml:/etc/cal-stacean/config.toml:ro
-  ```
-
-### 2. Kubernetes
-- Use the Docker image in a Deployment.
-- Mount `config.toml` via ConfigMap and inject secrets via Kubernetes Secrets or Infisical Operator.
-
-### 3. Bare Metal / VM
-- Download the binary artifact from GitHub Actions.
-- Place `config.toml` and `.env` in the same directory.
-- Run: `./cal-stacean`
-
----
-
-## Infisical Integration
-
-### 1. Create a Service Token
-- In Infisical, create a service token with access to your project/environment.
-
-### 2. Add the Token to GitHub
-- Go to your repository → Settings → Secrets and variables → Actions → New repository secret.
-- Name: `INFISICAL_TOKEN`, Value: (your service token)
-
-### 3. Workflow Usage
-- The GitHub Actions workflow uses the Infisical CLI to fetch secrets and generate `.env` before build/deploy steps.
-- No secrets are stored in the repo or Docker image.
-
----
-
-## API Endpoints
-
-- `POST /api/v1/events` — Create event
-- `GET /api/v1/events/{id}` — Get event
-- `PUT /api/v1/events/{id}` — Update event
-- `DELETE /api/v1/events/{id}` — Delete event
-- `GET /api/v1/events?query=...` — Search events
-- `POST /webhooks/vikunja` — Vikunja webhook integration
-
----
-
-## Onboarding a New Developer
-1. Clone the repository.
-2. Install prerequisites (Rust, Docker, Node.js/NPM, Infisical CLI if using locally).
-3. Ask for access to Infisical secrets.
-4. Run `make build` and `make run` to start the API locally.
-5. Use the provided endpoints to interact with Google Calendar.
-6. For deployment, use Docker or download the binary from GitHub Actions.
-
----
-
-## Troubleshooting
-- **Secrets not loading?** Ensure your `.env` is present and valid, or that Infisical is configured in CI.
-- **Docker build fails?** Check for missing dependencies or outdated Rust toolchain.
-- **API errors?** Check logs (log level set in `config.toml` or `RUST_LOG`).
-- **Need a new release?** Use `make tag-patch` or `make tag-minor`, then push tags.
-
----
-
-## Contact & Support
-For questions, open an issue or contact the repository owner.
-
----
+Installation, first run and recovery are in
+[docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md).
 
 ## License
-MIT (or specify your license here)
+
+MIT — see [LICENSE](LICENSE).
