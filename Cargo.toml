@@ -50,7 +50,26 @@ chrono = { version = "0.4", features = ["serde"] }
 # L2 (AR7): mapping-profile file format.
 toml = "0.9"
 
+# L3 (K6/AR17): SHA-256 of a source's bearer token, compared in
+# constant time so a wrong token can't be recovered by timing the
+# comparison.
+sha2 = "0.10"
+subtle = "2"
+
+# L3 (AR16): unique ids for journal entries.
+uuid = { version = "1", features = ["v4"] }
+
 # L1 (M3/AR9): exponential backoff for transient Google API failures —
 # jitter, max-tries and transient-vs-permanent handling are exactly
 # what this crate exists for; AR11 judged hand-rolling it a net loss.
 backoff = { version = "0.4", features = ["tokio"] }
+
+# L3 (K6/AR17): OS randomness for minting per-source bearer tokens.
+getrandom = "0.4"
+
+# L3: drive the Axum router directly in tests, so the ingest surface
+# (auth, status codes, journalling) is exercised as real HTTP without
+# binding a port.
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

@@ -1,13 +1,31 @@
 //! Almanac — event-to-calendar hub.
 //!
-//! Milestone L1 (authenticated calendar core): the app authenticates
-//! against Google at startup and holds a ready `GoogleCalendarClient`.
-//! HTTP routes calling into it land starting with milestone L3.
+//! Startup order matters: everything that can be checked without side
+//! effects is checked before the listener binds, so a misconfigured
+//! process fails immediately and visibly rather than accepting traffic
+//! it cannot serve.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use almanac::shell;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
+use almanac::shell::delivery::KeyLocks;
+use almanac::shell::ingest::AppState;
+use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
+
+const DEFAULT_PROFILES_DIR: &str = "profiles";
+const DEFAULT_JOURNAL_PATH: &str = "data/journal.jsonl";
+const BIND_ADDRESS: &str = "0.0.0.0:8080";
+
+fn die(e: impl std::fmt::Display) -> ! {
+    eprintln!("{e}");
+    std::process::exit(1);
+}
 
 #[tokio::main]
 async fn main() {
@@ -17,38 +35,127 @@ async fn main() {
         )
         .init();
 
+    // Profiles first: a typo in a profile should stop the process
+    // before it has authenticated against anything (M4).
+    let profiles_dir = PathBuf::from(
+        std::env::var("ALMANAC_PROFILES_DIR").unwrap_or_else(|_| DEFAULT_PROFILES_DIR.to_string()),
+    );
+    let profiles = match shell::profiles::load_all(&profiles_dir) {
+        Ok(profiles) => profiles,
+        Err(e) => die(e),
+    };
+    if profiles.is_empty() {
+        die(format!(
+            "no mapping profiles found in {} — create at least one *.toml profile there, or set \
+             ALMANAC_PROFILES_DIR to where they live",
+            profiles_dir.display()
+        ));
+    }
+    tracing::info!(
+        count = profiles.len(),
+        sources = ?profiles.iter().map(|p| p.source_id.as_str()).collect::<Vec<_>>(),
+        "loaded mapping profiles"
+    );
+    let profiles: HashMap<String, _> = profiles
+        .into_iter()
+        .map(|p| (p.source_id.clone(), p))
+        .collect();
+
     let credentials = match load_credentials() {
         Ok(credentials) => credentials,
-        Err(e) => {
-            eprintln!("{e}");
-            std::process::exit(1);
-        }
+        Err(e) => die(e),
     };
 
     let http = reqwest::Client::new();
     let tokens = TokenManager::new(http.clone(), credentials);
 
-    // Fail fast: prove the credentials actually work by fetching a
-    // real token now, rather than silently starting a server that can
-    // only discover a broken key on its first real request.
+    // Fail fast: prove the credentials actually work now, rather than
+    // starting a server that can only discover a broken key on its
+    // first real request.
     if let Err(e) = tokens.token().await {
-        eprintln!("{e}");
-        std::process::exit(1);
+        die(e);
+    }
+    tracing::info!("authenticated against Google");
+
+    let journal_path = PathBuf::from(
+        std::env::var("ALMANAC_JOURNAL").unwrap_or_else(|_| DEFAULT_JOURNAL_PATH.to_string()),
+    );
+    let state = Arc::new(AppState {
+        profiles,
+        journal: Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
+        client: GoogleCalendarClient::new(http, tokens),
+        locks: KeyLocks::new(),
+        now: Box::new(|| chrono::Utc::now().to_rfc3339()),
+    });
+
+    // Surface a damaged journal before binding rather than letting the
+    // worker discover it a few seconds later.
+    match state.journal.pending() {
+        Ok(pending) if !pending.is_empty() => {
+            tracing::info!(
+                count = pending.len(),
+                journal = %journal_path.display(),
+                "journal holds undelivered entries from a previous run; they go out first"
+            );
+        }
+        Ok(_) => {}
+        Err(e) => die(e),
     }
 
-    let _calendar_client = GoogleCalendarClient::new(http, tokens);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let worker = tokio::spawn(shell::worker::run(Arc::clone(&state), shutdown_rx));
 
-    tracing::info!("almanac authenticated against Google — calendar client ready");
+    let listener = match tokio::net::TcpListener::bind(BIND_ADDRESS).await {
+        Ok(listener) => listener,
+        Err(e) => die(format!(
+            "failed to bind {BIND_ADDRESS}: {e} — is another process already using this port?"
+        )),
+    };
+    tracing::info!(address = BIND_ADDRESS, "almanac listening");
 
-    let router = shell::build_router();
+    let router = shell::build_router(state);
+    let server = axum::serve(listener, router).with_graceful_shutdown(shutdown_signal());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
-        .await
-        .expect("failed to bind 0.0.0.0:8080 — is another process already using this port?");
+    if let Err(e) = server.await {
+        tracing::error!(error = %e, "server terminated unexpectedly");
+    }
 
-    tracing::info!("almanac listening on 0.0.0.0:8080 (routes land starting with milestone L3)");
+    // M2: the listener has stopped accepting and in-flight requests
+    // have finished. Tell the worker to drain what they journalled
+    // before the process exits.
+    tracing::info!("http server stopped; draining the worker");
+    let _ = shutdown_tx.send(true);
+    if let Err(e) = worker.await {
+        tracing::warn!(error = %e, "worker did not shut down cleanly");
+    }
+    tracing::info!("almanac stopped");
+}
 
-    axum::serve(listener, router)
-        .await
-        .expect("server terminated unexpectedly");
+/// Resolves on SIGTERM (what systemd and `docker stop` send) or
+/// SIGINT (Ctrl-C), so a restart or redeploy finishes in-flight
+/// requests instead of cutting them off mid-write (M2).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!(error = %e, "failed to listen for Ctrl-C");
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to listen for SIGTERM"),
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("received Ctrl-C"),
+        _ = terminate => tracing::info!("received SIGTERM"),
+    }
 }

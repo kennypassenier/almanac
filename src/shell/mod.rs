@@ -4,27 +4,24 @@
 //! learns from the outside world reaches `core` through explicit
 //! function calls and trait implementations, never the reverse.
 //!
-//! Routes land starting with milestone L3 (durable ingest & access)
-//! through L4 (sources & visibility); L1 lands the calendar client and
-//! auth first, since everything else calls through them.
+//! The ingest routes land in L3; the debug, capture and health
+//! surfaces (K11, M11, M1) follow in L4.
 
 pub mod auth;
 pub mod calendar_client;
+pub mod delivery;
+pub mod ingest;
+pub mod journal;
 pub mod profiles;
+pub mod worker;
+
+use std::sync::Arc;
 
 use axum::Router;
 
+use crate::shell::ingest::AppState;
+
 /// Builds the application's Axum router.
-pub fn build_router() -> Router {
-    Router::new()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn build_router_does_not_panic() {
-        let _ = build_router();
-    }
+pub fn build_router(state: Arc<AppState>) -> Router {
+    ingest::routes().with_state(state)
 }

@@ -174,6 +174,23 @@ impl GoogleCalendarClient {
         key: &str,
         value: &str,
     ) -> Result<Option<GoogleEvent>, AlmanacError> {
+        Ok(self
+            .list_events_by_property(calendar_id, key, value)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    /// Every event carrying the given private extended property.
+    /// `find_event_by_property` is the upsert path and only needs the
+    /// first; this exists so a test can assert how many events a
+    /// redelivery actually left behind, rather than inferring it.
+    pub async fn list_events_by_property(
+        &self,
+        calendar_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<GoogleEvent>, AlmanacError> {
         let url = format!("{CALENDAR_EVENTS_BASE}/{calendar_id}/events");
         let filter = format!("{key}={value}");
         let response = self
@@ -191,7 +208,7 @@ impl GoogleCalendarClient {
                 transient: false,
             })?;
 
-        Ok(list.items.into_iter().flatten().next())
+        Ok(list.items.unwrap_or_default())
     }
 
     /// Creates a new secondary calendar owned by the authenticated
