@@ -14,7 +14,7 @@ decisions below the milestone table).
 | L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | **done**, report approved 2026-08-28 — CI https://github.com/kennypassenier/almanac/actions/runs/33177366789. M7 is a deliberate, ratified partial (schema support only; the HTTP-layer idempotency-key mechanism needs L3's ingest endpoint) |
 | L3 · Durable ingest & access | K6, K7, K8, M2, M7 (AR16, AR17) | **code done**, CI https://github.com/kennypassenier/almanac/actions/runs/33185972306 — both live power-loss drills green against the real scratch calendar; M7 now complete (schema in L2 + the Idempotency-Key header here); pending Kenny's report sign-off |
 | L4 · Sources & visibility | K9, K11, M1, M9, M11 | **code done**, CI https://github.com/kennypassenier/almanac/actions/runs/33190845508 — awaiting Kenny's report sign-off |
-| L4b · Dashboard & token management | M12 (AR17 amendment) | code done, CI pending — awaiting sign-off |
+| L4b · Dashboard & token management | M12 (AR17 amendment) | **code done**, CI https://github.com/kennypassenier/almanac/actions/runs/33192274769 — awaiting Kenny's report sign-off |
 | L5 · Release, deployment & self-update | M8, M10 (AR19) | not started |
 
 Deferred (rated Later, not planned into a milestone): K10 (Super
