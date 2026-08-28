@@ -16,7 +16,7 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::core::mapping::map_payload;
-use crate::core::observability::{CaptureRecord, expire_captures, truncate_body};
+use crate::core::observability::{CaptureRecord, truncate_body};
 use crate::core::token::{parse_bearer, verify_token};
 use crate::shell::ingest::AppState;
 
@@ -176,8 +176,7 @@ async fn capture_post(
         truncated_from_bytes,
     };
 
-    let mut captures = state.captures.lock().await;
-    expire_captures(&mut captures, (state.now_unix)(), CAPTURE_TTL_SECS);
+    let mut captures = state.captures_after_expiry().await;
     captures.push(record);
 
     tracing::info!(label = %label, "captured a raw request");
@@ -194,8 +193,7 @@ async fn capture_list(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
         return reply;
     }
 
-    let mut captures = state.captures.lock().await;
-    expire_captures(&mut captures, (state.now_unix)(), CAPTURE_TTL_SECS);
+    let captures = state.captures_after_expiry().await;
     let records: Vec<_> = captures.iter().cloned().collect();
 
     (

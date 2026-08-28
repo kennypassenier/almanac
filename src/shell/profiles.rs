@@ -102,4 +102,28 @@ duration_minutes = 60
 
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn the_profiles_shipped_in_this_repository_load() {
+        // The runbook tells you to copy these onto the machine during
+        // the first install. Nothing loaded them in a test, so a
+        // profile could rot — or the directory could be named
+        // something else entirely, which is exactly what the runbook
+        // got wrong — and the first thing to notice would be a
+        // half-provisioned LXC refusing to start.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/profiles");
+        let profiles = load_all(&dir).expect("the shipped profiles must parse");
+
+        assert!(
+            profiles.len() >= 3,
+            "expected the home-assistant, grafana and uptime-kuma profiles, got {}",
+            profiles.len()
+        );
+        for expected in ["home-assistant", "grafana", "uptime-kuma"] {
+            assert!(
+                profiles.iter().any(|p| p.source_id == expected),
+                "the {expected} profile is missing from the shipped set"
+            );
+        }
+    }
 }

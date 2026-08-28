@@ -755,8 +755,11 @@ pub async fn run(
             _ = ticker.tick() => {
                 // AR25: not while someone is watching captures. A
                 // restart mid-investigation drops exactly the requests
-                // the operator is reverse-engineering.
-                if !state.captures.lock().await.is_empty() {
+                // the operator is reverse-engineering. Through
+                // `captures_after_expiry`, never the raw buffer: a
+                // capture nobody looks at again must age out, or one
+                // forgotten request suppresses updates forever.
+                if !state.captures_after_expiry().await.is_empty() {
                     tracing::info!(
                         "skipping the update check — captured requests are still retained and a \
                          restart would discard them"

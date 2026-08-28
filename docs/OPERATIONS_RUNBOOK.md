@@ -42,7 +42,7 @@ one asset is how running instances discover a new version.
 useradd --system --home /opt/almanac --shell /usr/sbin/nologin almanac
 mkdir -p /opt/almanac/{data,profiles} /etc/almanac
 install -m 0755 almanac /opt/almanac/almanac
-cp profiles/*.toml /opt/almanac/profiles/
+cp fixtures/profiles/*.toml /opt/almanac/profiles/   # the three working profiles
 chown -R almanac:almanac /opt/almanac
 
 # the key that lets Latch open Almanac's secrets, and nothing else
@@ -212,7 +212,7 @@ State lives in four places, and only one of them is on the LXC:
 
 | What | Where | Restore |
 |---|---|---|
-| Profiles, config | git | `git clone` |
+| Profiles, config | git (`fixtures/profiles/`) | `git clone` |
 | Secrets | Latch escrow (offline) | `latch key restore` / `latch clone` |
 | Journal (transient) | `/opt/almanac/data` | nothing to do — it is empty in steady state |
 | Calendar data | Google | nothing to do |

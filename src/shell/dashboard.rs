@@ -22,7 +22,6 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::core::html::escape;
-use crate::core::observability::expire_captures;
 use crate::core::token::verify_token;
 use crate::shell::admin::CAPTURE_TTL_SECS;
 use crate::shell::ingest::AppState;
@@ -416,8 +415,7 @@ async fn captures_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         return Redirect::to("/login").into_response();
     }
 
-    let mut captures = state.captures.lock().await;
-    expire_captures(&mut captures, (state.now_unix)(), CAPTURE_TTL_SECS);
+    let captures = state.captures_after_expiry().await;
 
     let cards: String = captures
         .iter()

@@ -24,6 +24,25 @@ use crate::shell::auth::TokenManager;
 /// events collection under one specific calendar.
 const CALENDAR_EVENTS_BASE: &str = "https://www.googleapis.com/calendar/v3/calendars";
 
+/// How long one call may spend retrying before it gives up.
+///
+/// `ExponentialBackoff::default()` allows fifteen minutes, which is
+/// wrong in both directions here. A synchronous caller (K8 — a Claude
+/// session waiting on `/sync`) would hang for a quarter of an hour,
+/// and the worker would sit inside one delivery while every other
+/// pending entry waited behind it.
+///
+/// A minute is the right shape because retrying here is only meant to
+/// absorb blips. Anything longer is what the journal is for: the entry
+/// stays pending, the worker backs off (AR26), and it goes out when
+/// Google comes back — durably, and without holding anything open.
+fn in_call_backoff() -> ExponentialBackoff {
+    ExponentialBackoff {
+        max_elapsed_time: Some(std::time::Duration::from_secs(60)),
+        ..ExponentialBackoff::default()
+    }
+}
+
 pub struct GoogleCalendarClient {
     http: Client,
     tokens: Arc<TokenManager>,
@@ -63,7 +82,7 @@ impl GoogleCalendarClient {
     where
         F: Fn(&Client, &str) -> RequestBuilder,
     {
-        retry(ExponentialBackoff::default(), || async {
+        retry(in_call_backoff(), || async {
             let token = self.tokens.token().await.map_err(|e| {
                 if e.is_transient() {
                     backoff::Error::transient(e)
@@ -73,10 +92,19 @@ impl GoogleCalendarClient {
             })?;
 
             let response = build(&self.http, &token).send().await.map_err(|e| {
-                backoff::Error::Permanent(AlmanacError::GoogleApi {
+                // A connection that never completed has no status code,
+                // so `is_transient` never sees it — it has to be
+                // classified here. Transient, because that is what it
+                // is: a DNS blip, a dropped TLS handshake, a router
+                // rebooting. Calling it permanent meant a two-second
+                // hiccup surfaced to a synchronous caller as a failure
+                // while `shell::auth` retried the very same class of
+                // failure against the token endpoint. The two now
+                // agree.
+                backoff::Error::transient(AlmanacError::GoogleApi {
                     message: format!("request to the Calendar API failed: {e}"),
-                    remedy: "check network connectivity to www.googleapis.com".to_string(),
-                    transient: false,
+                    remedy: "transient network failure — retrying automatically".to_string(),
+                    transient: true,
                 })
             })?;
 

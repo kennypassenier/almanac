@@ -53,6 +53,17 @@ struct StoreFile {
     sessions: BTreeMap<String, SessionRecord>,
 }
 
+/// # Lock order
+///
+/// `tokens` is always acquired **before** `sessions`. Both maps live in
+/// one encrypted file, so every mutation has to hold both, and two
+/// paths taking them in opposite orders deadlock: a login holding
+/// `sessions` while waiting for `tokens`, against a token issue holding
+/// `tokens` while waiting for `sessions`. Because `verify` also needs
+/// `tokens` and tokio's `RwLock` is write-preferring, that deadlock
+/// takes ingest down with it while `/healthz` keeps answering 200.
+///
+/// Any new method touching both must follow this order.
 pub struct TokenStore {
     path: PathBuf,
     key: [u8; KEY_BYTES],
@@ -166,9 +177,13 @@ impl TokenStore {
             issued_at: now.to_string(),
         };
 
+        // LOCK ORDER: tokens before sessions, always. Both maps are
+        // written to one file, so every mutation needs both — and two
+        // call paths taking them in opposite orders is a deadlock that
+        // only shows up under real concurrency. See the module note.
         let mut tokens = self.tokens.write().await;
         tokens.insert(source_id.to_string(), record);
-        let sessions = self.sessions.read().await.clone();
+        let sessions = self.sessions.read().await;
         self.persist_with(&tokens, &sessions).await
     }
 
@@ -179,7 +194,7 @@ impl TokenStore {
         let mut tokens = self.tokens.write().await;
         let existed = tokens.remove(source_id).is_some();
         if existed {
-            let sessions = self.sessions.read().await.clone();
+            let sessions = self.sessions.read().await;
             self.persist_with(&tokens, &sessions).await?;
         }
         Ok(existed)
@@ -271,10 +286,14 @@ impl TokenStore {
         expires_at_unix: u64,
         now_unix: u64,
     ) -> Result<(), AlmanacError> {
+        // tokens first, then sessions — the same order as `issue`
+        // and `revoke`. Taking them the other way round here is what
+        // made a login racing a token issue able to deadlock the whole
+        // service, ingest included.
+        let tokens = self.tokens.read().await;
         let mut sessions = self.sessions.write().await;
         sessions.retain(|_, s| s.expires_at_unix > now_unix);
         sessions.insert(id.to_string(), SessionRecord { expires_at_unix });
-        let tokens = self.tokens.read().await.clone();
         self.persist_with(&tokens, &sessions).await
     }
 
@@ -289,11 +308,11 @@ impl TokenStore {
     /// Ends a session server-side, so a copied cookie stops working —
     /// the property a self-validating cookie could not offer.
     pub async fn end_session(&self, id: &str) -> Result<(), AlmanacError> {
+        let tokens = self.tokens.read().await;
         let mut sessions = self.sessions.write().await;
         if sessions.remove(id).is_none() {
             return Ok(());
         }
-        let tokens = self.tokens.read().await.clone();
         self.persist_with(&tokens, &sessions).await
     }
 
@@ -475,6 +494,121 @@ mod tests {
     async fn an_empty_store_passes_the_startup_key_check() {
         let (store, dir) = temp_store("keycheck-empty");
         assert!(store.verify_key_opens_store().await.is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn logging_in_while_a_token_is_issued_does_not_deadlock() {
+        // `issue` takes tokens-then-sessions; `start_session` used to
+        // take sessions-then-tokens. Under real concurrency that is a
+        // deadlock, and because `verify` also wants `tokens` and
+        // tokio's RwLock is write-preferring, it takes ingest down with
+        // it — while /healthz keeps answering 200. Every other test in
+        // this file is sequential, which is exactly why none of them
+        // saw it.
+        let (store, dir) = temp_store("deadlock");
+        let store = std::sync::Arc::new(store);
+
+        let mut work = Vec::new();
+        for i in 0..20 {
+            let issuing = std::sync::Arc::clone(&store);
+            work.push(tokio::spawn(async move {
+                issuing
+                    .issue(&format!("source-{i}"), &format!("token-{i}"), "2026-08-28")
+                    .await
+                    .unwrap();
+            }));
+            let logging_in = std::sync::Arc::clone(&store);
+            work.push(tokio::spawn(async move {
+                logging_in
+                    .start_session(&format!("session-{i}"), 2_000_000_000, 1_787_000_000)
+                    .await
+                    .unwrap();
+            }));
+            let verifying = std::sync::Arc::clone(&store);
+            work.push(tokio::spawn(async move {
+                verifying.verify(&format!("source-{i}"), "whatever").await;
+            }));
+        }
+
+        let all = futures_join(work);
+        let finished = tokio::time::timeout(std::time::Duration::from_secs(20), all).await;
+        assert!(
+            finished.is_ok(),
+            "logins, token issues and verifies must not deadlock each other"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Awaits every handle in order. A plain helper rather than a new
+    /// dependency on `futures` for one test.
+    async fn futures_join(handles: Vec<tokio::task::JoinHandle<()>>) {
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_that_has_passed_its_expiry_is_no_longer_live() {
+        // The 7-day TTL is enforced in code and was asserted nowhere,
+        // even though the clock is injectable and this is two lines.
+        let (store, dir) = temp_store("session-ttl");
+        store.start_session("cookie", 1_000, 500).await.unwrap();
+
+        assert!(store.session_is_live("cookie", 999).await, "still valid");
+        assert!(
+            !store.session_is_live("cookie", 1_000).await,
+            "a session must not survive its own expiry timestamp"
+        );
+        assert!(
+            !store.session_is_live("cookie", 5_000).await,
+            "nor anything after it"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_forged_session_cookie_is_not_live() {
+        let (store, dir) = temp_store("session-forged");
+        store
+            .start_session("real-cookie", 2_000_000_000, 1_000)
+            .await
+            .unwrap();
+
+        assert!(!store.session_is_live("", 1_000).await);
+        assert!(!store.session_is_live("real-cookie-x", 1_000).await);
+        assert!(!store.session_is_live("real-cooki", 1_000).await);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn starting_a_session_does_not_lose_a_token_issued_at_the_same_time() {
+        // Both maps live in one file. `start_session` used to clone the
+        // token map before mutating sessions, so a token issued in
+        // between was written and then overwritten away again.
+        let (store, dir) = temp_store("no-lost-update");
+        let store = std::sync::Arc::new(store);
+
+        store
+            .issue("first", "token-first", "2026-08-28")
+            .await
+            .unwrap();
+        store
+            .start_session("cookie", 2_000_000_000, 1_000)
+            .await
+            .unwrap();
+
+        let reopened =
+            TokenStore::with_key_loading(store.path().to_path_buf(), [3u8; KEY_BYTES]).unwrap();
+        assert!(
+            reopened.verify("first", "token-first").await,
+            "the token must survive a session being written after it"
+        );
+        assert!(reopened.session_is_live("cookie", 1_000).await);
+
         std::fs::remove_dir_all(&dir).ok();
     }
 

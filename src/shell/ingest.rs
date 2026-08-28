@@ -99,6 +99,28 @@ impl AppState {
         }
     }
 
+    /// The capture buffer with everything past its TTL already
+    /// dropped.
+    ///
+    /// Every reader must go through this rather than locking
+    /// `captures` directly. Expiry used to be repeated at each call
+    /// site, and the self-updater's "are captures still retained?"
+    /// check was written without it — so a single capture that nobody
+    /// ever looked at again suppressed every update for the life of
+    /// the process, because the TTL only ever ran while someone was
+    /// reading the page.
+    pub async fn captures_after_expiry(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, RingBuffer<CaptureRecord>> {
+        let mut captures = self.captures.lock().await;
+        crate::core::observability::expire_captures(
+            &mut captures,
+            (self.now_unix)(),
+            crate::shell::admin::CAPTURE_TTL_SECS,
+        );
+        captures
+    }
+
     /// Same, but with both clocks pinned — for tests that assert on
     /// timestamps or drive expiry without waiting.
     #[cfg(test)]
@@ -517,5 +539,53 @@ duration_minutes = 60
             json!({}),
         );
         assert_ne!(a.id, b.id);
+    }
+
+    #[tokio::test]
+    async fn a_capture_that_aged_out_no_longer_counts_as_retained() {
+        // AR25 suppresses self-update while captures are retained. The
+        // suppression check used to read the buffer without expiring
+        // it, and expiry only ran while somebody had a capture page
+        // open — so one capture that Kenny looked at once and forgot
+        // stopped every update for the life of the process. Months of
+        // releases, including security fixes, silently never installed.
+        let state = state_with("home-assistant", "tok").await;
+
+        // The pinned clock is 1_787_000_000 and the TTL is an hour, so
+        // this record is two hours old.
+        state.captures.lock().await.push(CaptureRecord {
+            at: "2026-08-28T07:00:00+00:00".to_string(),
+            at_unix: 1_787_000_000 - 7_200,
+            label: "unknown-webhook".to_string(),
+            method: "POST".to_string(),
+            headers: Vec::new(),
+            body: "{}".to_string(),
+            truncated_from_bytes: None,
+        });
+
+        assert!(
+            state.captures_after_expiry().await.is_empty(),
+            "an expired capture must not keep suppressing self-update"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fresh_capture_does_still_count_as_retained() {
+        // The other half: expiry must not throw away a capture Kenny
+        // is actually looking at, or a restart would discard exactly
+        // the requests he is reverse-engineering.
+        let state = state_with("home-assistant", "tok").await;
+
+        state.captures.lock().await.push(CaptureRecord {
+            at: "2026-08-28T08:55:00+00:00".to_string(),
+            at_unix: 1_787_000_000 - 300,
+            label: "unknown-webhook".to_string(),
+            method: "POST".to_string(),
+            headers: Vec::new(),
+            body: "{}".to_string(),
+            truncated_from_bytes: None,
+        });
+
+        assert_eq!(state.captures_after_expiry().await.len(), 1);
     }
 }
