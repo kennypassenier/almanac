@@ -17,15 +17,15 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 6 · Development loop, milestone L0 next |
-| Last completed gate | Phase 5 approval (milestones L0–L5, standing rules 1–20, hooks, placement, backup/restore, AR19 signature amendment) — 2026-08-28 |
-| Next gate | L0 milestone report form |
+| Current phase | 6 · Development loop, milestone L1 in progress |
+| Last completed gate | L0 milestone report approved (walking skeleton, CI green, hooks proven) — 2026-08-28 |
+| Next gate | L1 milestone report form |
 | AFK mode | off |
 
-Per standing rule 19: open the session for L0 and later work **in this
-project directory** (`~/Projects/almanac`), not elsewhere. Known-red
-start: clippy fails on the pre-rewrite code — making CI green is L0's
-exit criterion.
+Per standing rule 19: work happens in a session opened in this project
+directory (`~/Projects/almanac`). L0 is done: renamed to almanac
+throughout, hooks/CI live and proven (a bad commit was physically
+blocked), `src/core`/`src/shell` split in place per AR13.
 
 <!-- Update this block after every completed gate. -->
 
@@ -51,9 +51,12 @@ that integration is dropped, though its event-mapping/upsert pattern
 is kept as the template for Almanac's general mapping-profile design.
 See `docs/SCOPE.md` for the full picture.
 
-## Gates (enforced)
+## Gates (enforced, live since L0)
 
-Commits are blocked by `.claude/hooks/check-commit.sh` unless
-`.claude/hooks/gates.sh` passes and the message carries IDs in
-brackets (`[W12]`, `[L4b]`, `[meta]`). CI re-runs the same gates on
-every push; red blocks merge. (Not yet installed — lands in Phase 5.)
+Commits are blocked by `.githooks/pre-commit` (`core.hooksPath`,
+runs `.claude/hooks/gates.sh`: fmt, clippy -D warnings, tests, AR13
+core/shell boundary check) and `.githooks/commit-msg` (requires
+bracketed IDs, e.g. `[K5]` or `[meta]`) from any session or terminal.
+The Claude Code PreToolUse hook (`.claude/hooks/check-commit.sh`) is a
+second layer. CI re-runs the same gates on every push; branch
+protection on `main` requires the `gates` check.
