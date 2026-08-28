@@ -73,6 +73,17 @@ duration_minutes = 60
     ))
 }
 
+/// State with a capture-only token as well (S2).
+fn state_with_capture_token(
+    dir: &std::path::Path,
+    admin: Option<&str>,
+    capture: &str,
+) -> Arc<AppState> {
+    let state = state(dir, admin);
+    let state = Arc::try_unwrap(state).ok().expect("sole owner");
+    Arc::new(state.with_capture_token(Some(hash_token(capture))))
+}
+
 fn get(uri: &str, token: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder().method("GET").uri(uri);
     if let Some(token) = token {
@@ -337,6 +348,184 @@ async fn dry_run_on_an_unknown_source_says_where_to_look() {
             .unwrap()
             .contains("/v1/debug/status")
     );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+const CAPTURE_TOKEN: &str = "capture-only-token";
+
+#[tokio::test]
+async fn the_capture_token_can_post_a_capture() {
+    // S2: the whole point is that a system you are still investigating
+    // can be given a credential that does this and nothing else.
+    let dir = scratch_dir("capture-token");
+    let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(post(
+            "/v1/debug/capture/unknown-app",
+            Some(CAPTURE_TOKEN),
+            r#"{"hello":"world"}"#,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn the_capture_token_cannot_read_captures_back() {
+    // If it could, handing it to a third party would expose every
+    // other captured payload to that party.
+    let dir = scratch_dir("capture-token-read");
+    let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(get("/v1/debug/capture", Some(CAPTURE_TOKEN)))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn the_capture_token_opens_nothing_else_on_the_admin_surface() {
+    let dir = scratch_dir("capture-token-scope");
+    let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
+
+    for uri in ["/v1/debug/status", "/v1/debug/capture"] {
+        let response = almanac::shell::build_router(Arc::clone(&state))
+            .oneshot(get(uri, Some(CAPTURE_TOKEN)))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{uri} must not accept the capture token"
+        );
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn the_admin_token_still_posts_captures() {
+    // The operator's own credential must not stop working just
+    // because a narrower one now exists.
+    let dir = scratch_dir("capture-admin-still");
+    let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(post("/v1/debug/capture/x", Some(ADMIN_TOKEN), "{}"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn a_wrong_capture_token_is_still_refused() {
+    let dir = scratch_dir("capture-token-wrong");
+    let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(post("/v1/debug/capture/x", Some("not-the-token"), "{}"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn captures_past_the_capacity_drop_the_oldest_through_the_real_endpoints() {
+    // T13: the cap was tested as a pure ring buffer, never through the
+    // wiring. That is exactly the class of bug that let a forgotten
+    // capture disable self-update for months — the function was right,
+    // the place it was called from was not.
+    let dir = scratch_dir("capture-cap");
+    let state = state(&dir, Some(ADMIN_TOKEN));
+
+    for i in 0..105 {
+        almanac::shell::build_router(Arc::clone(&state))
+            .oneshot(post(
+                &format!("/v1/debug/capture/label-{i}"),
+                Some(ADMIN_TOKEN),
+                &format!(r#"{{"n":{i}}}"#),
+            ))
+            .await
+            .unwrap();
+    }
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
+        .await
+        .unwrap();
+    let body = body_json(response).await;
+    let captures = body["captures"].as_array().unwrap();
+
+    assert_eq!(
+        captures.len(),
+        100,
+        "the cap must hold through the endpoints"
+    );
+    assert_eq!(
+        captures[0]["label"], "label-104",
+        "newest first, and the oldest five are gone"
+    );
+    assert!(
+        !captures.iter().any(|c| c["label"] == "label-0"),
+        "the oldest must actually have been dropped"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn every_credential_header_a_webhook_might_send_is_redacted() {
+    // Capturing an unknown webhook means capturing whatever it sends,
+    // including its own credentials. The only test here asserted the
+    // redaction list was lowercase; nothing proved a real credential
+    // header actually gets redacted, or that the check is
+    // case-insensitive against what a real sender writes.
+    let dir = scratch_dir("capture-redact-all");
+    let state = state(&dir, Some(ADMIN_TOKEN));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/debug/capture/x")
+        .header("authorization", format!("Bearer {ADMIN_TOKEN}"))
+        .header("Cookie", "session=super-secret")
+        .header("X-Api-Key", "vendor-api-key-value")
+        .header("Proxy-Authorization", "Basic abc123")
+        .body(Body::from("{}"))
+        .unwrap();
+
+    almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(request)
+        .await
+        .unwrap();
+
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
+        .await
+        .unwrap();
+    let rendered = serde_json::to_string(&body_json(response).await).unwrap();
+
+    for secret in [
+        "super-secret",
+        "vendor-api-key-value",
+        "abc123",
+        ADMIN_TOKEN,
+    ] {
+        assert!(
+            !rendered.contains(secret),
+            "a credential header was stored verbatim: {secret} in {rendered}"
+        );
+    }
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -233,13 +233,32 @@ async fn main() {
         die(e);
     }
 
-    let state = Arc::new(AppState::new(
-        profiles,
-        Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
-        GoogleCalendarClient::new(http.clone(), tokens),
-        bootstrap_token_hash,
-        token_store,
-    ));
+    // S2: a capture-only credential, so learning what an unknown
+    // webhook sends never requires handing that system the token that
+    // also logs into the dashboard.
+    let capture_token_hash = match std::env::var(almanac::shell::admin::CAPTURE_TOKEN_ENV) {
+        Ok(token) if !token.trim().is_empty() => Some(hash_token(token.trim())),
+        _ => {
+            tracing::info!(
+                "{} is not set — posting a capture needs the bootstrap token, which is also the \
+                 dashboard login. Set a capture token before pointing a third-party system at the \
+                 capture endpoint.",
+                almanac::shell::admin::CAPTURE_TOKEN_ENV
+            );
+            None
+        }
+    };
+
+    let state = Arc::new(
+        AppState::new(
+            profiles,
+            Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
+            GoogleCalendarClient::new(http.clone(), tokens),
+            bootstrap_token_hash,
+            token_store,
+        )
+        .with_capture_token(capture_token_hash),
+    );
 
     // Surface a damaged journal before binding rather than letting the
     // worker discover it a few seconds later.

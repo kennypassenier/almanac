@@ -550,3 +550,147 @@ async fn health_still_answers_without_a_session() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn the_endpoints_that_change_something_refuse_without_a_session() {
+    // T9: the read-only pages were swept for this; the two that
+    // mutate were not. A refactor dropping the session check from
+    // revoke would let any device on the LAN cut off every source, and
+    // nothing would go red.
+    let dir = scratch_dir("mutating-no-session");
+    let st = state(&dir);
+
+    for uri in [
+        "/dashboard/sources/home-assistant/issue",
+        "/dashboard/sources/home-assistant/revoke",
+    ] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(post_form(uri, None, ""))
+            .await
+            .unwrap();
+
+        assert_ne!(
+            response.status(),
+            StatusCode::OK,
+            "{uri} must not act without a session"
+        );
+        assert!(
+            response.status() == StatusCode::SEE_OTHER
+                || response.status() == StatusCode::UNAUTHORIZED,
+            "{uri} answered {} without a session",
+            response.status()
+        );
+    }
+
+    // And nothing was actually issued.
+    let cookie = login(&st).await;
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(get(
+            "/dashboard/sources/home-assistant/token",
+            Some(&cookie),
+        ))
+        .await
+        .unwrap();
+    let body = text(response).await;
+    assert!(
+        body.contains("null") || body.contains("\"token\":null") || !body.contains("Bearer"),
+        "an unauthenticated issue must not have created a token: {body}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn a_forged_or_stale_cookie_does_not_open_anything() {
+    let dir = scratch_dir("forged-cookie");
+    let st = state(&dir);
+    let real = login(&st).await;
+
+    // A cookie of the right shape whose value is not a live session.
+    let forged = format!("{}x", real);
+
+    for uri in ["/dashboard", "/dashboard/sources", "/dashboard/captures"] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get(uri, Some(&forged)))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SEE_OTHER,
+            "{uri} accepted a forged cookie"
+        );
+    }
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(get(
+            "/dashboard/sources/home-assistant/token",
+            Some(&forged),
+        ))
+        .await
+        .unwrap();
+    assert_ne!(
+        response.status(),
+        StatusCode::OK,
+        "a forged cookie must not reveal a token"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn the_session_cookie_carries_the_attributes_that_protect_it() {
+    // HttpOnly keeps it out of reach of any script that lands on the
+    // page; SameSite=Strict is what makes the absence of a CSRF token
+    // an accepted trade rather than a hole. Both were set in code and
+    // asserted nowhere, so either could be dropped silently.
+    let dir = scratch_dir("cookie-attrs");
+    let st = state(&dir);
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/login",
+            None,
+            &format!("token={}", urlencode(BOOTSTRAP)),
+        ))
+        .await
+        .unwrap();
+
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_ascii_lowercase();
+
+    assert!(cookie.contains("httponly"), "cookie was {cookie}");
+    assert!(cookie.contains("samesite=strict"), "cookie was {cookie}");
+    assert!(cookie.contains("path=/"), "cookie was {cookie}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn the_root_and_logout_are_safe_without_a_session() {
+    let dir = scratch_dir("root-logout");
+    let st = state(&dir);
+
+    let root = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(get("/", None))
+        .await
+        .unwrap();
+    assert_eq!(
+        root.status(),
+        StatusCode::SEE_OTHER,
+        "/ must send you to login"
+    );
+
+    // Logging out without a session must be harmless, not a 500.
+    let logout = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form("/logout", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::SEE_OTHER);
+
+    std::fs::remove_dir_all(&dir).ok();
+}

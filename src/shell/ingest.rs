@@ -54,6 +54,10 @@ pub struct AppState {
     /// (AR17 as amended). `None` when unset, in which case the admin
     /// surface refuses everything rather than opening up.
     pub bootstrap_token_hash: Option<String>,
+    /// SHA-256 of the capture-only token (S2). `None` when unset, in
+    /// which case posting a capture needs the bootstrap token — the
+    /// old behaviour, kept so an existing deployment does not break.
+    pub capture_token_hash: Option<String>,
     /// Recent delivery routes, for the K11 debug surface.
     pub routes: Mutex<RingBuffer<RouteRecord>>,
     /// Verbatim captured requests, for the M11 capture surface.
@@ -94,6 +98,7 @@ impl AppState {
                     .unwrap_or(0)
             }),
             bootstrap_token_hash,
+            capture_token_hash: None,
             routes: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
             captures: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
         }
@@ -119,6 +124,15 @@ impl AppState {
             crate::shell::admin::CAPTURE_TTL_SECS,
         );
         captures
+    }
+
+    /// Sets the capture-only token (S2). A builder method rather than
+    /// another constructor argument: only `main` supplies it, and
+    /// reading the environment from inside the constructor would give
+    /// every test an invisible dependency on ambient state.
+    pub fn with_capture_token(mut self, hash: Option<String>) -> Self {
+        self.capture_token_hash = hash;
+        self
     }
 
     /// Same, but with both clocks pinned — for tests that assert on

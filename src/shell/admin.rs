@@ -26,6 +26,21 @@ use crate::shell::ingest::AppState;
 /// (fail-closed, standing rule 12).
 pub const BOOTSTRAP_TOKEN_ENV: &str = "ALMANAC_BOOTSTRAP_TOKEN";
 
+/// Environment variable holding a capture-only token (S2).
+///
+/// The capture endpoint is the one debug surface a *foreign* system is
+/// meant to call: M11 exists to learn what an undocumented webhook
+/// sends, which means configuring that webhook to post here. Guarding
+/// it with the bootstrap token meant the only way to make that work
+/// was to paste the credential that also logs into the dashboard and
+/// reveals every source's plaintext token into a third-party config
+/// store — defeating the encrypted token store end to end.
+///
+/// This token authorizes exactly one thing: posting a capture. It
+/// cannot log in, cannot read captures back, cannot issue or revoke,
+/// and can be rotated without touching anything else.
+pub const CAPTURE_TOKEN_ENV: &str = "ALMANAC_CAPTURE_TOKEN";
+
 /// Bodies larger than this are stored cut, with the original size
 /// reported (M11).
 const MAX_CAPTURE_BODY_BYTES: usize = 64 * 1024;
@@ -79,6 +94,37 @@ fn authorize_admin(state: &AppState, headers: &HeaderMap) -> Result<(), Reply> {
             "send the bootstrap token as `Authorization: Bearer <token>`",
         )),
     }
+}
+
+/// Checks the request against the capture-only token, falling back to
+/// the admin token.
+///
+/// Both are accepted deliberately: the operator's own token should not
+/// stop working, and the point of the capture token is that a foreign
+/// system can be given *only* that one. What must never happen is the
+/// reverse — a capture token opening anything else — and it cannot,
+/// because nothing else consults it.
+fn authorize_capture(state: &AppState, headers: &HeaderMap) -> Result<(), Reply> {
+    let presented = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_bearer);
+
+    if let (Some(token), Some(expected)) = (presented, &state.capture_token_hash)
+        && verify_token(token, expected)
+    {
+        return Ok(());
+    }
+
+    authorize_admin(state, headers).map_err(|_| {
+        error(
+            StatusCode::UNAUTHORIZED,
+            "invalid or missing capture token",
+            "send ALMANAC_CAPTURE_TOKEN (or the bootstrap token) as `Authorization: Bearer \
+             <token>`; the capture token is the one to give a system you are still investigating, \
+             because it cannot do anything else",
+        )
+    })
 }
 
 /// `GET /healthz` (M1) — deliberately unauthenticated and dependency-
@@ -142,18 +188,17 @@ async fn debug_status(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 /// verbatim, interprets nothing. Point an undocumented webhook here to
 /// learn its real shape before writing a profile for it.
 ///
-/// Guarded by the bootstrap token, which is also the dashboard login
-/// and can reveal every source's token — so configuring a foreign
-/// system to call this means handing that system the master
-/// credential. The captures page now says so. Splitting out a
-/// capture-only credential is open for decision.
+/// Guarded by `ALMANAC_CAPTURE_TOKEN` (S2), which authorizes this and
+/// nothing else, so a system you are still investigating can be given
+/// a credential that cannot log in or reveal anything. The bootstrap
+/// token also works, for the operator's own use.
 async fn capture_post(
     State(state): State<Arc<AppState>>,
     Path(label): Path<String>,
     headers: HeaderMap,
     body: String,
 ) -> Reply {
-    if let Err(reply) = authorize_admin(&state, &headers) {
+    if let Err(reply) = authorize_capture(&state, &headers) {
         return reply;
     }
 
