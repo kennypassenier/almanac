@@ -39,17 +39,18 @@ from here on. Changes after the freeze go through a mini-round only
 | M7 | Idempotency-key support for sources/payloads without a natural external ID (fills the gap K2's upsert leaves for ad-hoc, ID-less calls) | Essential | Test sending the same call with the same idempotency key twice, asserting one event results. |
 | M8 | One coherent versioning/tagging scheme; Docker image tagged to match the git version (fixes the current drift between manual and CI auto-tagging, and `:latest`-only image pushes) | Essential | CI check asserting the pushed image tag exactly matches the git tag from the same run. |
 | M9 | Dry-run/validation tool for a mapping profile — shows the `GoogleEvent` a profile+sample payload would produce, without writing to Google | Desired | Test feeding a profile + sample payload, asserting the expected (unsent) `GoogleEvent` structure comes back. |
+| M11 | Raw request capture — a debug endpoint that accepts any inbound request, stores it verbatim (headers + full body, in memory, capped and expiring), and hands it back on request, so an undocumented webhook's real shape can be observed before a mapping profile is written for it | Essential | Test posting an arbitrary payload to the capture endpoint and reading back the exact headers and body; test that the cap and expiry both hold. *(Added 2026-08-28 via mini-round during L2 — see amendment note below.)* |
 | M10 | Full self-update — the running service checks for, verifies (checksum manifest), and applies new versions itself; keeps the previous binary, verify-before-replace, clean handover of port and in-flight requests | Essential | E2E test against a local mock release: old binary updates to new, health endpoint answers throughout minus the swap window, rollback works when the new binary fails verification. *(Added 2026-08-28 via mini-round during Phase 4 — see amendment note below.)* |
 
 ## Tally
 
 | Rating | Count | IDs |
 |---|---|---|
-| Essential | 18 | K1–K9, K11–K13 (12), M2, M3, M4, M7, M8, M10 (6) |
+| Essential | 19 | K1–K9, K11–K13 (12), M2, M3, M4, M7, M8, M10, M11 (7) |
 | Desired | 3 | M1, M6, M9 |
 | Later | 2 | K10, M5 |
 | Don't do | 0 | — |
-| **Total** | **23** | |
+| **Total** | **24** | |
 
 No items were flagged as missing in either round; both open-items fields
 were left blank.
@@ -69,3 +70,13 @@ built work: none (nothing built yet); consequences for planning: the
 release flow must produce a checksum manifest before M10 can be built,
 and M10's design is coupled to M2 (graceful shutdown) and AR16 (journal
 buffers during the swap) — see `ARCHITECTURE_DECISIONS.md` AR19.
+
+**Amendment 2026-08-28 (mini-round, during the L2 report):** Kenny
+raised that many apps ship webhooks without documenting their payload
+shape, so writing a mapping profile for one means guessing. A
+mini-round added **M11 · Raw request capture**, which he rated
+**Essential**. It is distinct from K11 (which shows what happened
+*after* an existing profile processed an event): M11 captures verbatim
+what arrived *before* any profile exists for that source. Consequences
+for built work: none; planned into L4 alongside K11, with which it
+shares the admin-token surface.

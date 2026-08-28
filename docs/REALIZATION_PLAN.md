@@ -11,9 +11,9 @@ decisions below the milestone table).
 |---|---|---|
 | L0 · Walking skeleton & hygiene | [meta], K13 | **done**, report approved 2026-08-28 — CI run https://github.com/kennypassenier/almanac/actions/runs/33173304996 |
 | L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | **code done**, report approved 2026-08-28 (CI https://github.com/kennypassenier/almanac/actions/runs/33174789576) — E2E round-trip still `#[ignore]`d pending `ALMANAC_TEST_CALENDAR_ID` + credentials in Latch; `examples/create_test_calendar.rs` provisions the scratch calendar itself, no manual step |
-| L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | not started |
+| L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | **done**, report approved 2026-08-28 — CI https://github.com/kennypassenier/almanac/actions/runs/33177366789. M7 is a deliberate, ratified partial (schema support only; the HTTP-layer idempotency-key mechanism needs L3's ingest endpoint) |
 | L3 · Durable ingest & access | K6, K7, K8, M2 (AR16, AR17) | not started |
-| L4 · Sources & visibility | K9, K11, M1, M9 | not started |
+| L4 · Sources & visibility | K9, K11, M1, M9, M11 | not started |
 | L5 · Release, deployment & self-update | M8, M10 (AR19) | not started |
 
 Deferred (rated Later, not planned into a milestone): K10 (Super
@@ -67,11 +67,16 @@ green.
 
 ### L4 · Sources & visibility
 K9 alert sources (Uptime Kuma + Grafana webhooks → infra calendar);
-K11 debug/introspection surface behind a separate admin token; M1
-health endpoint (no auth, reachable both via Traefik and directly);
-M9 dry-run tool.
+K11 debug/introspection surface behind a separate admin token; M11 raw
+request capture on the same admin surface (accepts any inbound request,
+stores headers + body verbatim in memory, capped and expiring, so an
+undocumented webhook's real shape can be observed before writing a
+profile for it); M1 health endpoint (no auth, reachable both via
+Traefik and directly); M9 dry-run tool.
 **Exit criteria:** both alert payloads E2E green; debug query shows a
-processed event's full route (in → profile → Google); health reachable
+processed event's full route (in → profile → Google); a captured raw
+request reads back byte-identical, with cap and expiry both proven;
+health reachable
 without token; dry-run yields the expected event without a Google
 call.
 

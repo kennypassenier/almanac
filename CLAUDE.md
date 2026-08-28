@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 6 · Development loop, milestone L1 in progress |
-| Last completed gate | L0 milestone report approved (walking skeleton, CI green, hooks proven) — 2026-08-28 |
-| Next gate | L1 milestone report form |
+| Current phase | 6 · Development loop, milestone L3 next |
+| Last completed gate | L2 milestone report approved (profiles, mapping, upsert decision, fixtures) — 2026-08-28 |
+| Next gate | L3 milestone report form |
 | AFK mode | off |
 
 Per standing rule 19: work happens in a session opened in this project
@@ -35,7 +35,7 @@ blocked), `src/core`/`src/shell` split in place per AR13.
 |---|---|
 | docs/SCOPE.md | goals, non-goals, success criteria, constraints (Phase 0) — done |
 | docs/INVENTORY.md | existing cal-stacean behaviour, brownfield sweep (Phase 1) — done, 268 lines, 19 defects logged |
-| docs/FEATURES.md | rated feature list with permanent IDs (Phase 2) — done, frozen, 22 features |
+| docs/FEATURES.md | rated feature list with permanent IDs (Phase 2) — done, frozen, 24 features (M10, M11 added via mini-rounds) |
 | docs/ARCHITECTURE_DECISIONS.md | frozen AR decisions incl. tech choice (Phases 3-4) — done, AR1–AR19 frozen |
 | docs/REALIZATION_PLAN.md | milestones + status table (Phase 5) — done, L0–L5 approved |
 | docs/TEST_PLAN.md | what is proven where + accepted limitations (Phase 7) |
