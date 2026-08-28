@@ -6,23 +6,25 @@ quarantined here rather than silently built. **This file is the first
 thing to present when he returns.**
 
 Session started AFK: 2026-08-28, after the L5 Latch decisions.
+**Closed 2026-08-28**: Kenny returned and approved all twelve report
+items. No deviation was ever needed — nothing was quarantined, and the
+one blocking discovery (a missing secret) was raised as a choice rather
+than acted on.
 
 ## Pending mini-rounds
 
-_none yet_
+_none — no frozen decision had to be reopened._
 
-## Needs one action from Kenny before Almanac can run anywhere
+## Resolved on Kenny's return
 
-- **`ALMANAC_SECRET_KEY` is not in Latch.** Found by running `--check`
-  against the real secrets: Latch supplies the three Google values but
-  not the key that encrypts the per-source tokens, so the service
-  cannot start. It is a fresh random value, not a recovered one:
-
-      latch set ALMANAC_SECRET_KEY "$(openssl rand -hex 32)"
-
-  Deliberately not done here even though it is a single command — it
-  mints a production secret that must then stay stable forever, and
-  minting it is part of the rollout Kenny gated.
+- **`ALMANAC_SECRET_KEY` was missing from Latch**, found by running
+  `--check` against the real secrets: Latch held the three Google values
+  but not the key that encrypts the per-source tokens, so the service
+  could not have started anywhere. Kenny chose "do it now" (report item
+  L5-11); the key was generated, committed and pushed to Latch, and
+  `latch run -- almanac --check` now answers `ok` with no inline
+  overrides. The value must stay stable from here — changing it makes
+  every issued token unreadable.
 
 ## Deliberately not done (needs Kenny)
 

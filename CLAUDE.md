@@ -17,10 +17,11 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 6 · Development loop, milestone L5 (release & deployment) |
-| Last completed gate | L4b milestone report approved (dashboard, encrypted token store) — 2026-08-28 |
-| Next gate | L5 milestone report form |
-| AFK mode | **on** since 2026-08-28 — build everything that needs no input; queue deviations as mini-rounds; deployment waits for Kenny |
+| Current phase | 6 · Development loop **complete** (L0–L5 all approved) |
+| Last completed gate | L5 milestone report approved (version scheme, signed releases, self-update) — 2026-08-28 |
+| Next gate | Phase 7 hardening, or the deployment — Kenny's call |
+| AFK mode | off since 2026-08-28 |
+| Open, gated on Kenny | the rollout itself (D9: go per action), generating the minisign release key, and the two manual Home Assistant steps |
 
 Per standing rule 19: work happens in a session opened in this project
 directory (`~/Projects/almanac`). L0 is done: renamed to almanac
