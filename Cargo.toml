@@ -33,8 +33,16 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
 ] }
 
-# L1 (AR6): RS256 JWT signing for the Google service-account OAuth2 flow.
-jsonwebtoken = "9"
+# L1 (AR6): RS256 JWT signing for the Google service-account OAuth2
+# flow. Pinned >=10.3.0: GHSA-h395-gr6q-cpjc (type confusion in claim
+# validation, affects decode()) — Almanac only ever calls encode() on
+# its own outgoing JWTs and never decodes anyone else's, so the
+# vulnerable path isn't reachable either way, but there's no reason to
+# carry a flagged version when the fix is a plain bump.
+jsonwebtoken = { version = "10", default-features = false, features = [
+    "rust_crypto",
+    "use_pem",
+] }
 
 # L1: RFC3339 timestamps for JWT iat/exp claims and event start/end.
 chrono = { version = "0.4", features = ["serde"] }
