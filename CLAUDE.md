@@ -20,7 +20,7 @@ Phase 5.)
 | Current phase | 6 · Development loop, milestone L5 (release & deployment) |
 | Last completed gate | L4b milestone report approved (dashboard, encrypted token store) — 2026-08-28 |
 | Next gate | L5 milestone report form |
-| AFK mode | off |
+| AFK mode | **on** since 2026-08-28 — build everything that needs no input; queue deviations as mini-rounds; deployment waits for Kenny |
 
 Per standing rule 19: work happens in a session opened in this project
 directory (`~/Projects/almanac`). L0 is done: renamed to almanac
