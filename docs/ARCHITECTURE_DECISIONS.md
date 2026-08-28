@@ -107,3 +107,37 @@ been deployed, so there is nothing in the field to migrate, and
 bumping the version would imply a compatibility story that does not
 exist. `core::token`'s hashing and constant-time comparison are
 unaffected and stay as they are.
+
+## Pre-L5 critic re-run (2026-08-28)
+
+PROCEDURE mandates a fresh `architecture-critic` pass before any phase
+touching real systems; L5 is the first production rollout. The re-run
+found four blocking and seven serious objections. Kenny's decisions:
+
+| ID | Objection | Decision |
+|---|---|---|
+| AR20 | **Self-update and Docker are structurally incompatible.** A container's filesystem is its writable layer, so a self-replaced binary is silently discarded on the next container recreation — and the service then updates itself again, forever, with every diagnosis starting from the wrong version. | **systemd on the LXC running a bare binary**, so M10's self-update is real. The compose file and homelab-v2 preset ship alongside it for the future migration Kenny requires; in that mode self-update disables itself and homelab v2 owns updates. Both exist, and which one is active decides who updates. |
+| AR21 | **Fail-fast at startup defeats SCOPE criterion 3.** After a power cut the LXC can start Almanac before the network settles; the first Google token fetch fails, the process exits, and systemd's default start limit parks the unit in `failed` permanently. Nobody notices for days. | **Distinguish a broken key from an unreachable Google.** A malformed key still exits immediately (it never fixes itself); a transient failure retries with backoff. The systemd unit carries no start limit, and Uptime Kuma watches `/healthz` so a wedged unit is visible rather than silent. |
+| AR22 | **Two processes on one journal during the update handover.** The AR16 per-key lock is in-process; a new process draining the same journal the old one is mid-delivering produces exactly the duplicates the journal exists to prevent, and a concurrent compaction can discard done-markers so delivered entries replay. | **An OS-level lock on the data directory**, plus a `--check` mode so a new binary can prove it starts without claiming the port the old one still holds. |
+| AR23 | **Nothing runs the previous binary when the new one starts and then dies.** Verify-before-replace covers a bad signature, not a config the new version needs and Latch does not yet have. | **Automatic revert**: after the swap the updater probes health and puts the previous binary back if it does not answer, with a notification — a reverted update must not be a silent event. |
+| AR24 | **No story for signing-key loss or rotation.** The public key is compiled in, so a lost key permanently blocks updates on every installed binary. | **One key, as Latch does** (its `OPERATIONS_RUNBOOK.md` R11). Claude initially recommended baking in a spare; Kenny pushed back that both would live in the same vault, so a spare protects against rotation, not loss — and rotation only matters across many machines. There is one. The recovery path (regenerate, rebuild, place the binary by hand once) goes in the runbook, and repeated verification failure raises a notification, because today it would fail silently. |
+| AR25 | **Sessions, captures and routes are in memory, so every update logs Kenny out** — sharpest for M11, which is used precisely while reverse-engineering an unknown webhook. | **Sessions move into the encrypted store** so they survive updates and restarts while logout stays a real server-side revocation. Self-update is suppressed while captures are still retained. |
+| AR26 | **A long Google outage degrades badly unattended.** The worker never compacts during an outage while re-reading and re-attempting the whole journal every 5s, and hitting the size cap turns into lost events once HA's retry script gives up. | **Back off as failure persists**, and warn through the notification system well before the hard cap — intervene before loss, not after. |
+
+Deferred: the critic's objection about Latch on a headless LXC (an
+unattended restart needs the credential that opens the store to live on
+the machine, which vzdump then backs up beside the values it protects).
+Kenny is evaluating that with the Latch project before deciding, since
+the gap is on Latch's side of the contract rather than Almanac's.
+
+Also accepted without needing a decision: the version number has no
+single source (the binary says 0.1.0, the only tag is v0.0.1, and
+`make tag-minor` never touches Cargo.toml) so an updater has nothing
+to compare against; the Dockerfile as committed cannot run Almanac
+(no WORKDIR, no volume, and it still copies a `config.toml` nothing
+reads which names Kenny's personal calendar); and neither `compact()`
+nor the token store fsyncs the parent directory after its atomic
+rename, so a real power cut can lose the rename. All are fixed in L5,
+and a genuine reboot drill on the throwaway LXC is added — the
+existing power-loss drill simulates the crash in userspace and no real
+power cut has ever been exercised.
