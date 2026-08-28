@@ -6,8 +6,8 @@ target/
 .env
 .env.example
 
-# Exclude the project-root binary produced by 'make build'.
-cal-stacean
+# Exclude a stray project-root binary, should one ever exist.
+almanac
 
 # Exclude version control metadata.
 .git/

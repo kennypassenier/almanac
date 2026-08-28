@@ -1,11 +1,11 @@
 # =============================================================================
-# Dockerfile — cal-stacean
+# Dockerfile — almanac
 # Multi-stage build: compile in a full Rust toolchain image, then copy only
 # the statically-linked binary and the required runtime libraries into a
 # minimal Debian bookworm-slim image for production deployment.
 #
 # Build command (run from the project root):
-#   docker build -t ghcr.io/<gh-username>/cal-stacean:latest .
+#   docker build -t ghcr.io/<gh-username>/almanac:latest .
 #
 # Stage layout:
 #   builder  — rust:slim    — compiles the release binary
@@ -17,21 +17,11 @@
 # Stage 1 — Builder
 #
 # Uses the official Rust slim image which includes cargo, rustc, and the
-# standard library.  pkg-config and libssl-dev are required at compile time
-# because reqwest links against OpenSSL (or its dev headers) during the build.
-# The compiled binary is placed at /app/target/release/cal-stacean.
+# standard library. No OpenSSL dev headers needed: reqwest (from L1
+# onward) is configured with rustls-tls, not the system OpenSSL (AR5/AR6).
+# The compiled binary is placed at /app/target/release/almanac.
 # -----------------------------------------------------------------------------
 FROM rust:1.88-slim AS builder
-
-# Install compile-time dependencies.
-# - pkg-config   : allows the build system to locate system libraries
-# - libssl-dev   : OpenSSL development headers required by reqwest
-# The apt cache is removed in the same layer to keep the builder stage lean.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory for all subsequent COPY and RUN instructions.
 WORKDIR /app
@@ -57,9 +47,8 @@ RUN cargo build --release --locked
 # Runtime dependency rationale:
 # - ca-certificates  : provides the system CA bundle so that outbound HTTPS
 #                      requests to Google APIs (OAuth2 token endpoint, Calendar
-#                      API) can be verified against a trusted root CA.
-# - libssl3          : the OpenSSL shared library required at runtime by the
-#                      reqwest TLS backend (dynamically linked in the binary).
+#                      API) can be verified against a trusted root CA. rustls
+#                      (AR5/AR6) needs the bundle but not libssl3 itself.
 # -----------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
@@ -67,30 +56,29 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a dedicated directory for application configuration.
 # Keeping configuration separate from the binary makes it straightforward to
 # override config.toml at runtime via a bind-mount or Kubernetes ConfigMap
 # without rebuilding the image.
-RUN mkdir -p /etc/cal-stacean
+RUN mkdir -p /etc/almanac
 
 # Copy the compiled release binary from the builder stage.
 # The binary is placed on the standard system PATH so it can be invoked
 # without an explicit path prefix.
-COPY --from=builder /app/target/release/cal-stacean /usr/local/bin/cal-stacean
+COPY --from=builder /app/target/release/almanac /usr/local/bin/almanac
 
 # Copy the application configuration into the well-known config directory.
 # This bakes a default configuration into the image.  Operators can override
 # it at runtime by mounting an alternative config.toml at the same path.
-COPY config.toml /etc/cal-stacean/config.toml
+COPY config.toml /etc/almanac/config.toml
 
 # Tell the application where to find its configuration file at runtime.
 # The binary reads config.toml from the current working directory by default;
 # this variable can be used to point it at the /etc path instead if the
 # application is updated to honour CONFIG_PATH.
-ENV CONFIG_PATH=/etc/cal-stacean/config.toml
+ENV CONFIG_PATH=/etc/almanac/config.toml
 
 # Expose the port the Axum server listens on.
 # This is documentation only; actual port binding is done at container run
@@ -100,4 +88,4 @@ EXPOSE 8080
 # Set the default command to run the daemon.
 # Using CMD (rather than ENTRYPOINT) allows the command to be overridden
 # easily when running the container for debugging or one-off tasks.
-CMD ["/usr/local/bin/cal-stacean"]
+CMD ["/usr/local/bin/almanac"]

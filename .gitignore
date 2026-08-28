@@ -1,8 +1,17 @@
-# Secrets and environment files
+# Secrets and environment files — AR8: Latch injects secrets into the
+# process directly (`latch run --`), so no .env file should ever exist
+# on disk, but this stays as a safety net.
 .env
 .env.local
 
-# Rust build artifacts
+# Rust build artifacts. Cargo.lock is intentionally NOT ignored: this is
+# a binary application, not a library, and Dockerfile builds with
+# --locked for reproducibility (standing rule 9) — that requires a
+# committed, in-sync lockfile.
 /target
 **/*.rs.bk
-Cargo.lock
+
+# Defense in depth against BUILD-5 (INVENTORY.md): a compiled binary at
+# the repo root should never be tracked again.
+/almanac
+/cal-stacean
