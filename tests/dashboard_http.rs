@@ -63,12 +63,17 @@ fn state(dir: &std::path::Path) -> Arc<AppState> {
         },
     );
 
+    // Loads whatever is already on disk, so a second call to state()
+    // stands in for the process coming back after a restart.
+    let store =
+        TokenStore::with_key_loading(dir.join("tokens.json"), [5u8; 32]).expect("read the store");
+
     Arc::new(AppState::new(
         profiles,
         Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
         GoogleCalendarClient::new(http, tokens),
         Some(hash_token(BOOTSTRAP)),
-        TokenStore::with_key(dir.join("tokens.json"), [5u8; 32]),
+        store,
     ))
 }
 
@@ -396,6 +401,60 @@ async fn the_reveal_endpoint_returns_the_real_token_to_a_logged_in_operator() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text(response).await.contains("tok-abc"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn a_session_survives_a_restart_or_a_self_update() {
+    // AR25: sessions live in the encrypted store, so replacing the
+    // running binary does not log Kenny out — his complaint that
+    // "every update logs you out" is what drove this.
+    let dir = scratch_dir("session-survives");
+    let st = state(&dir);
+    let cookie = login(&st).await;
+
+    // A fresh AppState over the same store directory stands in for
+    // the process that comes back after the update.
+    let restarted = state(&dir);
+    let response = almanac::shell::build_router(Arc::clone(&restarted))
+        .oneshot(get("/dashboard", Some(&cookie)))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "the cookie from before the restart must still be accepted"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn logging_out_still_really_revokes_across_a_restart() {
+    // The property a self-validating cookie could not offer: after
+    // logout the cookie is dead even for a process that starts later.
+    let dir = scratch_dir("logout-survives");
+    let st = state(&dir);
+    let cookie = login(&st).await;
+
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form("/logout", Some(&cookie), ""))
+        .await
+        .unwrap();
+
+    let restarted = state(&dir);
+    let response = almanac::shell::build_router(Arc::clone(&restarted))
+        .oneshot(get("/dashboard", Some(&cookie)))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::SEE_OTHER,
+        "a logged-out cookie must not come back to life on restart"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

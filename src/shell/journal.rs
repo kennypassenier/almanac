@@ -45,6 +45,10 @@ impl Journal {
         &self.path
     }
 
+    pub fn max_bytes(&self) -> u64 {
+        self.max_bytes
+    }
+
     /// Appends one record and fsyncs it. Returns only once the bytes
     /// are durably on disk — the caller may not acknowledge the source
     /// before this resolves.

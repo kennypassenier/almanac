@@ -75,6 +75,7 @@ chacha20poly1305 = { version = "0.11", default-features = false, features = [
     "getrandom",
 ] }
 hex = "0.4"
+libc = "0.2.189"
 
 # L3: drive the Axum router directly in tests, so the ingest surface
 # (auth, status codes, journalling) is exercised as real HTTP without

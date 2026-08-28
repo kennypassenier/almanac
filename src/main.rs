@@ -14,6 +14,7 @@ use almanac::shell;
 use almanac::shell::admin::BOOTSTRAP_TOKEN_ENV;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
+use almanac::shell::datadir::DataDirLock;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use almanac::shell::token_store::TokenStore;
@@ -23,6 +24,12 @@ use tracing_subscriber::EnvFilter;
 const DEFAULT_PROFILES_DIR: &str = "profiles";
 const DEFAULT_JOURNAL_PATH: &str = "data/journal.jsonl";
 const DEFAULT_TOKEN_STORE: &str = "data/tokens.json";
+const DEFAULT_DATA_DIR: &str = "data";
+
+/// Backoff between startup authentication attempts, in seconds; the
+/// last value repeats. Never gives up: a wedged unit that nobody
+/// restarts is worse than one that keeps trying quietly (AR21).
+const STARTUP_RETRY_WAITS: [u64; 5] = [2, 5, 15, 60, 300];
 const BIND_ADDRESS: &str = "0.0.0.0:8080";
 
 fn die(e: impl std::fmt::Display) -> ! {
@@ -72,13 +79,34 @@ async fn main() {
     let http = reqwest::Client::new();
     let tokens = TokenManager::new(http.clone(), credentials);
 
-    // Fail fast: prove the credentials actually work now, rather than
-    // starting a server that can only discover a broken key on its
-    // first real request.
-    if let Err(e) = tokens.token().await {
-        die(e);
+    // AR21: distinguish a broken key from an unreachable Google. A
+    // malformed key never fixes itself, so exit. A transient failure —
+    // which is exactly what a power cut produces, when the LXC starts
+    // Almanac before the network settles — must not park the unit in
+    // `failed` forever with nobody watching. Keep trying instead.
+    let mut attempt = 0u32;
+    loop {
+        match tokens.token().await {
+            Ok(_) => {
+                tracing::info!("authenticated against Google");
+                break;
+            }
+            Err(e) if !e.is_transient() => die(e),
+            Err(e) => {
+                attempt += 1;
+                let wait =
+                    STARTUP_RETRY_WAITS[(attempt as usize - 1).min(STARTUP_RETRY_WAITS.len() - 1)];
+                tracing::warn!(
+                    attempt,
+                    wait_seconds = wait,
+                    error = %e,
+                    "could not reach Google yet; retrying — the service stays up and the journal \
+                     accepts events meanwhile"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+        }
     }
-    tracing::info!("authenticated against Google");
 
     let journal_path = PathBuf::from(
         std::env::var("ALMANAC_JOURNAL").unwrap_or_else(|_| DEFAULT_JOURNAL_PATH.to_string()),
@@ -94,6 +122,17 @@ async fn main() {
             );
             None
         }
+    };
+
+    // AR22: take the data-directory lock before anything reads or
+    // writes the journal, so a self-update handover cannot run two
+    // workers over one journal.
+    let data_dir = PathBuf::from(
+        std::env::var("ALMANAC_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()),
+    );
+    let _data_lock = match DataDirLock::acquire(&data_dir) {
+        Ok(lock) => lock,
+        Err(e) => die(e),
     };
 
     // The encrypted token store is the only authority on who may post

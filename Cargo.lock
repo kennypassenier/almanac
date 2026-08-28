@@ -33,6 +33,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "jsonwebtoken",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",

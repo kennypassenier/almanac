@@ -30,7 +30,6 @@ use crate::core::observability::{CaptureRecord, RingBuffer, RouteRecord};
 use crate::core::profile::Profile;
 use crate::core::token::parse_bearer;
 use crate::shell::calendar_client::GoogleCalendarClient;
-use crate::shell::dashboard::Session;
 use crate::shell::delivery::{KeyLocks, deliver};
 use crate::shell::journal::Journal;
 use crate::shell::token_store::TokenStore;
@@ -62,10 +61,6 @@ pub struct AppState {
     /// Encrypted per-source tokens (M12/AR17) — the single source of
     /// truth for who may post, replacing the profile's `token_hash`.
     pub tokens: TokenStore,
-    /// Live dashboard sessions, keyed by cookie value. In memory only:
-    /// a restart logs the operator out, which is the right trade for a
-    /// LAN tool behind a token.
-    pub sessions: Mutex<HashMap<String, Session>>,
 }
 
 /// How many recent routes and captures to keep. Enough to debug what
@@ -90,7 +85,6 @@ impl AppState {
             journal,
             client,
             tokens,
-            sessions: Mutex::new(HashMap::new()),
             locks: KeyLocks::new(),
             now: Box::new(|| chrono::Utc::now().to_rfc3339()),
             now_unix: Box::new(|| {

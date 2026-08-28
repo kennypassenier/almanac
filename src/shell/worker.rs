@@ -17,8 +17,20 @@ use tokio::sync::watch;
 use crate::core::observability::{RouteOutcome, RouteRecord};
 use crate::shell::ingest::AppState;
 
-/// How often to look for work the asynchronous ingest path accepted.
+/// How often to look for work the asynchronous ingest path accepted
+/// while deliveries are succeeding.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// AR26: when deliveries keep failing, back off instead of re-reading
+/// and re-attempting the whole journal every five seconds. A long
+/// Google outage otherwise means constant CPU and a request storm on
+/// an unattended box. The last value repeats.
+const FAILURE_BACKOFF_SECS: [u64; 5] = [15, 60, 300, 900, 1800];
+
+/// Warn once the journal passes this share of its cap, so there is
+/// time to intervene before ingest starts refusing events and the
+/// sources' own retries give up (AR26).
+const JOURNAL_WARN_FRACTION: f64 = 0.5;
 
 /// Compact once the log has grown past this many delivered records,
 /// so a long-running process does not accumulate an unbounded file of
@@ -55,26 +67,46 @@ pub async fn record_route(
     });
 }
 
+/// What one drain pass did, so the loop can decide how long to wait
+/// before the next one.
+pub struct DrainOutcome {
+    pub delivered: usize,
+    pub failed: usize,
+}
+
 /// Delivers every currently-pending entry once. Returns how many were
 /// delivered. Never returns an error: one entry's failure must not
 /// stop the others, and a failed entry stays pending for the next
 /// pass.
 pub async fn drain_once(state: &AppState) -> usize {
+    drain_once_detailed(state).await.delivered
+}
+
+/// As [`drain_once`], but also reports failures so the caller can back
+/// off while an outage lasts.
+pub async fn drain_once_detailed(state: &AppState) -> DrainOutcome {
     let pending = match state.journal.pending() {
         Ok(pending) => pending,
         Err(e) => {
             tracing::error!(error = %e, remedy = %e.remedy(), "cannot read the journal");
-            return 0;
+            return DrainOutcome {
+                delivered: 0,
+                failed: 1,
+            };
         }
     };
 
     if pending.is_empty() {
-        return 0;
+        return DrainOutcome {
+            delivered: 0,
+            failed: 0,
+        };
     }
 
     tracing::info!(count = pending.len(), "delivering pending journal entries");
 
     let mut delivered = 0;
+    let mut failed = 0;
     for entry in pending {
         let Some(profile) = state.profiles.get(&entry.source_id) else {
             // The profile that accepted this payload is gone. Leaving
@@ -86,6 +118,7 @@ pub async fn drain_once(state: &AppState) -> usize {
                 "journal entry names a source with no profile — restore the profile or move the \
                  journal aside; this entry cannot be delivered and will be retried indefinitely"
             );
+            failed += 1;
             continue;
         };
 
@@ -114,11 +147,30 @@ pub async fn drain_once(state: &AppState) -> usize {
                     entry_id = %entry.id, error = %e, remedy = %e.remedy(),
                     "delivery failed; entry stays pending for the next pass"
                 );
+                failed += 1;
             }
         }
     }
 
-    delivered
+    DrainOutcome { delivered, failed }
+}
+
+/// Warns when the journal is filling up, so the operator can act
+/// before ingest starts refusing events (AR26).
+async fn warn_if_journal_filling(state: &AppState) {
+    let Ok(size) = std::fs::metadata(state.journal.path()).map(|m| m.len()) else {
+        return;
+    };
+    let cap = state.journal.max_bytes();
+    if (size as f64) < cap as f64 * JOURNAL_WARN_FRACTION {
+        return;
+    }
+    tracing::warn!(
+        bytes = size,
+        cap,
+        "the journal is over half its cap — deliveries have been failing long enough to build a \
+         backlog; check the delivery errors before it fills and ingest starts refusing events"
+    );
 }
 
 /// Runs the loop until `shutdown` flips. On exit it drains once more,
@@ -133,12 +185,36 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>) {
     }
 
     let mut since_compaction = replayed;
+    let mut consecutive_failures = 0usize;
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
 
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                since_compaction += drain_once(&state).await;
+                let outcome = drain_once_detailed(&state).await;
+                since_compaction += outcome.delivered;
+
+                // AR26: slow down while an outage lasts, speed back up
+                // the moment anything gets through.
+                if outcome.failed > 0 && outcome.delivered == 0 {
+                    let wait = FAILURE_BACKOFF_SECS
+                        [consecutive_failures.min(FAILURE_BACKOFF_SECS.len() - 1)];
+                    consecutive_failures += 1;
+                    warn_if_journal_filling(&state).await;
+                    tracing::warn!(
+                        consecutive_failures,
+                        wait_seconds = wait,
+                        "deliveries are failing; backing off before the next attempt"
+                    );
+                    ticker = tokio::time::interval(Duration::from_secs(wait));
+                    ticker.tick().await; // the first tick fires immediately
+                } else if consecutive_failures > 0 {
+                    tracing::info!("deliveries recovered; returning to the normal poll interval");
+                    consecutive_failures = 0;
+                    ticker = tokio::time::interval(POLL_INTERVAL);
+                    ticker.tick().await;
+                }
+
                 if since_compaction >= COMPACT_AFTER_DELIVERIES {
                     match state.journal.compact().await {
                         Ok(kept) => {
@@ -225,6 +301,44 @@ mod tests {
     async fn draining_an_empty_journal_delivers_nothing_and_does_not_error() {
         let (state, dir) = state_with_empty_journal();
         assert_eq!(drain_once(&state).await, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_drain_reports_failures_so_the_loop_can_back_off() {
+        // AR26: without a failure count the loop would keep hammering
+        // every five seconds through a multi-hour Google outage.
+        let (state, dir) = state_with_empty_journal();
+        state
+            .journal
+            .accept(&crate::core::journal::Entry {
+                id: "orphan".to_string(),
+                source_id: "profile-that-no-longer-exists".to_string(),
+                received_at: "2026-08-28T09:00:00+00:00".to_string(),
+                payload: serde_json::json!({"title": "t"}),
+                idempotency_key: None,
+            })
+            .await
+            .unwrap();
+
+        let outcome = drain_once_detailed(&state).await;
+        assert_eq!(outcome.delivered, 0);
+        assert_eq!(
+            outcome.failed, 1,
+            "the loop must be able to see the failure"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_empty_journal_reports_neither_delivery_nor_failure() {
+        // An idle hub must not look like an outage, or it would back
+        // off to half-hour polls for no reason.
+        let (state, dir) = state_with_empty_journal();
+        let outcome = drain_once_detailed(&state).await;
+        assert_eq!(outcome.delivered, 0);
+        assert_eq!(outcome.failed, 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 

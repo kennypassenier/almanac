@@ -11,6 +11,7 @@ pub mod admin;
 pub mod auth;
 pub mod calendar_client;
 pub mod dashboard;
+pub mod datadir;
 pub mod delivery;
 pub mod ingest;
 pub mod journal;

@@ -3,9 +3,10 @@
 //!
 //! Login uses the bootstrap token from the environment and a session
 //! cookie — not browser basic auth, which has no way to log out of
-//! short of clearing browser data. Sessions live in memory: a restart
-//! logs you out, which is the right trade for a tool that is only ever
-//! reached from the LAN.
+//! short of clearing browser data. Sessions live in the encrypted
+//! store (AR25) so a restart or a self-update does not log Kenny out,
+//! while logout stays a real server-side removal: a copied cookie
+//! stops working, which a self-validating cookie could not offer.
 //!
 //! The UI is English per standing rule 1 (Dutch is for conversation and
 //! for dashboards meant for Kenny's parents; this is an operator tool).
@@ -22,7 +23,7 @@ use serde_json::json;
 
 use crate::core::html::escape;
 use crate::core::observability::expire_captures;
-use crate::core::token::{constant_time_eq, verify_token};
+use crate::core::token::verify_token;
 use crate::shell::admin::CAPTURE_TTL_SECS;
 use crate::shell::ingest::AppState;
 
@@ -30,10 +31,6 @@ const SESSION_COOKIE: &str = "almanac_session";
 /// A generous session life: this is a LAN tool behind a token, and
 /// being logged out mid-debugging helps nobody.
 const SESSION_TTL_SECS: u64 = 7 * 24 * 3600;
-
-pub struct Session {
-    pub expires_at_unix: u64,
-}
 
 /// Reads the session cookie and says whether it names a live session.
 async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
@@ -48,13 +45,10 @@ async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
         return false;
     };
 
-    let now = (state.now_unix)();
-    let mut sessions = state.sessions.lock().await;
-    sessions.retain(|_, s| s.expires_at_unix > now);
-
-    sessions
-        .iter()
-        .any(|(id, _)| constant_time_eq(id, presented))
+    state
+        .tokens
+        .session_is_live(presented, (state.now_unix)())
+        .await
 }
 
 fn page(title: &str, active: &str, body: &str) -> Html<String> {
@@ -176,12 +170,14 @@ async fn login_submit(State(state): State<Arc<AppState>>, Form(body): Form<Login
     let session_id = hex::encode(id_bytes);
 
     let now = (state.now_unix)();
-    state.sessions.lock().await.insert(
-        session_id.clone(),
-        Session {
-            expires_at_unix: now + SESSION_TTL_SECS,
-        },
-    );
+    if let Err(e) = state
+        .tokens
+        .start_session(&session_id, now + SESSION_TTL_SECS, now)
+        .await
+    {
+        tracing::error!(error = %e, "failed to persist a dashboard session");
+        return login_page(Some("Could not start a session; see the logs.")).into_response();
+    }
 
     // HttpOnly so script cannot read it; SameSite=Strict so another
     // site cannot ride the session. Not Secure: the default deployment
@@ -208,8 +204,9 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
             let (name, value) = part.trim().split_once('=')?;
             (name == SESSION_COOKIE).then_some(value.to_string())
         })
+        && let Err(e) = state.tokens.end_session(&presented).await
     {
-        state.sessions.lock().await.remove(&presented);
+        tracing::warn!(error = %e, "failed to remove a session from the store");
     }
 
     (
