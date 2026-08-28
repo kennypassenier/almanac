@@ -1,0 +1,25 @@
+# AR15 regression fixture — Grafana alerting webhook (K9). Grafana's
+# unified alerting posts a group of alerts; this profile maps the
+# common single-alert shape. Colour follows the alert state so a
+# firing incident and its recovery are visually distinct on the infra
+# calendar.
+
+schema_version = 1
+source_id = "grafana"
+target_calendar_id = "infra"
+token_hash = "2222222222222222222222222222222222222222222222222222222222222222"
+
+[mapping]
+title_field = "commonLabels.alertname"
+description_field = "commonAnnotations.summary"
+external_id_field = "groupKey"
+start_field = "startsAt"
+duration_minutes = 15
+timezone = "UTC"
+
+[mapping.color_by]
+field = "status"
+default = "graphite"
+[mapping.color_by.values]
+firing = "tomato"
+resolved = "sage"

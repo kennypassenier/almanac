@@ -1,0 +1,7 @@
+{
+  "status": "firing",
+  "groupKey": "{}:{alertname=\"HostHighCpu\"}",
+  "startsAt": "2026-08-28T03:12:00+00:00",
+  "commonLabels": { "alertname": "HostHighCpu" },
+  "commonAnnotations": { "summary": "CPU above 90% for 5m on proxmox" }
+}

@@ -24,7 +24,7 @@ use almanac::core::journal::Entry;
 use almanac::core::profile::Profile;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::delivery::{KeyLocks, UPSERT_PROPERTY};
+use almanac::shell::delivery::UPSERT_PROPERTY;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use serde_json::json;
@@ -68,13 +68,12 @@ fn state_for(calendar_id: &str, journal_path: std::path::PathBuf) -> Arc<AppStat
     let mut profiles = HashMap::new();
     profiles.insert("drill-source".to_string(), profile_for(calendar_id));
 
-    Arc::new(AppState {
+    Arc::new(AppState::new(
         profiles,
-        journal: Journal::new(journal_path, DEFAULT_MAX_BYTES),
-        client: GoogleCalendarClient::new(http, tokens),
-        locks: KeyLocks::new(),
-        now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
-    })
+        Journal::new(journal_path, DEFAULT_MAX_BYTES),
+        GoogleCalendarClient::new(http, tokens),
+        None,
+    ))
 }
 
 #[tokio::test]

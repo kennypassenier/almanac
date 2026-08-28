@@ -9,10 +9,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use almanac::core::token::hash_token;
 use almanac::shell;
+use almanac::shell::admin::BOOTSTRAP_TOKEN_ENV;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::delivery::KeyLocks;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use tokio::sync::watch;
@@ -80,13 +81,25 @@ async fn main() {
     let journal_path = PathBuf::from(
         std::env::var("ALMANAC_JOURNAL").unwrap_or_else(|_| DEFAULT_JOURNAL_PATH.to_string()),
     );
-    let state = Arc::new(AppState {
+    // Absent means the admin surface (K11/M11/M9) refuses every
+    // request rather than opening up; the ingest paths are unaffected.
+    let bootstrap_token_hash = match std::env::var(BOOTSTRAP_TOKEN_ENV) {
+        Ok(token) if !token.trim().is_empty() => Some(hash_token(token.trim())),
+        _ => {
+            tracing::warn!(
+                "{BOOTSTRAP_TOKEN_ENV} is not set — the debug and capture surfaces will refuse \
+                 every request. Set it via `latch run --` to use them."
+            );
+            None
+        }
+    };
+
+    let state = Arc::new(AppState::new(
         profiles,
-        journal: Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
-        client: GoogleCalendarClient::new(http, tokens),
-        locks: KeyLocks::new(),
-        now: Box::new(|| chrono::Utc::now().to_rfc3339()),
-    });
+        Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
+        GoogleCalendarClient::new(http, tokens),
+        bootstrap_token_hash,
+    ));
 
     // Surface a damaged journal before binding rather than letting the
     // worker discover it a few seconds later.

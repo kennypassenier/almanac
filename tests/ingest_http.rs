@@ -15,7 +15,6 @@ use almanac::core::profile::Profile;
 use almanac::core::token::hash_token;
 use almanac::shell::auth::TokenManager;
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::delivery::KeyLocks;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use axum::body::Body;
@@ -24,6 +23,7 @@ use tower::ServiceExt;
 
 const HA_TOKEN: &str = "home-assistant-token";
 const KUMA_TOKEN: &str = "uptime-kuma-token";
+const ADMIN_TOKEN: &str = "bootstrap-admin-token";
 
 fn scratch_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -80,13 +80,12 @@ fn state(journal_path: std::path::PathBuf) -> Arc<AppState> {
         },
     );
 
-    Arc::new(AppState {
+    Arc::new(AppState::new(
         profiles,
-        journal: Journal::new(journal_path, DEFAULT_MAX_BYTES),
-        client: GoogleCalendarClient::new(http, tokens),
-        locks: KeyLocks::new(),
-        now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
-    })
+        Journal::new(journal_path, DEFAULT_MAX_BYTES),
+        GoogleCalendarClient::new(http, tokens),
+        Some(hash_token(ADMIN_TOKEN)),
+    ))
 }
 
 fn ha_payload() -> &'static str {

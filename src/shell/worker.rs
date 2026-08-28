@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
+use crate::core::observability::{RouteOutcome, RouteRecord};
 use crate::shell::ingest::AppState;
 
 /// How often to look for work the asynchronous ingest path accepted.
@@ -23,6 +24,36 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// so a long-running process does not accumulate an unbounded file of
 /// done-markers.
 const COMPACT_AFTER_DELIVERIES: usize = 100;
+
+/// Records one delivery attempt on the K11 debug surface, so the
+/// operator can see how an event was routed — including a failure with
+/// its remedy, which is the case where looking at all is most likely.
+pub async fn record_route(
+    state: &AppState,
+    entry: &crate::core::journal::Entry,
+    result: &Result<crate::shell::delivery::Delivered, crate::core::error::AlmanacError>,
+) {
+    let outcome = match result {
+        Ok(d) if d.created => RouteOutcome::Created {
+            event_id: d.event_id.clone(),
+        },
+        Ok(d) => RouteOutcome::Updated {
+            event_id: d.event_id.clone(),
+        },
+        Err(e) => RouteOutcome::Failed {
+            message: e.to_string(),
+            remedy: e.remedy().to_string(),
+        },
+    };
+
+    state.routes.lock().await.push(RouteRecord {
+        at: (state.now)(),
+        source_id: entry.source_id.clone(),
+        entry_id: entry.id.clone(),
+        upsert_key: None,
+        outcome,
+    });
+}
 
 /// Delivers every currently-pending entry once. Returns how many were
 /// delivered. Never returns an error: one entry's failure must not
@@ -58,7 +89,11 @@ pub async fn drain_once(state: &AppState) -> usize {
             continue;
         };
 
-        match crate::shell::delivery::deliver(&entry, profile, &state.client, &state.locks).await {
+        let result =
+            crate::shell::delivery::deliver(&entry, profile, &state.client, &state.locks).await;
+        record_route(state, &entry, &result).await;
+
+        match result {
             Ok(result) => {
                 if let Err(e) = state.journal.mark_done(&entry.id).await {
                     tracing::warn!(
@@ -131,7 +166,6 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::shell::calendar_client::GoogleCalendarClient;
-    use crate::shell::delivery::KeyLocks;
     use crate::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 
     fn state_with_empty_journal() -> (Arc<AppState>, std::path::PathBuf) {
@@ -155,13 +189,12 @@ mod tests {
             },
         );
 
-        let state = Arc::new(AppState {
-            profiles: HashMap::new(),
-            journal: Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
-            client: GoogleCalendarClient::new(http, tokens),
-            locks: KeyLocks::new(),
-            now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
-        });
+        let state = Arc::new(AppState::new_for_test(
+            HashMap::new(),
+            Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+            GoogleCalendarClient::new(http, tokens),
+            None,
+        ));
 
         (state, dir)
     }

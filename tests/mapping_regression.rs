@@ -44,3 +44,8 @@ fn home_assistant_fixture_matches_pinned_output() {
 fn uptime_kuma_fixture_matches_pinned_output() {
     run_fixture("uptime-kuma");
 }
+
+#[test]
+fn grafana_fixture_matches_pinned_output() {
+    run_fixture("grafana");
+}

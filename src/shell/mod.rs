@@ -7,6 +7,7 @@
 //! The ingest routes land in L3; the debug, capture and health
 //! surfaces (K11, M11, M1) follow in L4.
 
+pub mod admin;
 pub mod auth;
 pub mod calendar_client;
 pub mod delivery;
@@ -23,5 +24,5 @@ use crate::shell::ingest::AppState;
 
 /// Builds the application's Axum router.
 pub fn build_router(state: Arc<AppState>) -> Router {
-    ingest::routes().with_state(state)
+    ingest::routes().merge(admin::routes()).with_state(state)
 }

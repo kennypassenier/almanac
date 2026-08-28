@@ -23,7 +23,10 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
+use tokio::sync::Mutex;
+
 use crate::core::journal::Entry;
+use crate::core::observability::{CaptureRecord, RingBuffer, RouteRecord};
 use crate::core::profile::Profile;
 use crate::core::token::{parse_bearer, verify_token};
 use crate::shell::calendar_client::GoogleCalendarClient;
@@ -42,6 +45,69 @@ pub struct AppState {
     /// Supplies the acceptance timestamp; injected rather than read
     /// ambiently so tests can pin it.
     pub now: Box<dyn Fn() -> String + Send + Sync>,
+    /// Unix seconds, for the capture surface's expiry arithmetic (M11).
+    /// Separate from `now` so retention never has to parse a timestamp
+    /// back out of a formatted string.
+    pub now_unix: Box<dyn Fn() -> u64 + Send + Sync>,
+    /// SHA-256 of the bootstrap token that guards the admin surface
+    /// (AR17 as amended). `None` when unset, in which case the admin
+    /// surface refuses everything rather than opening up.
+    pub bootstrap_token_hash: Option<String>,
+    /// Recent delivery routes, for the K11 debug surface.
+    pub routes: Mutex<RingBuffer<RouteRecord>>,
+    /// Verbatim captured requests, for the M11 capture surface.
+    pub captures: Mutex<RingBuffer<CaptureRecord>>,
+}
+
+/// How many recent routes and captures to keep. Enough to debug what
+/// just happened; small enough that neither can grow into a memory
+/// problem on a long-running process.
+pub const HISTORY_CAPACITY: usize = 100;
+
+impl AppState {
+    /// Assembles the shared state with real clocks and empty history.
+    /// A constructor rather than a struct literal at each call site:
+    /// the observability fields are the same everywhere, and every
+    /// future field would otherwise have to be added to five places.
+    pub fn new(
+        profiles: HashMap<String, Profile>,
+        journal: Journal,
+        client: GoogleCalendarClient,
+        bootstrap_token_hash: Option<String>,
+    ) -> Self {
+        Self {
+            profiles,
+            journal,
+            client,
+            locks: KeyLocks::new(),
+            now: Box::new(|| chrono::Utc::now().to_rfc3339()),
+            now_unix: Box::new(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            }),
+            bootstrap_token_hash,
+            routes: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
+            captures: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
+        }
+    }
+
+    /// Same, but with both clocks pinned — for tests that assert on
+    /// timestamps or drive expiry without waiting.
+    #[cfg(test)]
+    pub fn new_for_test(
+        profiles: HashMap<String, Profile>,
+        journal: Journal,
+        client: GoogleCalendarClient,
+        bootstrap_token_hash: Option<String>,
+    ) -> Self {
+        Self {
+            now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
+            now_unix: Box::new(|| 1_787_000_000),
+            ..Self::new(profiles, journal, client, bootstrap_token_hash)
+        }
+    }
 }
 
 type Reply = (StatusCode, Json<Value>);
@@ -226,13 +292,13 @@ duration_minutes = 60
     fn state_with(source_id: &str, token: &str) -> AppState {
         let mut profiles = HashMap::new();
         profiles.insert(source_id.to_string(), profile(source_id, token));
-        AppState {
+        AppState::new_for_test(
             profiles,
-            journal: Journal::new(
+            Journal::new(
                 std::env::temp_dir().join("almanac-ingest-test-unused.jsonl"),
                 crate::shell::journal::DEFAULT_MAX_BYTES,
             ),
-            client: GoogleCalendarClient::new(
+            GoogleCalendarClient::new(
                 reqwest::Client::new(),
                 crate::shell::auth::TokenManager::new(
                     reqwest::Client::new(),
@@ -243,9 +309,8 @@ duration_minutes = 60
                     },
                 ),
             ),
-            locks: KeyLocks::new(),
-            now: Box::new(|| "2026-08-28T09:00:00+00:00".to_string()),
-        }
+            None,
+        )
     }
 
     fn headers_with_token(token: &str) -> HeaderMap {
