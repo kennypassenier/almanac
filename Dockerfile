@@ -1,91 +1,44 @@
 # =============================================================================
 # Dockerfile — almanac
-# Multi-stage build: compile in a full Rust toolchain image, then copy only
-# the statically-linked binary and the required runtime libraries into a
-# minimal Debian bookworm-slim image for production deployment.
 #
-# Build command (run from the project root):
-#   docker build -t ghcr.io/<gh-username>/almanac:latest .
+# For the homelab-v2 path only. The standalone LXC runs the binary
+# under systemd (deploy/almanac.service), because M10's self-update
+# cannot work inside a container: a replaced binary lives in the
+# writable layer and is discarded on the next recreation.
 #
-# Stage layout:
-#   builder  — rust:slim    — compiles the release binary
-#   runtime  — debian:slim  — runs the binary; no compiler, no source code
+# Build:
+#   docker build -t ghcr.io/kennypassenier/almanac:v0.1.0 .
 # =============================================================================
 
-
-# -----------------------------------------------------------------------------
-# Stage 1 — Builder
-#
-# Uses the official Rust slim image which includes cargo, rustc, and the
-# standard library. No OpenSSL dev headers needed: reqwest (from L1
-# onward) is configured with rustls-tls, not the system OpenSSL (AR5/AR6).
-# The compiled binary is placed at /app/target/release/almanac.
-# -----------------------------------------------------------------------------
 FROM rust:1.88-slim AS builder
-
-# Set the working directory for all subsequent COPY and RUN instructions.
 WORKDIR /app
-
-# Copy the full workspace into the builder stage.
-# .dockerignore should exclude target/, .env, *.env.example, and other
-# non-source artefacts to keep the build context small and reproducible.
 COPY . .
-
-# Compile the application in release mode.
-# --locked ensures that Cargo.lock is respected exactly, producing a
-# reproducible build identical to what was tested locally.
+# --locked keeps the build reproducible against the committed lockfile.
 RUN cargo build --release --locked
 
 
-# -----------------------------------------------------------------------------
-# Stage 2 — Runtime
-#
-# Starts from a minimal Debian bookworm-slim base.  Only the compiled binary,
-# the application configuration, and the runtime TLS libraries are present.
-# No compiler, no source code, no development headers.
-#
-# Runtime dependency rationale:
-# - ca-certificates  : provides the system CA bundle so that outbound HTTPS
-#                      requests to Google APIs (OAuth2 token endpoint, Calendar
-#                      API) can be verified against a trusted root CA. rustls
-#                      (AR5/AR6) needs the bundle but not libssl3 itself.
-# -----------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
-# Install runtime dependencies and clean up the apt cache in a single layer.
+# ca-certificates only: reqwest uses rustls (AR5/AR6), so no OpenSSL
+# runtime library is needed. wget is for the compose healthcheck.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a dedicated directory for application configuration.
-# Keeping configuration separate from the binary makes it straightforward to
-# override config.toml at runtime via a bind-mount or Kubernetes ConfigMap
-# without rebuilding the image.
-RUN mkdir -p /etc/almanac
-
-# Copy the compiled release binary from the builder stage.
-# The binary is placed on the standard system PATH so it can be invoked
-# without an explicit path prefix.
 COPY --from=builder /app/target/release/almanac /usr/local/bin/almanac
 
-# Copy the application configuration into the well-known config directory.
-# This bakes a default configuration into the image.  Operators can override
-# it at runtime by mounting an alternative config.toml at the same path.
-COPY config.toml /etc/almanac/config.toml
+# Everything mutable lives here and must be a volume in compose. The
+# previous version of this file had neither a WORKDIR nor a volume, so
+# the binary looked for profiles at "/profiles" and the token store
+# was destroyed by every image bump — found by the pre-deployment
+# critic re-run, 2026-08-28.
+RUN mkdir -p /var/lib/almanac /etc/almanac/profiles
+WORKDIR /var/lib/almanac
 
-# Tell the application where to find its configuration file at runtime.
-# The binary reads config.toml from the current working directory by default;
-# this variable can be used to point it at the /etc path instead if the
-# application is updated to honour CONFIG_PATH.
-ENV CONFIG_PATH=/etc/almanac/config.toml
+ENV ALMANAC_PROFILES_DIR=/etc/almanac/profiles \
+    ALMANAC_DATA_DIR=/var/lib/almanac \
+    ALMANAC_JOURNAL=/var/lib/almanac/journal.jsonl \
+    ALMANAC_TOKEN_STORE=/var/lib/almanac/tokens.json
 
-# Expose the port the Axum server listens on.
-# This is documentation only; actual port binding is done at container run
-# time with -p 8080:8080 or via Kubernetes Service/Ingress configuration.
 EXPOSE 8080
-
-# Set the default command to run the daemon.
-# Using CMD (rather than ENTRYPOINT) allows the command to be overridden
-# easily when running the container for debugging or one-off tasks.
 CMD ["/usr/local/bin/almanac"]

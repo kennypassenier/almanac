@@ -16,6 +16,8 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Full test suite
         run: cargo test --all
+      - name: M8 version consistency
+        run: ./scripts/check-version.sh
       - name: AR13 core boundary check
         run: |
           if [ -d src/core ] && grep -rnE '^[[:space:]]*use[[:space:]]+(reqwest|axum|hyper|tokio::(fs|net|io)|std::(fs|net))' src/core/; then

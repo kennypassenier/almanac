@@ -10,6 +10,10 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 
+# M8: one version. A tag that disagrees with Cargo.toml would make the
+# self-updater either never update or update on every poll.
+./scripts/check-version.sh >/dev/null
+
 # AR13: the core module must stay free of ambient I/O. The compiler
 # cannot enforce a module boundary inside a single crate, so this gate
 # does — a hit below means I/O belongs behind a shell-injected trait.

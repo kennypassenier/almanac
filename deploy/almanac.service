@@ -1,0 +1,68 @@
+# systemd unit for Almanac (AR20).
+#
+# systemd rather than Docker because M10's self-update replaces the
+# running binary: inside a container that write lands in the writable
+# layer and is silently discarded on the next container recreation,
+# putting the service back on the pinned image version — which then
+# updates itself again, forever. The compose file next to this unit is
+# for the future homelab-v2 migration, where homelab owns updates and
+# self-update disables itself.
+#
+# Install:
+#   sudo cp deploy/almanac.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now almanac
+
+[Unit]
+Description=Almanac — event-to-calendar hub
+Documentation=https://github.com/kennypassenier/almanac
+# Wants= rather than Requires=: if the network is slow to come up
+# after a power cut, Almanac retries its first Google call on its own
+# (AR21) rather than failing to start.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=almanac
+Group=almanac
+WorkingDirectory=/opt/almanac
+
+# Latch injects the five secrets straight into the process (AR8), so
+# nothing lands on disk as plaintext. The key that opens Latch's store
+# does live here, in a root-owned 0600 file — unavoidable for an
+# unattended restart, and a conscious, recorded limitation.
+#
+# LATCH_KEY_ALMANAC (the per-project key) rather than LATCH_PASSPHRASE
+# (Kenny, after consulting the Latch project, 2026-08-28): the
+# passphrase would open every project's secrets and the GitHub token;
+# the project key opens only Almanac's five values. If this LXC ever
+# leaks, the blast radius is one project instead of everything.
+EnvironmentFile=/etc/almanac/latch.env
+ExecStart=/usr/local/bin/latch run -- /opt/almanac/almanac
+
+# No start limit (AR21). A power cut can start Almanac before DNS is
+# up; the default five-tries-in-ten-seconds would park the unit in
+# `failed` permanently with nobody watching. Almanac's own startup
+# retry handles transient failures, and a genuinely broken key still
+# exits — this just makes sure a restartable process gets restarted.
+Restart=always
+RestartSec=5s
+StartLimitIntervalSec=0
+
+# M2's graceful shutdown drains in-flight requests and the worker
+# before exiting; give it room rather than SIGKILLing mid-delivery.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+# The service needs its data directory and nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/almanac/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

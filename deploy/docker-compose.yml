@@ -1,0 +1,47 @@
+# Compose file for Almanac, byte-identical to what the homelab-v2
+# preset consumes (Kenny's hard requirement for the migration path).
+#
+# NOTE: in this mode Almanac's self-update (M10) disables itself —
+# replacing a binary inside a container is discarded on the next
+# recreation. Under homelab v2, homelab owns updates by pulling a new
+# image tag. For the standalone LXC, use deploy/almanac.service
+# instead, which is where self-update is real.
+services:
+  almanac:
+    # M8: the tag is always the exact git tag of the release, never
+    # `latest` — so "which version is running" has one answer.
+    image: ghcr.io/kennypassenier/almanac:${ALMANAC_VERSION:?set ALMANAC_VERSION to the release tag}
+    container_name: almanac
+    restart: unless-stopped
+    # Self-update off: the container's filesystem cannot hold a
+    # replaced binary across a recreation.
+    environment:
+      ALMANAC_SELF_UPDATE: "off"
+      ALMANAC_PROFILES_DIR: /etc/almanac/profiles
+      ALMANAC_DATA_DIR: /var/lib/almanac
+      ALMANAC_JOURNAL: /var/lib/almanac/journal.jsonl
+      ALMANAC_TOKEN_STORE: /var/lib/almanac/tokens.json
+    env_file:
+      # Latch writes this; it carries the five secrets plus the
+      # bootstrap and encryption keys.
+      - ./almanac.env
+    volumes:
+      # Without a named volume the token store and the journal live in
+      # the container's writable layer and are destroyed by any image
+      # bump — every source's token gone, undelivered events gone.
+      - almanac-data:/var/lib/almanac
+      - ./profiles:/etc/almanac/profiles:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # Deliberately the unauthenticated endpoint: a health check that
+      # needs a credential fails closed during exactly the outage it
+      # exists to report.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  almanac-data:

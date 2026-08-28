@@ -126,9 +126,28 @@ Proxmox.
   manifest — a checksum stored next to the binary proves nothing if
   the host serving both is compromised. Recorded as an amendment in
   `ARCHITECTURE_DECISIONS.md`.
-- **Backup & restore:** state = (1) profiles/config in git, (2)
-  secrets in Latch (state-in-git + key escrow), (3) transient journal
-  on the LXC disk, (4) calendar data lives at Google. Mechanism:
+- **Backup & restore (amended 2026-08-28 after consulting the Latch
+  project):** state = (1) profiles/config in git, (2) secrets in Latch
+  (state-in-git + key escrow), (3) transient journal on the LXC disk,
+  (4) calendar data lives at Google.
+  *Correction to an earlier, gloomier claim in these docs:* losing the
+  key on the LXC does **not** mean re-issuing every token. Latch keeps
+  all credentials in one passphrase-encrypted escrow file held offline,
+  so recovery is `latch key restore` or a `latch clone` from Kenny's
+  desktop.
+  *What lives on the LXC:* `LATCH_KEY_ALMANAC` — the per-project key,
+  not the passphrase — in a root-owned 0600 file that systemd reads.
+  Kenny chose the project key deliberately: the passphrase would open
+  every project's secrets and the GitHub token, while the project key
+  opens only Almanac's five values, so a leaked LXC costs one project
+  rather than everything.
+  *Conscious limitation, recorded rather than papered over:* vzdump
+  backs up that key alongside the encrypted store it opens, so the
+  backup is as sensitive as the secrets themselves and must be kept
+  accordingly. Kenny chose this over excluding the key, because a
+  restore that stops halfway for manual work is exactly what nobody
+  wants during a real outage.
+  Mechanism:
   git+Latch cover (1)(2); the LXC rides the existing Proxmox vzdump
   backup regime for (3) — automatic, no new machinery. Restore-from-
   zero becomes a numbered OPERATIONS_RUNBOOK procedure (clone →

@@ -216,6 +216,41 @@ impl TokenStore {
         }
     }
 
+    /// Proves at startup that the configured key actually opens this
+    /// store, by decrypting one record.
+    ///
+    /// Without this the failure is silent in exactly the way that
+    /// costs an hour: the file parses fine under a wrong key, startup
+    /// succeeds, and every source then gets a 401 while the store
+    /// looks intact. Latch itself fails loudly on a missing or wrong
+    /// key — this closes the equivalent gap on Almanac's side (Kenny,
+    /// after consulting the Latch project, 2026-08-28).
+    pub async fn verify_key_opens_store(&self) -> Result<(), AlmanacError> {
+        let tokens = self.tokens.read().await;
+        let Some((source_id, record)) = tokens.iter().next() else {
+            // An empty store proves nothing, and there is nothing to
+            // get wrong yet — the first issue() will write under the
+            // current key.
+            return Ok(());
+        };
+
+        open(&self.key, &record.sealed_token).map(|_| ()).map_err(|_| AlmanacError::Config {
+            message: format!(
+                "the encryption key does not open the existing token store ({} holds {} record(s), \
+                 starting with \"{source_id}\")",
+                self.path.display(),
+                tokens.len()
+            ),
+            remedy: format!(
+                "{SECRET_KEY_ENV} is not the key this store was written with. Restore the original \
+                 key (latch has an escrow mechanism for exactly this), or delete {} and re-issue \
+                 every source's token from the dashboard — starting with the wrong key would leave \
+                 every source failing authentication against an intact-looking store",
+                self.path.display()
+            ),
+        })
+    }
+
     /// Which sources have a token, and when it was issued. Never
     /// returns the tokens themselves.
     pub async fn list(&self) -> Vec<(String, String)> {
@@ -454,6 +489,42 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].0, "home-assistant");
         assert_eq!(listed[0].1, "2026-08-28");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn an_empty_store_passes_the_startup_key_check() {
+        let (store, dir) = temp_store("keycheck-empty");
+        assert!(store.verify_key_opens_store().await.is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn the_startup_key_check_passes_with_the_right_key() {
+        let (store, dir) = temp_store("keycheck-ok");
+        store.issue("home-assistant", "tok", "now").await.unwrap();
+        assert!(store.verify_key_opens_store().await.is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn the_startup_key_check_catches_a_wrong_key_instead_of_401ing_later() {
+        // The failure this exists to prevent: without the check the
+        // process starts happily and every source gets a 401 against a
+        // store that looks perfectly intact.
+        let (store, dir) = temp_store("keycheck-wrong");
+        store.issue("home-assistant", "tok", "now").await.unwrap();
+
+        let wrong = TokenStore::with_key_loading(store.path().to_path_buf(), [9u8; KEY_BYTES])
+            .expect("the file itself parses fine — that is the whole problem");
+        let err = wrong.verify_key_opens_store().await.unwrap_err();
+
+        assert!(err.to_string().contains("does not open"));
+        assert!(
+            err.remedy().contains("escrow"),
+            "the remedy must point at the way out"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

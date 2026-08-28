@@ -16,3 +16,7 @@ almanac
 # Exclude Docker-specific files (no need to copy them into the image).
 Dockerfile
 .dockerignore
+
+# Deployment artifacts are not build inputs.
+deploy/
+dist/

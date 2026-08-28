@@ -145,6 +145,13 @@ async fn main() {
         Err(e) => die(e),
     };
 
+    // Prove the key opens the store before serving anything (L3): a
+    // wrong key otherwise surfaces as every source getting a 401
+    // against a store that looks intact.
+    if let Err(e) = token_store.verify_key_opens_store().await {
+        die(e);
+    }
+
     let state = Arc::new(AppState::new(
         profiles,
         Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
