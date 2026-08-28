@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 6 · Development loop, milestone L3 next |
-| Last completed gate | L2 milestone report approved (profiles, mapping, upsert decision, fixtures) — 2026-08-28 |
-| Next gate | L3 milestone report form |
+| Current phase | 6 · Development loop, milestone L5 (release & deployment) |
+| Last completed gate | L4b milestone report approved (dashboard, encrypted token store) — 2026-08-28 |
+| Next gate | L5 milestone report form |
 | AFK mode | off |
 
 Per standing rule 19: work happens in a session opened in this project
