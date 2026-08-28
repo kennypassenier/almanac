@@ -10,7 +10,7 @@ decisions below the milestone table).
 | Milestone | Features | Status |
 |---|---|---|
 | L0 · Walking skeleton & hygiene | [meta], K13 | **done**, report approved 2026-08-28 — CI run https://github.com/kennypassenier/almanac/actions/runs/33173304996 |
-| L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | **code done**, report approved 2026-08-28 (CI https://github.com/kennypassenier/almanac/actions/runs/33174789576) — E2E round-trip still `#[ignore]`d pending `ALMANAC_TEST_CALENDAR_ID` + credentials in Latch; `examples/create_test_calendar.rs` provisions the scratch calendar itself, no manual step |
+| L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | **done incl. live proof**, report approved 2026-08-28 (CI https://github.com/kennypassenier/almanac/actions/runs/33174789576). The create→read→update→find→delete round-trip ran green against the real `almanac-test` calendar on 2026-08-28 via `latch run -- cargo test --test calendar_e2e -- --ignored` |
 | L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | **done**, report approved 2026-08-28 — CI https://github.com/kennypassenier/almanac/actions/runs/33177366789. M7 is a deliberate, ratified partial (schema support only; the HTTP-layer idempotency-key mechanism needs L3's ingest endpoint) |
 | L3 · Durable ingest & access | K6, K7, K8, M2 (AR16, AR17) | not started |
 | L4 · Sources & visibility | K9, K11, M1, M9, M11 | not started |
@@ -112,10 +112,23 @@ Proxmox.
   loss: journal entries from the final moments (same conscious
   limitation as AR16's ingest window).
 - **Scratch resources (standing rule 14):** a dedicated test calendar
-  under the existing service account (e.g. "almanac-test") — Kenny's
-  real calendars are never touched by any test — and a throwaway LXC
-  on Proxmox for the deploy/reboot/power-loss drills of L3/L5. Every
-  Phase 6 milestone runs at least one live drill against these.
+  under the existing service account — Kenny's real calendars are
+  never touched by any test — and a throwaway LXC on Proxmox for the
+  deploy/reboot/power-loss drills of L3/L5. Every Phase 6 milestone
+  runs at least one live drill against these.
+  **Provisioned 2026-08-28:** calendar `almanac-test`, id
+  `113eab48451fbcc1d7e11db451fb2f3503bdf4bd97ae7346912cf94ec42eacf0@group.calendar.google.com`,
+  created by the service account itself via
+  `examples/create_test_calendar.rs` (so it owns the calendar outright
+  — no sharing step). Its id lives in Latch as
+  `ALMANAC_TEST_CALENDAR_ID` next to the three service-account
+  credentials. Run the live tests with
+  `latch run -- cargo test -- --ignored`.
+  **Latch caveat (2026-08-28):** `latch commit` silently finds 0 files
+  here because its discovery walker honours `.gitignore`, and `.env`
+  is (correctly) gitignored — see the spawned latch bug task. Until
+  that is fixed, committing secrets for this project needs
+  `.gitignore` moved aside for the duration of the `latch commit`.
 - **Placement:** own light LXC now, **with the homelab-v2 compose file
   + stack preset as an L5 deliverable**. Hard requirement from Kenny:
   the migration to homelab v2 must be easy — therefore the compose
