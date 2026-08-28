@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Lint (warnings are errors)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Full test suite
+        run: cargo test --all
+      - name: AR13 core boundary check
+        run: |
+          if [ -d src/core ] && grep -rnE '^[[:space:]]*use[[:space:]]+(reqwest|axum|hyper|tokio::(fs|net|io)|std::(fs|net))' src/core/; then
+            echo "src/core imports an I/O crate (AR13) — move it behind a shell trait"
+            exit 1
+          fi
