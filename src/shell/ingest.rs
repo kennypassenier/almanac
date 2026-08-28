@@ -602,4 +602,137 @@ duration_minutes = 60
 
         assert_eq!(state.captures_after_expiry().await.len(), 1);
     }
+
+    /// State whose calendar client points at a stub, so the
+    /// synchronous path can actually deliver.
+    async fn state_with_calendar(
+        source_id: &str,
+        token: &str,
+        calendar: &crate::shell::testing::CalendarStub,
+    ) -> AppState {
+        let dir = scratch_dir();
+        let store = TokenStore::with_key(dir.join("tokens.json"), [5u8; 32]);
+        store.issue(source_id, token, "now").await.unwrap();
+
+        let mut profiles = HashMap::new();
+        profiles.insert(source_id.to_string(), profile(source_id));
+
+        let tokens = crate::shell::testing::TokenStub::start(3600).await;
+        AppState::new_for_test(
+            profiles,
+            Journal::new(
+                dir.join("journal.jsonl"),
+                crate::shell::journal::DEFAULT_MAX_BYTES,
+            ),
+            GoogleCalendarClient::with_base_url(
+                reqwest::Client::new(),
+                crate::shell::auth::TokenManager::new(
+                    reqwest::Client::new(),
+                    crate::shell::testing::stub_credentials(&tokens.url),
+                ),
+                &calendar.base_url,
+            ),
+            None,
+            store,
+        )
+    }
+
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        headers
+    }
+
+    fn sync_payload() -> Value {
+        serde_json::json!({
+            "title": "meeting",
+            "start": "2026-08-28T09:00:00+00:00",
+            "entity_id": "claude-session-1"
+        })
+    }
+
+    #[tokio::test]
+    async fn the_synchronous_endpoint_delivers_and_returns_the_event_id() {
+        // K8: a Claude session posts and wants the Google event id
+        // back. Nothing tested this endpoint at all — not the happy
+        // path, not the response shape.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, Json(body)) = ingest_sync(
+            State(Arc::clone(&state)),
+            Path("home-assistant".to_string()),
+            bearer("tok"),
+            Json(sync_payload()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "delivered");
+        assert!(
+            body["event_id"].as_str().is_some_and(|id| !id.is_empty()),
+            "the caller needs a real event id back, got {body}"
+        );
+        assert_eq!(body["created"], true);
+
+        assert!(
+            state.journal.pending().unwrap().is_empty(),
+            "a delivered entry must be marked done"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_synchronous_endpoint_rejects_a_wrong_token() {
+        // The auth guard on this route was covered by nothing.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, _) = ingest_sync(
+            State(Arc::clone(&state)),
+            Path("home-assistant".to_string()),
+            bearer("wrong-token"),
+            Json(sync_payload()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(
+            state.journal.pending().unwrap().is_empty(),
+            "an unauthenticated request must journal nothing"
+        );
+        assert_eq!(
+            calendar.state.request_count().await,
+            0,
+            "and must never reach Google"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_synchronous_delivery_reports_502_but_keeps_the_payload() {
+        // The promise in the handler's own comment: the caller is told
+        // it failed, and the entry stays pending so the worker retries
+        // it. Losing the payload here would make the synchronous
+        // endpoint strictly worse than the asynchronous one.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        calendar.reject_next(99);
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, _) = ingest_sync(
+            State(Arc::clone(&state)),
+            Path("home-assistant".to_string()),
+            bearer("tok"),
+            Json(sync_payload()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            state.journal.pending().unwrap().len(),
+            1,
+            "the payload must survive for the worker to retry"
+        );
+    }
 }

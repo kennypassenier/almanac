@@ -96,3 +96,6 @@ chrono-tz = { version = "0.10.4", default-features = false }
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+# T5: sends a real SIGTERM to a real process, because the graceful
+# shutdown path cannot be proven any other way.
+libc = "0.2.189"

@@ -39,7 +39,16 @@ const HEALTH_CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_secs
 /// last value repeats. Never gives up: a wedged unit that nobody
 /// restarts is worse than one that keeps trying quietly (AR21).
 const STARTUP_RETRY_WAITS: [u64; 5] = [2, 5, 15, 60, 300];
-const BIND_ADDRESS: &str = "0.0.0.0:8080";
+
+/// Where the listener binds. Configurable because it had to be
+/// hardcoded to test the graceful shutdown at all — and because a
+/// fixed port means two instances cannot coexist even briefly, and
+/// changing it needs a rebuild. The default is unchanged.
+const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
+
+fn bind_address() -> String {
+    std::env::var("ALMANAC_BIND").unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string())
+}
 
 fn die(e: impl std::fmt::Display) -> ! {
     eprintln!("{e}");
@@ -281,13 +290,14 @@ async fn main() {
         notifier.clone(),
     ));
 
-    let listener = match tokio::net::TcpListener::bind(BIND_ADDRESS).await {
+    let bind_address = bind_address();
+    let listener = match tokio::net::TcpListener::bind(&bind_address).await {
         Ok(listener) => listener,
         Err(e) => die(format!(
-            "failed to bind {BIND_ADDRESS}: {e} — is another process already using this port?"
+            "failed to bind {bind_address}: {e} — is another process already using this port?"
         )),
     };
-    tracing::info!(address = BIND_ADDRESS, "almanac listening");
+    tracing::info!(address = %bind_address, "almanac listening");
 
     // AR23: the listener is up, so a freshly-installed version has
     // done the one thing a broken one cannot. Confirm it after a
