@@ -39,12 +39,17 @@ WorkingDirectory=/opt/almanac
 # leaks, the blast radius is one project instead of everything.
 EnvironmentFile=/etc/almanac/latch.env
 
-# Where releases are published and where operational events go. Both
-# are addresses rather than secrets, so they live here instead of in
-# Latch. Leaving ALMANAC_UPDATE_URL out is a supported configuration:
-# self-update simply stays off and versions are installed by hand.
+# Where releases are published. An address, not a secret. Leaving it
+# out is a supported configuration: self-update simply stays off and
+# versions are installed by hand.
 Environment=ALMANAC_UPDATE_URL=https://github.com/kennypassenier/almanac/releases
-Environment=ALMANAC_NOTIFY_WEBHOOK=http://10.10.10.2:8123/api/webhook/homelab-ops-c4d81f26
+
+# ALMANAC_NOTIFY_WEBHOOK is NOT set here on purpose. A Home Assistant
+# webhook id is a bearer credential for triggering that automation —
+# its random suffix is the only thing protecting it — and this
+# repository is public, so anything written here is published. It
+# comes from Latch with the other secrets, via the EnvironmentFile
+# above.
 Environment=ALMANAC_PROFILES_DIR=/opt/almanac/profiles
 Environment=ALMANAC_DATA_DIR=/opt/almanac/data
 Environment=ALMANAC_JOURNAL=/opt/almanac/data/journal.jsonl

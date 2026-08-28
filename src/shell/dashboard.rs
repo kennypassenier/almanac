@@ -462,7 +462,11 @@ async fn captures_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         format!(
             r#"<p class="text-secondary">Nothing captured. Point an undocumented webhook at
 <code>POST /v1/debug/capture/&lt;label&gt;</code> to see exactly what it sends.
-Captures are kept for {} minutes.</p>"#,
+Captures are kept for {} minutes.</p>
+<p class="text-secondary"><b>That endpoint needs the admin token</b>, which is
+also the token that logs in here and can reveal every source's token. Do not
+paste it into a third-party system to make a capture work — use
+<code>curl</code> from a machine you control, or replay the request yourself.</p>"#,
             CAPTURE_TTL_SECS / 60
         )
     } else {

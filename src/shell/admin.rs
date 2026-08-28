@@ -141,6 +141,12 @@ async fn debug_status(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 /// `POST /v1/debug/capture/{label}` (M11) — accepts anything, stores it
 /// verbatim, interprets nothing. Point an undocumented webhook here to
 /// learn its real shape before writing a profile for it.
+///
+/// Guarded by the bootstrap token, which is also the dashboard login
+/// and can reveal every source's token — so configuring a foreign
+/// system to call this means handing that system the master
+/// credential. The captures page now says so. Splitting out a
+/// capture-only credential is open for decision.
 async fn capture_post(
     State(state): State<Arc<AppState>>,
     Path(label): Path<String>,
