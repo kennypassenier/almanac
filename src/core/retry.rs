@@ -26,6 +26,41 @@ pub fn is_transient(status: u16, reason: Option<&str>) -> bool {
     }
 }
 
+/// Google's documented error response shape — only the `reason` field
+/// [`is_transient`] needs to disambiguate an overloaded HTTP 403 is
+/// extracted; everything else is ignored. Shared by the calendar
+/// client and the OAuth2 token exchange (both talk to Google, both
+/// need the same disambiguation), so it lives here next to the
+/// classifier it feeds rather than being duplicated in `shell`.
+#[derive(Debug, serde::Deserialize)]
+struct GoogleErrorBody {
+    error: GoogleErrorDetail,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GoogleErrorDetail {
+    #[serde(default)]
+    errors: Vec<GoogleErrorItem>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GoogleErrorItem {
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Parses the `reason` out of a Google API JSON error body, if the
+/// body matches Google's documented shape at all.
+pub fn extract_reason(body: &str) -> Option<String> {
+    serde_json::from_str::<GoogleErrorBody>(body)
+        .ok()?
+        .error
+        .errors
+        .into_iter()
+        .next()?
+        .reason
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +118,24 @@ mod tests {
         // it is.
         assert!(!is_transient(200, None));
         assert!(!is_transient(304, None));
+    }
+
+    #[test]
+    fn extracts_the_reason_google_puts_on_a_rate_limited_403() {
+        let body = r#"{
+            "error": {
+                "errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded", "message": "Rate Limit Exceeded"}],
+                "code": 403,
+                "message": "Rate Limit Exceeded"
+            }
+        }"#;
+        assert_eq!(extract_reason(body), Some("rateLimitExceeded".to_string()));
+    }
+
+    #[test]
+    fn returns_none_for_a_body_that_is_not_googles_error_shape() {
+        assert_eq!(extract_reason("not json"), None);
+        assert_eq!(extract_reason("{}"), None);
+        assert_eq!(extract_reason(r#"{"error": {"errors": []}}"#), None);
     }
 }

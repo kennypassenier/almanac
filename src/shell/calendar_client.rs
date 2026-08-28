@@ -4,20 +4,24 @@
 //! `core::retry::is_transient` and retries transient ones with
 //! exponential backoff (M3/AR9) before giving up; the token itself is
 //! obtained through `TokenManager`, which handles its own refresh
-//! (AR18) transparently.
+//! (AR18) transparently — including retrying its own transient
+//! failures within this same loop (see `send_with_retry`).
 
 use std::sync::Arc;
 
 use backoff::ExponentialBackoff;
 use backoff::future::retry;
 use reqwest::{Client, RequestBuilder, Response};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core::calendar::{EventListResponse, GoogleEvent};
 use crate::core::error::AlmanacError;
-use crate::core::retry::is_transient;
+use crate::core::retry::{extract_reason, is_transient};
 use crate::shell::auth::TokenManager;
 
+/// Also the calendars *collection* endpoint (`POST` here creates a
+/// calendar) — `{CALENDAR_EVENTS_BASE}/{calendar_id}/events` is the
+/// events collection under one specific calendar.
 const CALENDAR_EVENTS_BASE: &str = "https://www.googleapis.com/calendar/v3/calendars";
 
 pub struct GoogleCalendarClient {
@@ -25,34 +29,14 @@ pub struct GoogleCalendarClient {
     tokens: Arc<TokenManager>,
 }
 
-/// Google's documented error response shape — only the `reason` field
-/// `core::retry::is_transient` needs to disambiguate an overloaded
-/// HTTP 403 is extracted; everything else is ignored.
-#[derive(Debug, Deserialize)]
-struct GoogleErrorBody {
-    error: GoogleErrorDetail,
+#[derive(Serialize)]
+struct NewCalendar<'a> {
+    summary: &'a str,
 }
 
-#[derive(Debug, Deserialize)]
-struct GoogleErrorDetail {
-    #[serde(default)]
-    errors: Vec<GoogleErrorItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GoogleErrorItem {
-    #[serde(default)]
-    reason: Option<String>,
-}
-
-fn extract_reason(body: &str) -> Option<String> {
-    serde_json::from_str::<GoogleErrorBody>(body)
-        .ok()?
-        .error
-        .errors
-        .into_iter()
-        .next()?
-        .reason
+#[derive(Deserialize)]
+struct CalendarResource {
+    id: String,
 }
 
 impl GoogleCalendarClient {
@@ -66,16 +50,27 @@ impl GoogleCalendarClient {
     /// exponential backoff. `build` must be callable more than once:
     /// the retry loop rebuilds and resends the whole request on each
     /// attempt, never reusing a partially-consumed one.
+    ///
+    /// A token-refresh failure is retried in this same loop rather
+    /// than bailing immediately: `TokenManager::token()` itself only
+    /// classifies genuinely permanent problems (a malformed key, a
+    /// clock error) as such; a passing network blip while talking to
+    /// Google's token endpoint is `transient`, and must recover here
+    /// without waiting for some later, unrelated request to try again
+    /// — Kenny should never need to restart the process by hand for a
+    /// problem that fixes itself in a few seconds.
     async fn send_with_retry<F>(&self, build: F) -> Result<Response, AlmanacError>
     where
         F: Fn(&Client, &str) -> RequestBuilder,
     {
         retry(ExponentialBackoff::default(), || async {
-            let token = self
-                .tokens
-                .token()
-                .await
-                .map_err(backoff::Error::Permanent)?;
+            let token = self.tokens.token().await.map_err(|e| {
+                if e.is_transient() {
+                    backoff::Error::transient(e)
+                } else {
+                    backoff::Error::Permanent(e)
+                }
+            })?;
 
             let response = build(&self.http, &token).send().await.map_err(|e| {
                 backoff::Error::Permanent(AlmanacError::GoogleApi {
@@ -198,28 +193,32 @@ impl GoogleCalendarClient {
 
         Ok(list.items.into_iter().flatten().next())
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// Creates a new secondary calendar owned by the authenticated
+    /// service account and returns its id. A small forward-borrow from
+    /// K3 (multiple calendars, landing properly in L2): used here as a
+    /// one-off setup step (see `examples/create_test_calendar.rs`) so
+    /// standing rule 14's scratch calendar can be provisioned entirely
+    /// through the API — no manual Google Calendar UI step, no sharing
+    /// step, since a calendar the service account creates is already
+    /// its own.
+    pub async fn create_calendar(&self, summary: &str) -> Result<String, AlmanacError> {
+        let body = NewCalendar { summary };
+        let response = self
+            .send_with_retry(|http, token| {
+                http.post(CALENDAR_EVENTS_BASE)
+                    .bearer_auth(token)
+                    .json(&body)
+            })
+            .await?;
 
-    #[test]
-    fn extracts_the_reason_google_puts_on_a_rate_limited_403() {
-        let body = r#"{
-            "error": {
-                "errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded", "message": "Rate Limit Exceeded"}],
-                "code": 403,
-                "message": "Rate Limit Exceeded"
-            }
-        }"#;
-        assert_eq!(extract_reason(body), Some("rateLimitExceeded".to_string()));
-    }
+        let parsed: CalendarResource =
+            response.json().await.map_err(|e| AlmanacError::GoogleApi {
+                message: format!("failed to parse the created calendar response: {e}"),
+                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
+                transient: false,
+            })?;
 
-    #[test]
-    fn returns_none_for_a_body_that_is_not_googles_error_shape() {
-        assert_eq!(extract_reason("not json"), None);
-        assert_eq!(extract_reason("{}"), None);
-        assert_eq!(extract_reason(r#"{"error": {"errors": []}}"#), None);
+        Ok(parsed.id)
     }
 }

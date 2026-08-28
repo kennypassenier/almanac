@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 
 use crate::core::auth::{ServiceAccountCredentials, validate_credentials};
 use crate::core::error::AlmanacError;
+use crate::core::retry::{extract_reason, is_transient};
 
 const CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 const JWT_LIFETIME_SECS: u64 = 3600;
@@ -60,6 +61,7 @@ fn now_secs() -> Result<u64, AlmanacError> {
         .map_err(|e| AlmanacError::Auth {
             message: format!("system clock is set before the Unix epoch: {e}"),
             remedy: "fix the system clock".to_string(),
+            transient: false,
         })
 }
 
@@ -86,15 +88,23 @@ async fn fetch_token(
         message: format!("failed to parse the service-account private key: {e}"),
         remedy: "check that PRIVATE_KEY in Latch is the unmodified PEM from the Google service-account JSON"
             .to_string(),
+        transient: false,
     })?;
 
     let jwt = jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &key).map_err(|e| {
         AlmanacError::Auth {
             message: format!("failed to sign the service-account JWT: {e}"),
             remedy: "regenerate the service-account key in Google Cloud Console".to_string(),
+            transient: false,
         }
     })?;
 
+    // A connection-level failure here (DNS, refused, reset, timeout) is
+    // exactly the kind of passing network blip that must not need
+    // Kenny's intervention — classified transient so the caller's
+    // retry loop (shell::calendar_client::send_with_retry) tries again
+    // instead of surfacing a permanent failure for a problem that will
+    // very likely be gone on the next attempt.
     let response = http
         .post(&creds.token_url)
         .form(&[
@@ -105,22 +115,31 @@ async fn fetch_token(
         .await
         .map_err(|e| AlmanacError::Auth {
             message: format!("token request to {} failed: {e}", creds.token_url),
-            remedy: "check network connectivity to Google's OAuth2 endpoint".to_string(),
+            remedy: "transient network failure — retrying automatically".to_string(),
+            transient: true,
         })?;
 
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        let reason = extract_reason(&body);
+        let transient = is_transient(status.as_u16(), reason.as_deref());
         return Err(AlmanacError::Auth {
             message: format!("token endpoint returned HTTP {status}: {body}"),
-            remedy: "check the service account is enabled and CLIENT_EMAIL/PRIVATE_KEY match"
-                .to_string(),
+            remedy: if transient {
+                "transient token-endpoint failure — retrying automatically".to_string()
+            } else {
+                "check the service account is enabled and CLIENT_EMAIL/PRIVATE_KEY match"
+                    .to_string()
+            },
+            transient,
         });
     }
 
     let parsed: TokenResponse = response.json().await.map_err(|e| AlmanacError::Auth {
         message: format!("failed to parse the token endpoint response: {e}"),
         remedy: "check Google's OAuth2 token endpoint response format hasn't changed".to_string(),
+        transient: false,
     })?;
 
     Ok((parsed.access_token, now + parsed.expires_in))
@@ -181,12 +200,50 @@ impl TokenManager {
 mod tests {
     use super::*;
 
+    /// A throwaway RSA key, generated locally purely for this test
+    /// suite (`openssl genrsa 2048`) — never used to access anything,
+    /// not a real credential. Needed only so `jsonwebtoken::encode`
+    /// succeeds and a test can reach the network layer; tests that
+    /// only need *some* failure keep using an invalid string instead.
+    const TEST_ONLY_THROWAWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCzEluLXIZ/BS/L
+w29MNxikrQDpi6rp68cJ+hbiaSHdBRWx3fJqnzlxhl4PtVKyef7zVa9WcvhgOzSi
+ZzCwEUprF8vAVMbFQOhPK1xSh3YuxpH9RoFceuoPk1B6j1SuJqkX65e5KaeI4kby
+CMwDbwX63WNl2aEKOnc+/U4Q4E/BXTxeVrhLuVdsm7KNrxDzKcKuddPpQUjS94nn
+JiHlWXp8CG2ALeuvAxUg+2NCqPU4jq0oGU6De701k15ZT2qRyPTwvmGKYqULvVSl
+Dvg/34GiwtR+8AtiZATK5NMdXbTEC+rznHzNJV82cjAckPl+yZpKFhosTMSP0Prv
+FN+azeDnAgMBAAECggEAMLqsIq5ZAzO8H+zc2pabpCRX/TW+ms1IapSdqZsGVgjO
+MIq/LviJPzVbX1buXBcKo9kLT7EVmcpCtnbyLtdlsuLU1U+8j2zsSq73/pVSOcRb
+cdq/1RS1oOtrmQ5r8sAef53iucZ2Cq/YsoBmVADgVbXtGIgyZIAodwGjPsBrs6hg
+WjQ0D8sd7seogE3s4kPNsBmf+8dgNox4cMONg5up4Xehxl/98dBFFHDTUgKZOSsj
+pVHp/OeNKi6PtmZSmW7MxSFpisAnYH94nnDyuWJ7a/N470eybvyRRF1B0l3v09sB
+JmigaIuffpACCEeoj1/4zvje02uyXVIoMfSbMetwMQKBgQDt4/qpf4ZjBb8pUb3v
+SCu6Zix0dqIZ09NYd8nShv5j70PnMDnxnrq6dyXJAVGvfWrQ2O1HxqlZpsKH9yeH
+feQEx5ZzAua+fzcoNaEop2LBlOEx6vw0zbsQGG3I2+3DezmcZ38ojs8wLyKZToD9
+NFo0dTKD+eUp0yoRtudMJab0cwKBgQDAtB1TChueN97Qfa4MvHdjCJc7I5+OkhgQ
+SW+R5lz2Jk+/GVn53YzmH18JdnRAQDsTG8nv2DePJGxiq+jFFIF8jL7gB1vyBfOu
+5CNZ6W4Rd6IeGlTLFlM5/N8qalKZUoq/wZMGbLrz09ephOpzVUA51eYATUw4DHwc
+zusntFT4vQKBgQC2eh0JrX+JL5xN9pzKEkMwrTVGdMWtKBZDE0flzJUQVTVx/kVE
+OOylIcYDJJbjFUI9R1jjqNi4ozkvEH/q579jhzG5sS0MTQsjNdgUFimjsi73mnex
+jWoDU6nK3CDKxRgRCDa7BqiZHl7c2CILl//lo0yHfcWySn9HrVRIzcz+TwKBgEns
+jpdNeFzQyAwpOnyuTApUwFcyikISL2MIGOHagmz3M352xjqBUEzzWezyYRRIz6C7
+91KoGmAyM9YCZrA79pSGFa8xg4cr21iLMjiKwOu4fhuYNFEYRmMna6EE2pzwukNn
+ifRb/7gL216vm5UU7ieBs9MH1CZoO7B9fF5l4nbtAoGAL53WIGpZ9qMrn0v+6YA/
+eZxhaEs2l12zgGgk1sJ4wIPNqqdtInRMlih+w4HrSsiVVuLlyEhPo730MZ1gILSC
+ibQwm/ptqIi9PyZwuYkV4lrxsBZfuHo2UUvhheQ14CRCahoyS3BmE9sGgltWuJK5
+Mv4b6oszn6H7ZA5VPrqSeE8=
+-----END PRIVATE KEY-----";
+
     fn test_manager(expires_at_secs: u64) -> TokenManager {
+        test_manager_with_key(expires_at_secs, "unused-in-this-test")
+    }
+
+    fn test_manager_with_key(expires_at_secs: u64, private_key: &str) -> TokenManager {
         TokenManager {
             http: Client::new(),
             credentials: ServiceAccountCredentials {
                 client_email: "sa@example.iam.gserviceaccount.com".to_string(),
-                private_key: "unused-in-this-test".to_string(),
+                private_key: private_key.to_string(),
                 token_url: "https://example.invalid/token".to_string(),
             },
             state: Mutex::new(Some(TokenState {
@@ -216,5 +273,27 @@ mod tests {
         // rather than silently reusing the stale cached token.
         let result = manager.token().await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_network_failure_during_refresh_is_transient_not_a_dead_end() {
+        // Answers Kenny's question directly: a token refresh that
+        // fails because the token endpoint was briefly unreachable
+        // must be retried automatically by the caller
+        // (shell::calendar_client::send_with_retry), not require
+        // restarting the process by hand. A permanently bad key
+        // (see the PEM-parse-failure case, exercised via
+        // tests/no_secrets_in_logs.rs) is the one case that genuinely
+        // cannot self-heal.
+        let about_to_expire = now_secs().unwrap() + 60;
+        // A syntactically valid key so signing succeeds and the
+        // failure actually comes from the network call, not PEM
+        // parsing — otherwise this would test the wrong thing.
+        let manager = test_manager_with_key(about_to_expire, TEST_ONLY_THROWAWAY_KEY);
+        let err = manager.token().await.unwrap_err();
+        assert!(
+            err.is_transient(),
+            "a network-level failure reaching the token endpoint must be classified transient"
+        );
     }
 }

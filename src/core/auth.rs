@@ -33,16 +33,19 @@ pub fn validate_credentials(
         remedy:
             "run this process via `latch run --` with the almanac service-account secrets loaded"
                 .to_string(),
+        transient: false,
     })?;
     let private_key = private_key.ok_or_else(|| AlmanacError::Auth {
         message: "PRIVATE_KEY is not set".to_string(),
         remedy:
             "run this process via `latch run --` with the almanac service-account secrets loaded"
                 .to_string(),
+        transient: false,
     })?;
     let token_url = token_url.ok_or_else(|| AlmanacError::Auth {
         message: "TOKEN_URI is not set".to_string(),
         remedy: "set TOKEN_URI, typically https://oauth2.googleapis.com/token".to_string(),
+        transient: false,
     })?;
 
     Ok(ServiceAccountCredentials {

@@ -10,7 +10,7 @@ decisions below the milestone table).
 | Milestone | Features | Status |
 |---|---|---|
 | L0 · Walking skeleton & hygiene | [meta], K13 | **done**, report approved 2026-08-28 — CI run https://github.com/kennypassenier/almanac/actions/runs/33173304996 |
-| L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | in progress |
+| L1 · Authenticated calendar core | K1, K4, K12, M3 (AR14, AR18) | **code done**, report approved 2026-08-28 (CI https://github.com/kennypassenier/almanac/actions/runs/33174789576) — E2E round-trip still `#[ignore]`d pending `ALMANAC_TEST_CALENDAR_ID` + credentials in Latch; `examples/create_test_calendar.rs` provisions the scratch calendar itself, no manual step |
 | L2 · Profiles & upsert engine | K2, K3, K5, M4, M6, M7 (AR15) | not started |
 | L3 · Durable ingest & access | K6, K7, K8, M2 (AR16, AR17) | not started |
 | L4 · Sources & visibility | K9, K11, M1, M9 | not started |
