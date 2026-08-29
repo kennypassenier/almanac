@@ -1,4 +1,4 @@
-//! The management dashboard (M12), modelled on `mailbox`'s W2 so both
+//! The management dashboard (M12), modelled on `kyu`'s W2 so both
 //! services are administered the same way.
 //!
 //! Login uses the bootstrap token from the environment and a session

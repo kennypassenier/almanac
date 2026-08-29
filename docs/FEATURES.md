@@ -94,7 +94,7 @@ Kenny's four L3 follow-up questions assumed a UI that did not exist.
 The underlying need turned out to be concrete rather than cosmetic:
 tokens for every service have to be manageable without SSH-ing into
 the LXC for each one. A mini-round added **M12 · Management
-dashboard**, rated **Essential**, modelled on `mailbox`'s W2 so the
+dashboard**, rated **Essential**, modelled on `kyu`'s W2 so the
 two services are managed the same way. It carries a matching change to
 AR17 (tokens encrypted at rest rather than hashed, and a single
 authentication path — Kenny rejected Claude's proposal to keep
@@ -106,7 +106,7 @@ and image rather than loaded from a CDN, since a LAN-only service must
 not need the internet to render its own status page.
 
 A general, cross-service key manager — Kenny's larger ambition — is
-deliberately **not** folded into Almanac. Almanac repeats the mailbox
+deliberately **not** folded into Almanac. Almanac repeats the kyu
 pattern; the central-issuer idea is recorded as an ecosystem candidate
 for its own project so it gets its own scope phase rather than being
 smuggled in here.
@@ -120,7 +120,7 @@ monitoring cannot fail closed", and again in its acceptance criterion
 never specified, never built.
 
 **The new insight:** a Prometheus now runs on CT 113 and already scrapes
-mailbox and the Proxmox fleet, and Kenny named Almanac as a target in
+kyu and the Proxmox fleet, and Kenny named Almanac as a target in
 his metrics form. Without this endpoint Almanac would be the only
 service in the fleet with no metrics — and the numbers already exist
 inside it, kept in memory for the debug page and thrown away on every
