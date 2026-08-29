@@ -332,3 +332,243 @@ def456  something-else
         assert_eq!(serde_json::from_str::<UpdateState>(&text).unwrap(), state);
     }
 }
+
+// ---------------------------------------------------------------
+// Whether self-update should run here at all.
+// ---------------------------------------------------------------
+
+/// What `ALMANAC_SELF_UPDATE` was set to, if anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfUpdateSetting {
+    /// Explicitly switched on — overrides everything, including the
+    /// container default below.
+    On,
+    /// Explicitly switched off.
+    Off,
+    /// Not set: fall back to what the environment suggests.
+    Unset,
+}
+
+/// Parses the setting, generously. Someone writing this into a
+/// `docker-compose.yml` will type whichever of these comes to mind, and
+/// a typo silently meaning "on" is the wrong way round for a switch
+/// whose whole job is to stop the process replacing its own binary.
+pub fn parse_self_update_setting(raw: Option<&str>) -> SelfUpdateSetting {
+    match raw.map(str::trim) {
+        None => SelfUpdateSetting::Unset,
+        Some("") => SelfUpdateSetting::Unset,
+        Some(v) if v.eq_ignore_ascii_case("off") => SelfUpdateSetting::Off,
+        Some(v) if v.eq_ignore_ascii_case("false") => SelfUpdateSetting::Off,
+        Some("0") => SelfUpdateSetting::Off,
+        Some(v) if v.eq_ignore_ascii_case("no") => SelfUpdateSetting::Off,
+        Some(v) if v.eq_ignore_ascii_case("on") => SelfUpdateSetting::On,
+        Some(v) if v.eq_ignore_ascii_case("true") => SelfUpdateSetting::On,
+        Some("1") => SelfUpdateSetting::On,
+        Some(v) if v.eq_ignore_ascii_case("yes") => SelfUpdateSetting::On,
+        // Anything else is a typo. Treat it as off: refusing to update
+        // is recoverable by fixing the value, whereas a process that
+        // rewrites its own binary because someone typed "offf" is not
+        // what anyone meant.
+        Some(_) => SelfUpdateSetting::Off,
+    }
+}
+
+/// What the filesystem says about where we are running.
+///
+/// Gathered by the shell (these are all file reads) and judged here.
+#[derive(Debug, Clone, Default)]
+pub struct ContainerEvidence {
+    /// `/.dockerenv` exists. Docker creates this in every container.
+    pub dockerenv: bool,
+    /// `/run/.containerenv` exists. Podman's equivalent.
+    pub containerenv: bool,
+    /// The contents of `/proc/1/cgroup`, empty if unreadable.
+    pub pid1_cgroup: String,
+}
+
+/// Whether we are inside an image somebody else builds and ships.
+///
+/// **LXC deliberately does not count.** Almanac's own deployment is an
+/// LXC container on Proxmox, where self-update is exactly what is
+/// wanted — the container is a long-lived machine with a filesystem
+/// that survives, not a rebuilt artifact. Docker and Podman are the
+/// opposite: the binary comes from an image, a new version means a new
+/// image, and a process that rewrites its own binary inside a container
+/// loses that change the moment the container is recreated. Worse, it
+/// diverges from the image while looking identical to it, which is the
+/// kind of difference that costs an afternoon.
+///
+/// So the test is for OCI runtimes specifically, never for
+/// "am I in a container", which would switch self-update off on the
+/// very machine it was built for.
+pub fn is_managed_image(evidence: &ContainerEvidence) -> bool {
+    if evidence.dockerenv || evidence.containerenv {
+        return true;
+    }
+    // cgroup v1 lines look like `1:name=systemd:/docker/<id>`; v2 gives
+    // a single `0::/` line inside Docker, which carries no marker at
+    // all — which is why the files above are checked first and this is
+    // only a fallback for older hosts.
+    evidence.pid1_cgroup.lines().any(|line| {
+        ["/docker", "/docker-", "libpod", "containerd"]
+            .iter()
+            .any(|m| line.contains(m))
+    })
+}
+
+/// The final answer, and the reason for it — the reason is logged, so a
+/// hub that is not updating can always say why in one line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfUpdateDecision {
+    Run,
+    OffByConfiguration,
+    OffBecauseImageManaged,
+}
+
+pub fn decide_self_update(
+    setting: SelfUpdateSetting,
+    evidence: &ContainerEvidence,
+) -> SelfUpdateDecision {
+    match setting {
+        // An explicit `on` wins even inside an image. Someone running a
+        // container as a long-lived pet, with the data directory on a
+        // volume, is allowed to say so.
+        SelfUpdateSetting::On => SelfUpdateDecision::Run,
+        SelfUpdateSetting::Off => SelfUpdateDecision::OffByConfiguration,
+        SelfUpdateSetting::Unset if is_managed_image(evidence) => {
+            SelfUpdateDecision::OffBecauseImageManaged
+        }
+        SelfUpdateSetting::Unset => SelfUpdateDecision::Run,
+    }
+}
+
+#[cfg(test)]
+mod self_update_policy_tests {
+    use super::*;
+
+    fn nothing() -> ContainerEvidence {
+        ContainerEvidence::default()
+    }
+
+    #[test]
+    fn an_unset_variable_on_an_ordinary_machine_leaves_self_update_on() {
+        assert_eq!(
+            decide_self_update(parse_self_update_setting(None), &nothing()),
+            SelfUpdateDecision::Run
+        );
+    }
+
+    #[test]
+    fn docker_switches_it_off_without_anyone_configuring_anything() {
+        let evidence = ContainerEvidence {
+            dockerenv: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            decide_self_update(parse_self_update_setting(None), &evidence),
+            SelfUpdateDecision::OffBecauseImageManaged
+        );
+    }
+
+    #[test]
+    fn podman_counts_too() {
+        let evidence = ContainerEvidence {
+            containerenv: true,
+            ..Default::default()
+        };
+        assert!(is_managed_image(&evidence));
+    }
+
+    #[test]
+    fn an_lxc_container_still_updates_itself() {
+        // The regression that would matter most: Almanac's own
+        // deployment is an LXC container on Proxmox. A check for
+        // "am I in a container" rather than "am I in an image" would
+        // switch self-update off on the one machine it was built for,
+        // and the symptom would be a version that quietly never moves.
+        let evidence = ContainerEvidence {
+            pid1_cgroup: "0::/\n11:name=systemd:/lxc/112\n10:devices:/lxc/112".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_managed_image(&evidence));
+        assert_eq!(
+            decide_self_update(parse_self_update_setting(None), &evidence),
+            SelfUpdateDecision::Run
+        );
+    }
+
+    #[test]
+    fn a_cgroup_v1_docker_line_is_recognised_on_older_hosts() {
+        let evidence = ContainerEvidence {
+            pid1_cgroup: "1:name=systemd:/docker/3f2a9c1e".to_string(),
+            ..Default::default()
+        };
+        assert!(is_managed_image(&evidence));
+    }
+
+    #[test]
+    fn an_explicit_on_wins_even_inside_an_image() {
+        let evidence = ContainerEvidence {
+            dockerenv: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            decide_self_update(parse_self_update_setting(Some("on")), &evidence),
+            SelfUpdateDecision::Run
+        );
+    }
+
+    #[test]
+    fn an_explicit_off_wins_everywhere() {
+        assert_eq!(
+            decide_self_update(parse_self_update_setting(Some("off")), &nothing()),
+            SelfUpdateDecision::OffByConfiguration
+        );
+    }
+
+    #[test]
+    fn the_spellings_someone_would_actually_type_all_work() {
+        for off in ["off", "OFF", "false", "0", "no", " off "] {
+            assert_eq!(
+                parse_self_update_setting(Some(off)),
+                SelfUpdateSetting::Off,
+                "{off:?} should mean off"
+            );
+        }
+        for on in ["on", "ON", "true", "1", "yes"] {
+            assert_eq!(
+                parse_self_update_setting(Some(on)),
+                SelfUpdateSetting::On,
+                "{on:?} should mean on"
+            );
+        }
+    }
+
+    #[test]
+    fn a_typo_means_off_rather_than_on() {
+        // Which way a typo falls matters: "offf" meaning on would let a
+        // process rewrite its own binary because of a slipped finger.
+        assert_eq!(
+            parse_self_update_setting(Some("offf")),
+            SelfUpdateSetting::Off
+        );
+        assert_eq!(
+            parse_self_update_setting(Some("maybe")),
+            SelfUpdateSetting::Off
+        );
+    }
+
+    #[test]
+    fn an_empty_value_is_the_same_as_not_setting_it() {
+        // `ALMANAC_SELF_UPDATE=` in a compose file or an env file is a
+        // leftover, not a decision.
+        assert_eq!(
+            parse_self_update_setting(Some("")),
+            SelfUpdateSetting::Unset
+        );
+        assert_eq!(
+            parse_self_update_setting(Some("   ")),
+            SelfUpdateSetting::Unset
+        );
+    }
+}

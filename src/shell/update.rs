@@ -45,7 +45,8 @@ use std::time::Duration;
 
 use crate::core::error::AlmanacError;
 use crate::core::update::{
-    StartAction, UpdateState, Version, decide_at_startup, hash_for, hash_matches, should_update,
+    ContainerEvidence, SelfUpdateDecision, StartAction, UpdateState, Version, decide_at_startup,
+    decide_self_update, hash_for, hash_matches, parse_self_update_setting, should_update,
 };
 use crate::shell::durability::fsync_parent_dir;
 use crate::shell::notify::{Event, Notifier, ops};
@@ -152,13 +153,25 @@ impl Updater {
     /// is none. Never fails: a missing configuration disables
     /// self-update, it does not stop the service.
     pub fn from_env(http: reqwest::Client, notifier: Notifier, data_dir: PathBuf) -> Option<Self> {
-        if std::env::var(SELF_UPDATE_ENV).map(|v| v.trim().eq_ignore_ascii_case("off")) == Ok(true)
-        {
-            tracing::info!(
-                "{SELF_UPDATE_ENV}=off — self-update is disabled; whatever supervises this \
-                 process owns updates"
-            );
-            return None;
+        let setting = parse_self_update_setting(std::env::var(SELF_UPDATE_ENV).ok().as_deref());
+        match decide_self_update(setting, &setting_evidence()) {
+            SelfUpdateDecision::Run => {}
+            SelfUpdateDecision::OffByConfiguration => {
+                tracing::info!(
+                    "{SELF_UPDATE_ENV} is off — self-update is disabled; whatever supervises \
+                     this process owns updates"
+                );
+                return None;
+            }
+            SelfUpdateDecision::OffBecauseImageManaged => {
+                tracing::info!(
+                    "running inside a docker or podman image — self-update is off by default, \
+                     because a binary replaced inside a container is lost the moment the \
+                     container is recreated while looking identical to the image it came from. \
+                     Update by pulling a new image. Set {SELF_UPDATE_ENV}=on to override."
+                );
+                return None;
+            }
         }
 
         let base_url = match std::env::var(UPDATE_URL_ENV) {
@@ -843,6 +856,20 @@ fn request_restart() {
     // already installs a handler for it (M2's graceful shutdown).
     unsafe {
         libc::raise(libc::SIGTERM);
+    }
+}
+
+/// Reads the three files that say whether this is an OCI image.
+///
+/// The I/O half of [`is_managed_image`]; the judgement is in `core`.
+/// A file that cannot be read counts as absent — on a machine where
+/// `/proc` is not mounted the honest answer is "no evidence of an
+/// image", not a crash at startup.
+fn setting_evidence() -> ContainerEvidence {
+    ContainerEvidence {
+        dockerenv: Path::new("/.dockerenv").exists(),
+        containerenv: Path::new("/run/.containerenv").exists(),
+        pid1_cgroup: std::fs::read_to_string("/proc/1/cgroup").unwrap_or_default(),
     }
 }
 

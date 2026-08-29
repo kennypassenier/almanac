@@ -16,6 +16,10 @@ services:
     # Self-update off: the container's filesystem cannot hold a
     # replaced binary across a recreation.
     environment:
+      # Belt and braces since 0.1.4: the binary detects a Docker or
+      # Podman image on its own and switches self-update off there.
+      # Kept explicit anyway, so anyone reading this file can see who
+      # owns updates without having to know that rule.
       ALMANAC_SELF_UPDATE: "off"
       ALMANAC_PROFILES_DIR: /etc/almanac/profiles
       ALMANAC_DATA_DIR: /var/lib/almanac

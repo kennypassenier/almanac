@@ -345,3 +345,63 @@ To see when it last looked:
 ```bash
 journalctl -u almanac | grep "checked for a new release" | tail -3
 ```
+
+## Who installs new versions
+
+Almanac updates itself, unless it is running from an image somebody
+else builds.
+
+**On the LXC (the live deployment):** it checks every six hours, and
+five minutes after each start. It verifies the minisign signature and
+the checksum, runs the new binary once with `--check` before trusting
+it, keeps the old one as `almanac.prev`, and reverts if the new version
+does not reach "serving" within a minute of starting. Nothing to
+configure.
+
+**In a docker image:** self-update switches itself off, and says so in
+the log:
+
+```
+running inside a docker or podman image — self-update is off by
+default, because a binary replaced inside a container is lost the
+moment the container is recreated while looking identical to the image
+it came from. Update by pulling a new image. Set ALMANAC_SELF_UPDATE=on
+to override.
+```
+
+This is AR20 enforced by the binary rather than trusted to whoever
+writes the compose file. A container that replaces its own binary keeps
+running the new version until it is recreated, then silently goes back
+to the image's version — and every diagnosis after that starts from the
+wrong version number.
+
+**LXC is not treated as an image.** An LXC container is a long-lived
+machine with a filesystem that survives; a Docker container is a
+rebuilt artifact. The check is specifically for Docker and Podman
+(`/.dockerenv`, `/run/.containerenv`, and the OCI markers in
+`/proc/1/cgroup`) and never for "am I in a container", which would
+switch self-update off on exactly the machine it was built for.
+
+**Turning it off or on by hand.** `ALMANAC_SELF_UPDATE` accepts
+`off`/`false`/`0`/`no` and `on`/`true`/`1`/`yes`, case-insensitively.
+Anything it does not recognise counts as **off** — a slipped finger
+should not be what lets a process rewrite its own binary. An empty
+value is the same as not setting it at all.
+
+```yaml
+# docker-compose.yml — the default already, stated for the reader
+environment:
+  ALMANAC_SELF_UPDATE: "off"
+```
+
+```yaml
+# a container run as a long-lived pet, with the data directory on a
+# volume, may opt back in
+environment:
+  ALMANAC_SELF_UPDATE: "on"
+```
+
+```bash
+# on the LXC, to hand updates to something else
+systemctl edit almanac      # Environment=ALMANAC_SELF_UPDATE=off
+```
