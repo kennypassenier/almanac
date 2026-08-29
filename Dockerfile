@@ -10,7 +10,7 @@
 #   docker build -t ghcr.io/kennypassenier/almanac:v0.1.0 .
 # =============================================================================
 
-FROM rust:1.88-slim AS builder
+FROM rust:1.97-slim AS builder
 WORKDIR /app
 COPY . .
 # --locked keeps the build reproducible against the committed lockfile.
