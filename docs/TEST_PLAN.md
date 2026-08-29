@@ -34,7 +34,7 @@ decision, written down. A gap nobody decided about is a hole.**
 | K5 mapping engine | `core::mapping` + the three pinned fixtures |
 | K6 per-source tokens | `shell::ingest`, `tests/ingest_http.rs` |
 | K7 durable ingest | `shell::journal`, `tests/ingest_http.rs`, the power-loss drills |
-| K8 synchronous API | `shell::ingest` — delivery, auth, and 502-with-payload-kept |
+| K8 synchronous API | `shell::ingest` — delivery, auth, 502-with-payload-kept, and delete including cross-source isolation |
 | K9 alert sources | `mapping_regression` + `tests/ingest_http.rs` at the HTTP layer |
 | K11 debug surface | `tests/admin_http.rs` |
 | K12 secrets via Latch | `tests/no_secrets_in_logs.rs` |
@@ -103,12 +103,6 @@ takes it from Latch rather than carrying it inline.
 
 ## Known limitations that are not test gaps
 
-- **The `/sync` endpoint has no delete verb.** K8's acceptance
-  criterion says "create, update and delete via the REST API"; only
-  create and update exist. This is unbuilt scope in a frozen Essential
-  feature, not an untested one. Raised in the Phase 7 form; Kenny chose
-  to close the tests and did not ask for the verb, so it stays
-  unbuilt and recorded here rather than silently dropped.
 - **No real reboot or self-update has been run on hardware.** The
   mechanism is proven end to end against a local release host, and
   `--check` is proven against the real binary with the real Latch

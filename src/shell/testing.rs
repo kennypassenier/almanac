@@ -112,6 +112,7 @@ fn permanent_body() -> Value {
 async fn list_events(
     State(state): State<Arc<CalendarState>>,
     Path(calendar_id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
 ) -> (StatusCode, axum::Json<Value>) {
     state.record("GET", &calendar_id).await;
     if state.take_rejection() {
@@ -124,8 +125,29 @@ async fn list_events(
         );
     }
 
+    // Google filters on `privateExtendedProperty=key=value`, and so
+    // must this: a stub that returns everything regardless of the
+    // query would make an upsert lookup — and the delete that shares
+    // it — appear to work while matching the wrong event, which is
+    // precisely the cross-source bug the tests are meant to catch.
+    let filter = query.get("privateExtendedProperty").cloned();
     let existing = state.existing.lock().await;
-    let items = existing.get(&calendar_id).cloned().unwrap_or_default();
+    let items: Vec<Value> = existing
+        .get(&calendar_id)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|event| match &filter {
+            None => true,
+            Some(filter) => {
+                let Some((key, value)) = filter.split_once('=') else {
+                    return false;
+                };
+                event["extendedProperties"]["private"][key] == json!(value)
+            }
+        })
+        .collect();
+
     (StatusCode::OK, axum::Json(json!({"items": items})))
 }
 
@@ -174,6 +196,20 @@ async fn update_event(
     (StatusCode::OK, axum::Json(updated))
 }
 
+async fn delete_event(
+    State(state): State<Arc<CalendarState>>,
+    Path((calendar_id, _event_id)): Path<(String, String)>,
+) -> StatusCode {
+    state.record("DELETE", &calendar_id).await;
+    if state.take_rejection() {
+        return StatusCode::FORBIDDEN;
+    }
+    if state.take_failure() {
+        return StatusCode::SERVICE_UNAVAILABLE;
+    }
+    StatusCode::NO_CONTENT
+}
+
 impl CalendarStub {
     /// Starts the stub on a loopback port.
     pub async fn start() -> Self {
@@ -186,7 +222,7 @@ impl CalendarStub {
             )
             .route(
                 "/{calendar_id}/events/{event_id}",
-                axum::routing::put(update_event),
+                axum::routing::put(update_event).delete(delete_event),
             )
             .with_state(Arc::clone(&state));
 

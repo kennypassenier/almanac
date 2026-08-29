@@ -42,7 +42,11 @@ impl KeyLocks {
         Self::default()
     }
 
-    async fn for_key(&self, key: &str) -> Arc<Mutex<()>> {
+    /// The lock for one upsert key. Public because the delete path
+    /// (K8) has to take the same lock as delivery: a delete
+    /// interleaving with an upsert of the same event would leave a
+    /// recreated copy behind.
+    pub async fn for_key(&self, key: &str) -> Arc<Mutex<()>> {
         let mut map = self.locks.lock().await;
         Arc::clone(map.entry(key.to_string()).or_default())
     }

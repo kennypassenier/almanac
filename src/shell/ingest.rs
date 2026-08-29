@@ -300,12 +300,108 @@ async fn ingest_sync(
     }
 }
 
+/// `DELETE /v1/ingest/{source_id}/events/{external_id}` (K8) — removes
+/// the event a source previously created.
+///
+/// The caller addresses the event by the id *it* used, not by Google's:
+/// a Claude session that created an event with `external_id = "task-7"`
+/// deletes it with the same name, and never has to have kept the
+/// Google event id. That works because the upsert key is pinned to
+/// `<source_id>:<external-id>` (AR15) and stored on the event, which
+/// is the same lookup a redelivery uses to update instead of
+/// duplicating.
+///
+/// Synchronous and not journalled, unlike ingest. There is no payload
+/// to lose here: if Google is unreachable the caller is told so and
+/// retries, whereas an accepted-but-undelivered *deletion* would be a
+/// promise Almanac cannot keep — the event would stay on the calendar
+/// while the caller believed it was gone.
+///
+/// A source can only delete under its own prefix, so one source can
+/// never remove another's events even if it guesses the external id.
+async fn delete_event(
+    State(state): State<Arc<AppState>>,
+    Path((source_id, external_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Reply {
+    let profile = match authenticate(&state, &source_id, &headers).await {
+        Ok(profile) => profile,
+        Err(reply) => return reply,
+    };
+
+    let key = format!("{}:{external_id}", profile.source_id);
+    let calendar = profile.target_calendar_id.clone();
+
+    // Serialize on the same key the delivery path uses, so a delete
+    // cannot interleave with an upsert of the same event and leave a
+    // recreated copy behind.
+    let lock = state.locks.for_key(&key).await;
+    let _guard = lock.lock().await;
+
+    let found = match state
+        .client
+        .find_event_by_property(&calendar, crate::shell::delivery::UPSERT_PROPERTY, &key)
+        .await
+    {
+        Ok(found) => found,
+        Err(e) => {
+            tracing::warn!(source_id = %profile.source_id, error = %e, "delete lookup failed");
+            return error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy());
+        }
+    };
+
+    let Some(event) = found else {
+        // Deliberately distinct from success: a caller retrying a
+        // delete needs to be able to tell "already gone" from "just
+        // removed", and silently answering 200 would hide a wrong
+        // external id forever.
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "status": "not_found",
+                "message": format!("no event on {calendar} carries {key}"),
+                "remedy": "check the external id; it must be the one this source used when the \
+                           event was created"
+            })),
+        );
+    };
+
+    let Some(event_id) = event.id.clone() else {
+        return error(
+            StatusCode::BAD_GATEWAY,
+            "the Calendar API returned a matching event with no id",
+            "this is unexpected; nothing was deleted",
+        );
+    };
+
+    match state.client.delete_event(&calendar, &event_id).await {
+        Ok(()) => {
+            tracing::info!(
+                source_id = %profile.source_id, %event_id, %key,
+                "deleted an event on its source's request"
+            );
+            (
+                StatusCode::OK,
+                Json(json!({"status": "deleted", "event_id": event_id})),
+            )
+        }
+        Err(e) => {
+            tracing::warn!(source_id = %profile.source_id, error = %e, "delete failed");
+            error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy())
+        }
+    }
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/ingest/{source_id}", axum::routing::post(ingest))
         .route(
             "/v1/ingest/{source_id}/sync",
             axum::routing::post(ingest_sync),
+        )
+        .route(
+            "/v1/ingest/{source_id}/events/{external_id}",
+            axum::routing::delete(delete_event),
         )
 }
 
@@ -734,5 +830,153 @@ duration_minutes = 60
             1,
             "the payload must survive for the worker to retry"
         );
+    }
+
+    #[tokio::test]
+    async fn a_source_can_delete_the_event_it_created() {
+        // K8's criterion says create, update *and* delete. The verb was
+        // never built; Kenny asked for it when the gap was reported.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        calendar
+            .seed(
+                "primary",
+                serde_json::json!({
+                    "id": "google-event-1",
+                    "summary": "meeting",
+                    "start": {"dateTime": "2026-08-29T09:00:00+00:00", "timeZone": "UTC"},
+                    "end": {"dateTime": "2026-08-29T10:00:00+00:00", "timeZone": "UTC"},
+                    "extendedProperties": {
+                        "private": {"almanac_source_id": "home-assistant:task-7"}
+                    }
+                }),
+            )
+            .await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, Json(body)) = delete_event(
+            State(Arc::clone(&state)),
+            Path(("home-assistant".to_string(), "task-7".to_string())),
+            bearer("tok"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "deleted");
+        assert_eq!(body["event_id"], "google-event-1");
+        assert!(
+            calendar
+                .state
+                .requests
+                .lock()
+                .await
+                .iter()
+                .any(|(method, _)| method == "DELETE"),
+            "it must actually have asked Google to delete it"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_something_that_is_not_there_says_so_rather_than_pretending() {
+        // A caller retrying a delete needs to tell "already gone" from
+        // "just removed", and answering 200 for a wrong external id
+        // would hide the mistake forever.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, Json(body)) = delete_event(
+            State(Arc::clone(&state)),
+            Path(("home-assistant".to_string(), "never-existed".to_string())),
+            bearer("tok"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["status"], "not_found");
+        assert!(
+            body["remedy"].as_str().unwrap().contains("external id"),
+            "and point at the likely cause"
+        );
+    }
+
+    #[tokio::test]
+    async fn one_source_cannot_delete_another_sources_event() {
+        // The upsert key is prefixed with the source id, so even a
+        // correct guess of someone else's external id addresses a key
+        // this source can never name.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        calendar
+            .seed(
+                "primary",
+                serde_json::json!({
+                    "id": "google-event-1",
+                    "summary": "someone else's event",
+                    "start": {"dateTime": "2026-08-29T09:00:00+00:00", "timeZone": "UTC"},
+                    "end": {"dateTime": "2026-08-29T10:00:00+00:00", "timeZone": "UTC"},
+                    "extendedProperties": {
+                        "private": {"almanac_source_id": "uptime-kuma:task-7"}
+                    }
+                }),
+            )
+            .await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, _) = delete_event(
+            State(Arc::clone(&state)),
+            Path(("home-assistant".to_string(), "task-7".to_string())),
+            bearer("tok"),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "another source's event must be invisible, not deletable"
+        );
+        assert!(
+            !calendar
+                .state
+                .requests
+                .lock()
+                .await
+                .iter()
+                .any(|(method, _)| method == "DELETE"),
+            "and nothing may be deleted"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_needs_this_sources_own_token() {
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, _) = delete_event(
+            State(Arc::clone(&state)),
+            Path(("home-assistant".to_string(), "task-7".to_string())),
+            bearer("wrong-token"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            calendar.state.request_count().await,
+            0,
+            "an unauthenticated delete must never reach Google"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_delete_that_google_refuses_is_reported_rather_than_claimed() {
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        calendar.reject_next(99);
+        let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+
+        let (status, _) = delete_event(
+            State(Arc::clone(&state)),
+            Path(("home-assistant".to_string(), "task-7".to_string())),
+            bearer("tok"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
     }
 }

@@ -62,6 +62,7 @@ else in the homelab ever holds them.
 |---|---|---|
 | `POST` | `/v1/ingest/{source_id}` | Accept a payload, journal it durably, answer 202 |
 | `POST` | `/v1/ingest/{source_id}/sync` | The same, but wait for delivery and return the Google event id |
+| `DELETE` | `/v1/ingest/{source_id}/events/{external_id}` | Remove an event this source created, addressed by the id the source itself used |
 | `GET` | `/healthz` | Liveness, no authentication — this is what Uptime Kuma watches |
 | `GET` | `/v1/debug/status` | Profiles, journal depth and recent routing decisions |
 | `GET` | `/v1/debug/capture` | Recently captured requests, verbatim |
