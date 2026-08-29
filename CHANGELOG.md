@@ -11,6 +11,26 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-08-30
+
+### Fixed
+
+- **The dashboard's copy-token button could never work.**
+  `navigator.clipboard` exists only in a secure context — https, or
+  localhost — and the dashboard is served over plain HTTP on the LAN,
+  which is neither. The button died with "navigator.clipboard is
+  undefined" every time, in the only way the page is ever opened, and
+  said so only in the browser console. Now: the modern API when it is
+  genuinely present, `execCommand` next, and failing both the command
+  appears already selected to be copied by hand.
+
+### Added
+
+- `examples/show_events.rs` reads a calendar back from Google —
+  summary, start, end, free/busy marker and the private property the
+  upsert matches on. Almanac's log says what it sent; this says what
+  Google kept, and those are different claims.
+
 ### Added
 
 - **Event length from the payload** (K18). `end_field` names the payload
