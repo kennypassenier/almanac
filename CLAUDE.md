@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 8 · Documentation — drafted, awaiting per-document approval |
+| Current phase | 9 · Release & lifecycle — 1.0.0 approved, awaiting the signature |
 | Last completed gate | Phase 7 closed (22 of 24 gaps closed, 2 accepted); deployment report signed off — 2026-08-29 |
-| Next gate | the Phase 8 approval form, one item per document |
+| Next gate | Phase 10 · retrospective, landing as a diff on dev-procedure |
 | AFK mode | off since 2026-08-28 |
 | Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
 

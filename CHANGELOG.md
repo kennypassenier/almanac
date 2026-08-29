@@ -11,6 +11,20 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-08-29
+
+Almanac is finished in the sense that matters for a version number: the
+interface it offers is settled, and it will be honoured. Everything
+rated Essential is built and proven, the mapping-profile format is
+pinned by a regression test that fails loudly if its shape changes, and
+the guarantees that can only be shown on real hardware — power loss,
+reboot, self-update, delete — have been shown there.
+
+What 1.0.0 does not claim is mileage. At the time of release nothing
+was posting to Almanac on its own; every payload it had handled was put
+there deliberately. That is a statement about use, not about
+readiness, and it is recorded here rather than glossed over.
+
 ### Fixed
 
 - The debug surface reported `upsert_key: null` for every routing
@@ -111,7 +125,8 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
-[Unreleased]: https://github.com/kennypassenier/almanac/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/kennypassenier/almanac/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.0.0
 [0.1.4]: https://github.com/kennypassenier/almanac/releases/tag/v0.1.4
 [0.1.3]: https://github.com/kennypassenier/almanac/releases/tag/v0.1.3
 [0.1.2]: https://github.com/kennypassenier/almanac/releases/tag/v0.1.2
