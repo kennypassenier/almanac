@@ -341,6 +341,34 @@ are here (exposition format). Prometheus parses only its own format, so
 pointed at `/healthz` it would report a perfectly healthy service as
 permanently down.
 
+## R12a · Do not restart within a minute of a self-update
+
+Learned the hard way on 2026-08-29, in production.
+
+After installing a new version Almanac runs it **on probation for 60
+seconds** (AR23). A restart inside that window looks exactly like "the
+new version did not come up", so the old binary is put back — correctly,
+and silently as far as the person restarting is concerned. `/healthz`
+reports the new version the whole time, so checking the version is not
+enough to know the update has stuck.
+
+What it cost: a profile using a feature only the new version understood
+was installed a few seconds after the update, the restart that picked it
+up reverted the binary, and the old version then refused the profile and
+crash-looped. Three minutes down. Nothing was lost — the journal was
+intact and the reverting is what it is supposed to do — but the outage
+was entirely self-inflicted.
+
+**Wait for the confirmation line, not the version:**
+
+```bash
+journalctl -u almanac -f | grep "update confirmed"
+```
+
+Only after that line has appeared is the previous binary released and a
+restart safe. It arrives 60 seconds after the new version starts
+serving.
+
 ## R13 · Is the self-updater still looking?
 
 Every six hours, and five minutes after each start, the log gets one
