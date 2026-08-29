@@ -751,12 +751,31 @@ pub async fn run(
     state: std::sync::Arc<crate::shell::ingest::AppState>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
+    // Wait before the first check, so a service that is restart-looping
+    // for an unrelated reason does not also download on every start.
+    // Raced against shutdown: a stop during this window should not have
+    // to sit out the delay.
+    tokio::select! {
+        _ = tokio::time::sleep(FIRST_CHECK_DELAY) => {}
+        _ = shutdown.changed() => {
+            if *shutdown.borrow() {
+                return;
+            }
+        }
+    }
+
+    // Created *after* the delay, deliberately. A tokio interval's first
+    // tick fires immediately, so this makes the first check happen now
+    // and every CHECK_INTERVAL after it.
+    //
+    // Built the other way round — interval first, consume the immediate
+    // tick, then sleep — the delay achieves nothing: the interval's
+    // next tick is still due a full CHECK_INTERVAL after it was
+    // created, so the first check lands six hours out. That is what the
+    // deployed service actually did, and only running the drill on the
+    // LXC showed it; every unit test here calls `check_once` directly
+    // and never goes near this loop.
     let mut ticker = tokio::time::interval(CHECK_INTERVAL);
-    // The first tick of a tokio interval fires immediately; skip it so
-    // a service that is restart-looping for an unrelated reason does
-    // not also download on every start.
-    ticker.tick().await;
-    tokio::time::sleep(FIRST_CHECK_DELAY).await;
 
     loop {
         tokio::select! {
@@ -1126,5 +1145,59 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_first_check_happens_after_the_startup_delay_not_a_whole_interval_later() {
+        // The bug this pins down was invisible to every other test
+        // here, because they all call `check_once` directly and never
+        // touch the loop. Deployed, it meant the first check landed six
+        // hours after start instead of five minutes: the interval was
+        // created before the delay, its immediate first tick consumed,
+        // and the next one was then due a full CHECK_INTERVAL after
+        // creation. The drill on the LXC sat at the old version until
+        // someone looked.
+        let releases = crate::shell::testing::ReleaseStub::start_unverifiable().await;
+        let dir = scratch("first-check-timing");
+        std::fs::write(dir.join("almanac"), b"running").unwrap();
+
+        let updater = Updater::new(
+            reqwest::Client::new(),
+            &releases.base_url,
+            crate::shell::testing::THROWAWAY_RELEASE_PUBKEY,
+            dir.join("almanac"),
+            dir.clone(),
+            Version::parse("0.1.0").unwrap(),
+            Notifier::disabled(),
+        );
+
+        let (state, state_dir) = crate::shell::worker::tests::state_for_update_loop().await;
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let loop_task = tokio::spawn(run(updater, state, rx));
+
+        // Just before the delay is up: nothing should have been asked.
+        tokio::time::sleep(FIRST_CHECK_DELAY - Duration::from_secs(5)).await;
+        assert_eq!(
+            releases.checks(),
+            0,
+            "it must not check immediately on start"
+        );
+
+        // Just after: exactly one check.
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(
+            releases.checks(),
+            1,
+            "the first check must follow the startup delay, not CHECK_INTERVAL"
+        );
+
+        // And it must not sit idle for six hours before the next one
+        // either — one interval later there is a second.
+        tokio::time::sleep(CHECK_INTERVAL).await;
+        assert_eq!(releases.checks(), 2, "and then every interval after");
+
+        loop_task.abort();
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&state_dir).ok();
     }
 }

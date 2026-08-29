@@ -94,6 +94,9 @@ chrono-tz = { version = "0.10.4", default-features = false }
 # (auth, status codes, journalling) is exercised as real HTTP without
 # binding a port.
 [dev-dependencies]
+# `start_paused` — lets a test drive the six-hour update interval in
+# milliseconds instead of waiting it out.
+tokio = { version = "1", features = ["test-util"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 # T5: sends a real SIGTERM to a real process, because the graceful

@@ -325,7 +325,7 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, noti
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::collections::HashMap;
 
@@ -348,6 +348,13 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A minimal state for driving the self-update loop, which only
+    /// reads the capture buffer.
+    pub(crate) async fn state_for_update_loop() -> (Arc<AppState>, std::path::PathBuf) {
+        let (state, dir) = state_with_empty_journal();
+        (state, dir)
     }
 
     fn state_with_empty_journal() -> (Arc<AppState>, std::path::PathBuf) {

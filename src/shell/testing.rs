@@ -443,6 +443,15 @@ pub const THROWAWAY_RELEASE_PUBKEY: &str =
 /// A stand-in for the release host.
 pub struct ReleaseStub {
     pub base_url: String,
+    /// How many times a running instance asked what the latest version
+    /// is — the signal that a check actually happened.
+    pub version_requests: Arc<AtomicUsize>,
+}
+
+impl ReleaseStub {
+    pub fn checks(&self) -> usize {
+        self.version_requests.load(Ordering::SeqCst)
+    }
 }
 
 impl ReleaseStub {
@@ -450,7 +459,8 @@ impl ReleaseStub {
     /// the shape of a compromised release host, and what the
     /// verification-failure threshold counts.
     pub async fn start_unverifiable() -> Self {
-        async fn version() -> &'static str {
+        async fn version(State(count): State<Arc<AtomicUsize>>) -> &'static str {
+            count.fetch_add(1, Ordering::SeqCst);
             "0.2.0"
         }
         async fn manifest() -> &'static str {
@@ -461,12 +471,16 @@ impl ReleaseStub {
             "untrusted comment: signature from minisign secret key\nRUSD7EDZN4XNRWzTd/nVYZPGWVHFhAdBbUgEuUgnG8PNvVN24ZFFhkXVQRLam6HmQw9bcUwAMGbUi7Rgew5LWC0DGlLbmbcy9g8=\ntrusted comment: timestamp:1787940761\tfile:SHA256SUMS\thashed\nsR1goffxRR5oeoS6no0+GjFuKrSt4UannaugGwWSe5Ahv3f5bAmd7nCCRA/a/sYW5TO00kNiMYb2yXKigUm5CA==\n"
         }
 
+        let count = Arc::new(AtomicUsize::new(0));
         let router = Router::new()
-            .route("/latest/download/VERSION", axum::routing::get(version))
             .route("/download/v0.2.0/SHA256SUMS", axum::routing::get(manifest))
             .route(
                 "/download/v0.2.0/SHA256SUMS.minisig",
                 axum::routing::get(signature),
+            )
+            .route(
+                "/latest/download/VERSION",
+                axum::routing::get(version).with_state(Arc::clone(&count)),
             );
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -477,6 +491,7 @@ impl ReleaseStub {
 
         Self {
             base_url: format!("http://{address}"),
+            version_requests: count,
         }
     }
 }
