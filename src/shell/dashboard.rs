@@ -379,17 +379,61 @@ async function reveal(id) {
     setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 10000);
   } catch (e) { pre.textContent = e.message; row.classList.remove('d-none'); }
 }
+function selectAll(node) {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+// Copies without assuming the page is in a secure context.
+//
+// navigator.clipboard exists ONLY in a secure context — https, or
+// localhost. This dashboard is served over plain HTTP on the LAN, which
+// is neither, so the object is simply absent and the button used to die
+// with "navigator.clipboard is undefined". It could never have worked in
+// the only way this page is ever opened, and nothing said so: the error
+// appeared in the browser console, not on the page.
+//
+// So: the modern API when it is really there, the deprecated but
+// http-friendly execCommand next, and failing both, put the command on
+// screen already selected so it can be copied by hand.
+function copyText(text) {
+  if (window.isSecureContext && navigator.clipboard) {
+    return navigator.clipboard.writeText(text).then(() => true, () => false);
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return Promise.resolve(ok);
+}
 async function copyCmd(id) {
   const pre = document.getElementById(`pre-${id}`);
   const row = document.getElementById(`out-${id}`);
+  let hideAfter = 4000;
   try {
     const token = await fetchToken(id);
     const cmd = `curl -X POST ${location.origin}/v1/ingest/${id} \\\n  -H 'Authorization: Bearer ${token}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"title":"test","start":"2026-01-01T09:00:00+00:00"}'`;
-    await navigator.clipboard.writeText(cmd);
-    pre.textContent = 'Command copied to the clipboard (token not shown).';
+    if (await copyText(cmd)) {
+      pre.textContent = 'Command copied to the clipboard (token not shown).';
+    } else {
+      // The token is on screen now, so it gets the same treatment as
+      // Reveal: visible long enough to use, then gone.
+      pre.textContent = cmd;
+      row.classList.remove('d-none');
+      selectAll(pre);
+      hideAfter = 20000;
+    }
   } catch (e) { pre.textContent = e.message; }
   row.classList.remove('d-none');
-  setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 4000);
+  setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, hideAfter);
 }
 </script>"#;
 

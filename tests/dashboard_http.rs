@@ -694,3 +694,43 @@ async fn the_root_and_logout_are_safe_without_a_session() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// The copy control must not depend on an API that does not exist where
+/// this page is actually used.
+///
+/// `navigator.clipboard` is defined only in a secure context. The
+/// dashboard is served over plain HTTP on the LAN, so the object is
+/// absent and a bare call to it throws "navigator.clipboard is
+/// undefined" — into the browser console, where nobody looks. Kenny hit
+/// it the first time he tried to copy a token for real.
+///
+/// A test cannot run the browser's JavaScript, so this asserts the next
+/// best thing: that the served page carries a guard and a fallback, and
+/// never reaches for the secure-context API unguarded.
+#[tokio::test]
+async fn the_copy_control_works_without_a_secure_context() {
+    let dir = scratch_dir("copy-fallback");
+    let st = state(&dir);
+    let cookie = login(&st).await;
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(get("/dashboard/sources", Some(&cookie)))
+        .await
+        .unwrap();
+    let body = text(response).await;
+
+    assert!(
+        body.contains("isSecureContext"),
+        "the copy control must check for a secure context before using navigator.clipboard"
+    );
+    assert!(
+        body.contains("execCommand"),
+        "there must be a fallback that works over plain HTTP"
+    );
+    assert!(
+        !body.contains("await navigator.clipboard.writeText"),
+        "navigator.clipboard must never be awaited unguarded — it is undefined over http"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
