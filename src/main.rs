@@ -180,7 +180,11 @@ async fn main() {
         Err(e) => die(e),
     };
 
-    let tokens = TokenManager::new(http.clone(), credentials);
+    // One set of counters for the whole process: the token manager is
+    // built here, well before the shared state exists, and both have to
+    // count into the same place (M13).
+    let metrics = Arc::new(almanac::core::metrics::Metrics::default());
+    let tokens = TokenManager::with_metrics(http.clone(), credentials, Arc::clone(&metrics));
 
     // AR21: distinguish a broken key from an unreachable Google. A
     // malformed key never fixes itself, so exit. A transient failure —
@@ -266,7 +270,8 @@ async fn main() {
             bootstrap_token_hash,
             token_store,
         )
-        .with_capture_token(capture_token_hash),
+        .with_capture_token(capture_token_hash)
+        .with_metrics(metrics),
     );
 
     // Surface a damaged journal before binding rather than letting the

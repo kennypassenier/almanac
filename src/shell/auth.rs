@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 
 use crate::core::auth::{ServiceAccountCredentials, validate_credentials};
 use crate::core::error::AlmanacError;
+use crate::core::metrics::Metrics;
 use crate::core::retry::{extract_reason, is_transient};
 
 const CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
@@ -157,15 +158,28 @@ struct TokenState {
 pub struct TokenManager {
     http: Client,
     credentials: ServiceAccountCredentials,
+    metrics: Arc<Metrics>,
     state: Mutex<Option<TokenState>>,
 }
 
 impl TokenManager {
     pub fn new(http: Client, credentials: ServiceAccountCredentials) -> Arc<Self> {
+        Self::with_metrics(http, credentials, Arc::new(Metrics::default()))
+    }
+
+    /// The same, sharing the counters the rest of the process uses.
+    /// A separate constructor rather than a parameter on `new`, so the
+    /// setup examples and every existing test keep working unchanged.
+    pub fn with_metrics(
+        http: Client,
+        credentials: ServiceAccountCredentials,
+        metrics: Arc<Metrics>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             http,
             credentials,
             state: Mutex::new(None),
+            metrics,
         })
     }
 
@@ -181,6 +195,7 @@ impl TokenManager {
         if needs_refresh {
             let (access_token, expires_at_secs) =
                 fetch_token(&self.http, &self.credentials).await?;
+            self.metrics.token_refreshed();
             *guard = Some(TokenState {
                 access_token: access_token.clone(),
                 expires_at_secs,
@@ -246,6 +261,7 @@ Mv4b6oszn6H7ZA5VPrqSeE8=
                 private_key: private_key.to_string(),
                 token_url: "https://example.invalid/token".to_string(),
             },
+            metrics: Arc::new(Metrics::default()),
             state: Mutex::new(Some(TokenState {
                 access_token: "cached-token".to_string(),
                 expires_at_secs,

@@ -182,6 +182,7 @@ pub async fn drain_once_tracking(
                     {
                         Ok(()) => {
                             permanent.remove(&entry.id);
+                            state.metrics.dead(1);
                             tracing::error!(
                                 entry_id = %entry.id, source_id = %entry.source_id, reason = %reason,
                                 "set aside as undeliverable after {PERMANENT_FAILURES_BEFORE_DEAD} \
@@ -218,6 +219,8 @@ pub async fn drain_once_tracking(
         }
     }
 
+    state.metrics.delivered(delivered as u64);
+    state.metrics.failed(failed as u64);
     DrainOutcome { delivered, failed }
 }
 

@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::core::journal::Entry;
+use crate::core::metrics::Metrics;
 use crate::core::observability::{CaptureRecord, RingBuffer, RouteRecord};
 use crate::core::profile::Profile;
 use crate::core::token::parse_bearer;
@@ -65,6 +66,9 @@ pub struct AppState {
     /// Encrypted per-source tokens (M12/AR17) — the single source of
     /// truth for who may post, replacing the profile's `token_hash`.
     pub tokens: TokenStore,
+    /// M13 counters. Shared with the token manager, which is built
+    /// before this state exists, so it is an `Arc` rather than owned.
+    pub metrics: Arc<Metrics>,
 }
 
 /// How many recent routes and captures to keep. Enough to debug what
@@ -101,7 +105,17 @@ impl AppState {
             capture_token_hash: None,
             routes: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
             captures: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
+            metrics: Arc::new(Metrics::default()),
         }
+    }
+
+    /// Shares one set of counters with the token manager, which is
+    /// constructed earlier in startup. Without this the two would each
+    /// count into their own instance and `almanac_token_refreshes_total`
+    /// would sit at zero forever.
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// The capture buffer with everything past its TTL already
@@ -236,6 +250,7 @@ async fn ingest(
         );
     }
 
+    state.metrics.accepted();
     tracing::info!(source_id = %source_id, entry_id = %entry.id, "payload accepted and journalled");
 
     (
@@ -268,6 +283,8 @@ async fn ingest_sync(
             e.remedy(),
         );
     }
+
+    state.metrics.accepted();
 
     match deliver(&entry, &profile, &state.client, &state.locks).await {
         Ok(delivered) => {

@@ -14,6 +14,7 @@ pub mod error;
 pub mod html;
 pub mod journal;
 pub mod mapping;
+pub mod metrics;
 pub mod observability;
 pub mod pacing;
 pub mod profile;

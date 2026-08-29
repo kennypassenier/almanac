@@ -796,7 +796,19 @@ pub async fn run(
 
                 match updater.check_once().await {
                     Ok(Outcome::UpToDate(version)) => {
-                        tracing::debug!(version = %version, "already on the latest release");
+                        // Info, not debug, and deliberately so. At debug
+                        // this is invisible at the level the service
+                        // actually runs at, which meant a checking
+                        // updater and a silently broken one produced
+                        // byte-identical logs. That is how the interval
+                        // bug above stayed hidden: the only symptom was
+                        // a version that never moved. Four lines a day
+                        // is a cheap price for being able to answer "is
+                        // it still looking?" from the journal.
+                        tracing::info!(
+                            version = %version,
+                            "checked for a new release; already on the latest"
+                        );
                     }
                     Ok(Outcome::Skipped(reason)) => {
                         tracing::info!(reason, "an update was available but not installed");
