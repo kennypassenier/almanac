@@ -265,10 +265,25 @@ State lives in four places, and only one of them is on the LXC:
 
 | What | Where | Restore |
 |---|---|---|
-| Profiles, config | git (`fixtures/profiles/`) | `git clone` |
+| Profiles (examples) | git (`fixtures/profiles/`) | `git clone`, then set the real calendar ids |
+| Real calendar ids | this deployment only | `cargo run --example inspect_calendar_access` lists them |
 | Secrets | Latch escrow (offline) | `latch key restore` / `latch clone` |
 | Journal (transient) | `/opt/almanac/data` | nothing to do — it is empty in steady state |
 | Calendar data | Google | nothing to do |
+
+Since 2026-08-29 the homelab also takes a nightly restic snapshot of
+`/opt/almanac` and `/etc/almanac` to Drive. Worth knowing exactly what
+that contains, because it is both halves of the same lock: `/etc/almanac`
+holds `latch.env` with the project key, and `/opt/almanac` holds the
+encrypted token store and the Latch clone the key opens.
+
+That is not a new category of exposure — restic encrypts client-side
+with AES-256 before anything leaves the machine, under Kenny's own
+64-character password which lives in Bitwarden and never at Google, and
+the same Drive already holds the homelab's full secrets vault under the
+same encryption. What it does change is the inventory: whoever holds
+that restic password now also holds lock and key for Almanac's secrets
+in one place.
 
 So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
