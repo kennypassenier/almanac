@@ -44,8 +44,29 @@ useradd --system --home-dir /opt/almanac --shell /usr/sbin/nologin almanac
 mkdir -p /opt/almanac/{data,profiles} /etc/almanac
 install -m 0755 almanac /opt/almanac/almanac
 install -m 0755 latch /usr/local/bin/latch
-cp fixtures/profiles/*.toml /opt/almanac/profiles/   # the three working profiles
+cp fixtures/profiles/*.toml /opt/almanac/profiles/   # examples — see below
 ```
+
+**The shipped profiles are examples, not configuration.** Their
+`target_calendar_id` values (`primary`, `infra`) are placeholders that
+exist so the regression tests have something to pin. Deployed as they
+are, a Home Assistant event lands on the service account's own invisible
+calendar and an alert fails permanently against a calendar that does not
+exist — no data lost, but no calendar either. Replace the id in each
+profile with a real one before pointing any source at the service.
+
+To create the real calendars under the service account, which then owns
+them and needs no manual step in the Google Calendar UI:
+
+```bash
+latch run -- cargo run --example create_calendars     # creates, idempotent
+latch run -- cargo run --example inspect_calendar_access   # shows who can see what
+```
+
+A calendar the service account creates is **invisible to everyone else**
+until it is shared. `inspect_calendar_access` shows the ACL of each; add
+your own account with `share_calendars` (or once, by hand) or nothing
+that lands there will ever be visible.
 
 Latch needs its cached clone and a link. Copy the clone from your
 desktop rather than logging Latch in here — the clone is ciphertext
