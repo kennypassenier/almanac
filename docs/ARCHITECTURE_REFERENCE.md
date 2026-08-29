@@ -200,3 +200,16 @@ journal is corruption, and the refusal is the feature.
 **No inbound rate limiting** (M5, Later). Every source is on the LAN.
 
 **No reading calendars back.** Almanac writes; Google Calendar reads.
+
+**No recurring events, and no invitations** (both declined by
+mini-round, 2026-08-29). Recurrence is not a missing field but a
+missing answer: a recurring event is one Google event with instances
+beneath it, and Almanac's one-payload-one-event model — which K2's
+upsert rests on — has no position on whether an update rewrites the
+series or one occurrence. Invitations are declined because they would
+make a profile mistake into mail sent to the wrong person, which cannot
+be taken back.
+
+Almanac uses eleven of Google's event fields as of K14–K17: summary,
+description, location, colour, start, end, transparency, status,
+reminders, extended properties, and the id.

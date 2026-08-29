@@ -11,6 +11,41 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Added
+
+- **All-day events** (K14). A profile with `all_day = true` produces a
+  day marker rather than a timed block, which is what bin day, a
+  birthday or a week away actually is. Accepts either a plain date or a
+  timestamp from the source, so an existing sensor does not have to
+  change to become an all-day source. Google's end date is exclusive
+  and has its own test, because getting it wrong produces an event of
+  zero length that shows up nowhere.
+- **Location** (K15). `location_field` in a profile. The event model
+  already had the field and already serialized it; it was hardcoded
+  empty and unreachable — the second instance in one day of the thing
+  the retrospective had just made a rule about.
+- **Reminders** (K16). `[mapping.reminders]` with popup and email
+  minutes, or `silent = true`. Omitting the block inherits the
+  calendar's default, which is a third and different outcome from
+  silence. Google's limits — five reminders, four weeks — are checked
+  when the profile loads.
+- **Free/busy and status** (K17). `busy = false` stops an infra
+  incident from marking Kenny unavailable, which is the one addition
+  here that met real data before it was recommended: both alert sources
+  already send a status. `status_by` maps a payload field onto Google's
+  three statuses in the same shape as `color_by`, and a fourth value is
+  refused at startup.
+
+`duration_minutes` becomes optional — an all-day profile has no minutes
+to give — and a timed profile that omits it now fails at startup rather
+than defaulting to a length nobody chose. Every existing profile is
+unaffected.
+
+**Declined in the same mini-round:** recurring events, attendees,
+attachments, Meet links, per-event visibility. See `docs/FEATURES.md`
+for why each; the recurrence reasoning in particular is worth reading
+before anyone proposes it again.
+
 ## [1.0.0] — 2026-08-29
 
 Almanac is finished in the sense that matters for a version number: the

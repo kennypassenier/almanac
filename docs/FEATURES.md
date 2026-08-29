@@ -27,6 +27,10 @@ from here on. Changes after the freeze go through a mini-round only
 | K11 | Debug/introspection surface — structured logs plus a status/query endpoint showing what came in, which profile routed it, what went to Google (no UI) | Essential | Test querying the debug surface for a processed event and getting back the expected routing info. |
 | K12 | Secrets via Latch — full replacement of Infisical, local and CI | Essential | Test asserting no secret appears in plaintext in logs, new commit history, or process arguments. |
 | K13 | CI: full test suite gates every push, red blocks merge | Essential | The CI setup itself is the evidence: red on a deliberately broken test, green on a healthy commit. |
+| K14 | All-day events — a profile can produce a day marker rather than a timed block | Essential | A profile with `all_day = true` produces a Google event carrying `start.date`/`end.date` and never `dateTime`; a timed profile produces the opposite. Both asserted, since sending both is what Google rejects. *(Added 2026-08-29 via mini-round.)* |
+| K15 | Location reachable from a mapping profile | Essential | A profile naming `location_field` puts that payload field on the event; the pinned regression fixture shows it. Closes a half-built field that was serialized and always empty. *(Added 2026-08-29 via mini-round.)* |
+| K16 | Reminders per profile — a set of overrides, or deliberate silence | Gewenst | A profile asking for reminders produces them on the event; one asking for silence produces `useDefault: false` with no overrides; one saying nothing omits the block so the calendar's own default applies. *(Added 2026-08-29 via mini-round.)* |
+| K17 | Free/busy and event status per profile | Gewenst | A profile with `busy = false` produces `transparency: "transparent"`, so an infra incident does not mark Kenny busy; `status_by` maps a payload field onto Google's three statuses and rejects any other value at startup. *(Added 2026-08-29 via mini-round.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -136,3 +140,52 @@ the existing ones on the same port, nothing rebuilt.
 drills (Traefik route, reboot, self-update on hardware), not before. The
 same no-tokens rule that the dashboard and the log already enforce with
 tests applies to it.
+
+## Google Calendar field coverage (mini-round, 2026-08-29)
+
+Kenny asked whether Almanac can use everything a Google Calendar event
+offers. It could not, and nowhere said so: the event model carried seven
+of Google's fields and `docs/SCOPE.md` never listed that as a limit.
+
+**Tested against reality first, and only half of it could be.** The
+three sources that exist today all send point-in-time incidents — the
+pinned fixtures show Grafana sending `startsAt`/`status`/summary and
+Uptime Kuma sending `time`/`status`/monitor name. None of them needs a
+day marker, a reminder or a repeat. Everything asked about lives on the
+household side of Almanac, and nothing is connected there yet: a search
+of Home Assistant found no waste sensors and no calendar entities. The
+recommendations for K14, K16 and K17 were therefore presented as
+hypotheses rather than as tested proposals, and Kenny rated them
+without a worked example of his own ("weet ik zelf nog niet").
+
+**Adopted:** K14 all-day (Essential), K15 location (Essential), K16
+reminders (Desired), K17 free/busy and status (Desired).
+
+**Declined, with reasons worth keeping:**
+
+*Recurrence (`RRULE`)* — **Don't do.** Not for lack of value: it has a
+genuine design problem that deserved its own round rather than a field.
+Almanac's whole model is one payload, one event, and K2's upsert rests
+on it. A recurring event is one Google event with instances beneath it,
+so an update from a source either rewrites the series or one occurrence,
+and both answers are defensible. Half-building it is how a source
+silently overwrites a whole series one day. The workaround is real: a
+source posts each occurrence, e.g. a week ahead every Monday.
+
+*Attendees* — **Don't do.** Adding guests means Almanac starts sending
+mail to people. A profile mistake stops being a wrong calendar entry and
+becomes an invitation to the wrong person, which cannot be taken back —
+a different class of consequence from everything else here. Sharing the
+calendar already solves the household case.
+
+*Attachments, Meet links, visibility* — **Don't do.** Attachments need
+Drive scopes Almanac deliberately does not hold; Meet links belong to
+meetings with people, not to bin day; per-event visibility only matters
+on one calendar shared with several people, and a second calendar is
+simpler and already supported (K3).
+
+**Consequences for what is already built:** none of the four additions
+changes an existing profile. Every new key is optional and absent means
+today's behaviour. `duration_minutes` becomes optional rather than
+required, because an all-day profile has no minutes to give — existing
+profiles that supply it are unaffected.

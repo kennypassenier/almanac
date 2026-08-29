@@ -102,7 +102,11 @@ timezone = "Europe/Brussels"
 | `description_field` | no | Which field becomes the body. Omit for a title-only event. |
 | `external_id_field` | no | The field holding the source's own id for this thing. This is what makes updates converge instead of duplicating — see 3.1. |
 | `start_field` | yes | The field holding the start time, as RFC 3339. |
-| `duration_minutes` | yes | How long the event is. Must be greater than zero. |
+| `duration_minutes` | for a timed event | How long the event is. Must be greater than zero. Leave it out on an all-day profile — setting both is refused at startup rather than silently resolved. |
+| `location_field` | no | Which payload field becomes the event's location (K15). |
+| `all_day` | no | `true` makes a day marker instead of a timed block (K14). The start field may then be either `2026-09-01` or a full timestamp on that day. |
+| `duration_days` | no | How many days an all-day event covers; defaults to 1. Only on an all-day profile. |
+| `busy` | no | `false` shows the event without consuming your availability (K17) — what an infra incident should do. Absent leaves Google's default, which is busy. |
 | `timezone` | yes | An IANA name, e.g. `Europe/Brussels`. Checked at startup (M4) — a typo is caught when the service starts, not by Google days later. |
 
 **Nested fields work** with dots: `title_field = "data.alert.name"`
@@ -110,6 +114,41 @@ reads `{"data": {"alert": {"name": "…"}}}`.
 
 **Numbers and booleans are coerced to strings**, so a payload with
 `"severity": 3` can feed a title without special handling.
+
+**Reminders** (optional, K16). Three distinct outcomes, and the
+difference between the last two matters:
+
+```toml
+# ask for reminders
+[mapping.reminders]
+popup_minutes_before = [30]
+email_minutes_before = [1440]
+```
+
+```toml
+# deliberate silence, overriding whatever the calendar defaults to
+[mapping.reminders]
+silent = true
+```
+
+Omit the block entirely and the calendar's own default applies. That is
+*not* the same as `silent = true`, which says "no reminders" out loud.
+Google allows at most five reminders, none further out than four weeks;
+both limits are checked when the profile loads rather than on every
+event forever.
+
+**Status by value** (optional, K17) — the same shape as colours, mapping
+a payload field onto Google's three statuses:
+
+```toml
+[mapping.status_by]
+field = "status"
+default = "confirmed"
+values = { resolved = "cancelled" }
+```
+
+Only `confirmed`, `tentative` and `cancelled` are accepted; anything
+else is refused at startup.
 
 **Colours by value** (optional):
 
@@ -296,6 +335,17 @@ authenticate reports a healthy service as down. Everything else does.
 - **It does not rate-limit inbound requests** (M5, deliberately Later).
   Every source is on the LAN and trusted; this would matter the day one
   is not.
+- **It does not do repeating events** (declined 2026-08-29). Not for
+  lack of value — a recurring event is one Google event with instances
+  beneath it, and Almanac's whole model is one payload, one event. An
+  update from a source would have to choose between rewriting the
+  series and rewriting one occurrence, and half-answering that is how a
+  source silently overwrites a whole series. Post each occurrence
+  instead: a week ahead every Monday works today.
+- **It does not invite anyone** (declined 2026-08-29). Adding guests
+  means Almanac sends mail to people, and a profile mistake stops being
+  a wrong calendar entry and becomes an invitation to the wrong person.
+  Share the calendar instead.
 - **It does not retry forever.** An entry that fails permanently three
   times is set aside as dead, kept in the journal with its reason, and
   reported — rather than blocking everything behind it (T1).

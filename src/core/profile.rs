@@ -16,6 +16,36 @@ use crate::core::error::AlmanacError;
 /// misinterpreting an old or newer shape.
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 
+/// Google's own limits, checked at startup so a profile that breaks
+/// them fails once and visibly rather than on every event forever.
+const MAX_REMINDER_OVERRIDES: usize = 5;
+const MAX_REMINDER_MINUTES: u32 = 40_320;
+
+/// K17. Maps a payload value onto a Google event status, in exactly
+/// the same shape as `ColorRule` below — someone who has written one
+/// has written the other.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct StatusRule {
+    pub field: String,
+    pub default: String,
+    #[serde(default)]
+    pub values: HashMap<String, String>,
+}
+
+/// K16. Either deliberate silence or a set of overrides — never both,
+/// which is checked at parse time rather than left to Google.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct ReminderRule {
+    /// No reminders at all, overriding whatever the calendar defaults
+    /// to. Not the same as omitting the block, which inherits it.
+    #[serde(default)]
+    pub silent: bool,
+    #[serde(default)]
+    pub popup_minutes_before: Vec<u32>,
+    #[serde(default)]
+    pub email_minutes_before: Vec<u32>,
+}
+
 /// A conditional colour rule (generalizes VIK-4/VIK-6): look up
 /// `field`'s value in `values`, falling back to `default` when the
 /// value is absent from the payload or not in the table.
@@ -30,6 +60,30 @@ pub struct ColorRule {
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct FieldMapping {
     pub title_field: String,
+    /// K15. Optional; when absent the event carries no location — which
+    /// is what every profile did before this existed, because the field
+    /// was hardcoded empty and unreachable.
+    #[serde(default)]
+    pub location_field: Option<String>,
+    /// K14. A day marker rather than a timed block. When true,
+    /// `duration_minutes` must be absent and `duration_days` decides
+    /// the length.
+    #[serde(default)]
+    pub all_day: bool,
+    /// K14. How many days an all-day event covers; defaults to one.
+    #[serde(default)]
+    pub duration_days: Option<i64>,
+    /// K17. `false` makes the event show on the calendar without
+    /// consuming availability. Absent leaves Google's default (busy).
+    #[serde(default)]
+    pub busy: Option<bool>,
+    /// K17. Maps a payload field onto Google's event status, in the
+    /// same shape as `color_by`.
+    #[serde(default)]
+    pub status_by: Option<StatusRule>,
+    /// K16. Absent inherits the calendar's own default.
+    #[serde(default)]
+    pub reminders: Option<ReminderRule>,
     #[serde(default)]
     pub description_field: Option<String>,
     /// Used to build the AR15 upsert key
@@ -43,7 +97,10 @@ pub struct FieldMapping {
     /// be present and parseable at mapping time — no silent fallback
     /// to a placeholder time (standing rule 12).
     pub start_field: String,
-    pub duration_minutes: i64,
+    /// Optional since K14: an all-day profile has no minutes to give.
+    /// Required for a timed profile, which is checked at parse time.
+    #[serde(default)]
+    pub duration_minutes: Option<i64>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
     #[serde(default)]
@@ -142,16 +199,117 @@ impl Profile {
             });
         }
 
-        if profile.mapping.duration_minutes <= 0 {
-            return Err(AlmanacError::ProfileValidation {
-                message: format!(
-                    "{origin}: mapping.duration_minutes must be positive, got {}",
-                    profile.mapping.duration_minutes
-                ),
-                remedy: format!(
-                    "set mapping.duration_minutes in {origin} to a positive number of minutes"
-                ),
-            });
+        // K14. Exactly one of the two length settings applies, and
+        // which one depends on `all_day`. Silently ignoring the wrong
+        // one would let a profile say "all day, 60 minutes" and get
+        // something nobody asked for.
+        let m = &profile.mapping;
+        if m.all_day {
+            if m.duration_minutes.is_some() {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: mapping.duration_minutes is set on an all-day profile"
+                    ),
+                    remedy: format!(
+                        "remove mapping.duration_minutes from {origin}, or set all_day = false —                          an all-day event is measured in days, so use duration_days"
+                    ),
+                });
+            }
+            if let Some(days) = m.duration_days
+                && days <= 0
+            {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: mapping.duration_days must be positive, got {days}"
+                    ),
+                    remedy: format!("set mapping.duration_days in {origin} to at least 1"),
+                });
+            }
+        } else {
+            if m.duration_days.is_some() {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!("{origin}: mapping.duration_days is set on a timed profile"),
+                    remedy: format!(
+                        "set all_day = true in {origin} if you meant a day marker, or use                          duration_minutes for a timed event"
+                    ),
+                });
+            }
+            match m.duration_minutes {
+                None => {
+                    return Err(AlmanacError::ProfileValidation {
+                        message: format!("{origin}: mapping.duration_minutes is missing"),
+                        remedy: format!(
+                            "set mapping.duration_minutes in {origin} to how long the event should                              last, or set all_day = true for a day marker"
+                        ),
+                    });
+                }
+                Some(minutes) if minutes <= 0 => {
+                    return Err(AlmanacError::ProfileValidation {
+                        message: format!(
+                            "{origin}: mapping.duration_minutes must be positive, got {minutes}"
+                        ),
+                        remedy: format!(
+                            "set mapping.duration_minutes in {origin} to a positive number of minutes"
+                        ),
+                    });
+                }
+                Some(_) => {}
+            }
+        }
+
+        // K17. Google accepts three statuses and nothing else; a fourth
+        // is a permanent failure on every event this source sends, so
+        // it is caught here rather than days later.
+        if let Some(rule) = &m.status_by {
+            for value in std::iter::once(&rule.default).chain(rule.values.values()) {
+                if !matches!(value.as_str(), "confirmed" | "tentative" | "cancelled") {
+                    return Err(AlmanacError::ProfileValidation {
+                        message: format!(
+                            "{origin}: mapping.status_by yields \"{value}\", which is not a Google event status"
+                        ),
+                        remedy: format!(
+                            "use \"confirmed\", \"tentative\" or \"cancelled\" in {origin} —                              Google rejects anything else"
+                        ),
+                    });
+                }
+            }
+        }
+
+        // K16. Silence and overrides are contradictory instructions.
+        if let Some(rule) = &m.reminders {
+            let overrides = rule.popup_minutes_before.len() + rule.email_minutes_before.len();
+            if rule.silent && overrides > 0 {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: mapping.reminders asks for silence and for reminders at the same time"
+                    ),
+                    remedy: format!(
+                        "in {origin}, either set silent = true or list minutes, not both"
+                    ),
+                });
+            }
+            if overrides > MAX_REMINDER_OVERRIDES {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: mapping.reminders has {overrides} reminders; Google allows at most {MAX_REMINDER_OVERRIDES}"
+                    ),
+                    remedy: format!("keep at most {MAX_REMINDER_OVERRIDES} reminders in {origin}"),
+                });
+            }
+            for minutes in rule
+                .popup_minutes_before
+                .iter()
+                .chain(&rule.email_minutes_before)
+            {
+                if *minutes > MAX_REMINDER_MINUTES {
+                    return Err(AlmanacError::ProfileValidation {
+                        message: format!(
+                            "{origin}: a reminder of {minutes} minutes is beyond Google's limit of {MAX_REMINDER_MINUTES} (four weeks)"
+                        ),
+                        remedy: format!("use at most {MAX_REMINDER_MINUTES} minutes in {origin}"),
+                    });
+                }
+            }
         }
 
         Ok(profile)
@@ -203,7 +361,7 @@ duration_minutes = 60
     fn a_well_formed_profile_parses() {
         let profile = Profile::parse(valid_profile_toml(), "test.toml").unwrap();
         assert_eq!(profile.source_id, "home-assistant");
-        assert_eq!(profile.mapping.duration_minutes, 60);
+        assert_eq!(profile.mapping.duration_minutes, Some(60));
         assert_eq!(profile.mapping.timezone, "UTC"); // default applied
     }
 
@@ -341,5 +499,143 @@ duration_minutes = 30
 "#;
         let err = Profile::parse(toml, "no-start.toml").unwrap_err();
         assert!(err.to_string().contains("start_field is empty"));
+    }
+
+    fn parse_mapping(extra: &str) -> Result<Profile, AlmanacError> {
+        Profile::parse(
+            &format!(
+                r#"
+schema_version = 1
+source_id = "s"
+target_calendar_id = "c"
+
+[mapping]
+title_field = "t"
+start_field = "start"
+timezone = "UTC"
+{extra}
+"#
+            ),
+            "test.toml",
+        )
+    }
+
+    #[test]
+    fn an_all_day_profile_that_also_gives_minutes_is_rejected() {
+        // "All day, 60 minutes" is two contradictory instructions.
+        // Silently honouring one of them produces an event nobody
+        // asked for, on every payload, forever.
+        let err = parse_mapping("all_day = true\nduration_minutes = 60").unwrap_err();
+        assert!(err.to_string().contains("duration_minutes"), "{err}");
+        assert!(err.remedy().contains("duration_days"), "{}", err.remedy());
+    }
+
+    #[test]
+    fn a_timed_profile_that_gives_days_is_rejected_too() {
+        let err = parse_mapping("duration_minutes = 60\nduration_days = 2").unwrap_err();
+        assert!(err.to_string().contains("duration_days"), "{err}");
+    }
+
+    #[test]
+    fn a_timed_profile_without_a_duration_says_so_at_startup() {
+        // duration_minutes became optional for K14; a timed profile
+        // that omits it must still fail loudly rather than defaulting
+        // to some length nobody chose.
+        let err = parse_mapping("").unwrap_err();
+        assert!(
+            err.to_string().contains("duration_minutes is missing"),
+            "{err}"
+        );
+        assert!(err.remedy().contains("all_day"), "{}", err.remedy());
+    }
+
+    #[test]
+    fn an_all_day_profile_needs_nothing_more_than_the_flag() {
+        let profile = parse_mapping("all_day = true").unwrap();
+        assert!(profile.mapping.all_day);
+        assert_eq!(profile.mapping.duration_minutes, None);
+        assert_eq!(profile.mapping.duration_days, None);
+    }
+
+    #[test]
+    fn zero_or_negative_days_are_rejected() {
+        assert!(parse_mapping("all_day = true\nduration_days = 0").is_err());
+        assert!(parse_mapping("all_day = true\nduration_days = -1").is_err());
+    }
+
+    #[test]
+    fn a_status_google_does_not_know_is_caught_at_startup() {
+        // The same reasoning as the timezone check: an invalid status
+        // is a permanent failure on every event this source ever sends,
+        // discovered days later as an unexplained Google error.
+        let err = parse_mapping(
+            "duration_minutes = 60\n[mapping.status_by]\nfield = \"s\"\ndefault = \"resolved\"",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("resolved"), "{err}");
+        assert!(err.remedy().contains("cancelled"), "{}", err.remedy());
+    }
+
+    #[test]
+    fn a_bad_status_hiding_in_the_lookup_table_is_caught_too() {
+        // Not just the default: every value the table can produce.
+        let err = parse_mapping(
+            "duration_minutes = 60\n[mapping.status_by]\nfield = \"s\"\ndefault = \"confirmed\"\nvalues = { up = \"ok\" }",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("\"ok\""), "{err}");
+    }
+
+    #[test]
+    fn the_three_statuses_google_accepts_all_parse() {
+        for status in ["confirmed", "tentative", "cancelled"] {
+            assert!(
+                parse_mapping(&format!(
+                    "duration_minutes = 60\n[mapping.status_by]\nfield = \"s\"\ndefault = \"{status}\""
+                ))
+                .is_ok(),
+                "{status} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn asking_for_silence_and_for_reminders_at_once_is_rejected() {
+        let err = parse_mapping(
+            "duration_minutes = 60\n[mapping.reminders]\nsilent = true\npopup_minutes_before = [30]",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("silence"), "{err}");
+    }
+
+    #[test]
+    fn more_reminders_than_google_allows_is_caught_here_not_there() {
+        let err = parse_mapping(
+            "duration_minutes = 60\n[mapping.reminders]\npopup_minutes_before = [1, 2, 3, 4, 5, 6]",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("at most 5"), "{err}");
+    }
+
+    #[test]
+    fn a_reminder_further_out_than_google_allows_is_rejected() {
+        // Google's ceiling is four weeks. A profile asking for a
+        // reminder a year ahead fails on every event otherwise.
+        let err = parse_mapping(
+            "duration_minutes = 60\n[mapping.reminders]\npopup_minutes_before = [525600]",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("four weeks"), "{err}");
+    }
+
+    #[test]
+    fn a_reasonable_reminder_block_parses() {
+        let profile = parse_mapping(
+            "duration_minutes = 60\n[mapping.reminders]\npopup_minutes_before = [30, 1440]",
+        )
+        .unwrap();
+        let rule = profile.mapping.reminders.unwrap();
+        assert!(!rule.silent);
+        assert_eq!(rule.popup_minutes_before, vec![30, 1440]);
     }
 }

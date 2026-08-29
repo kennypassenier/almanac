@@ -3,10 +3,12 @@
 //! old hardcoded `build_google_event_from_task`. Pure: takes already-
 //! parsed JSON and a profile, produces a value; no I/O.
 
-use chrono::{DateTime, Duration};
+use chrono::{DateTime, Duration, NaiveDate};
 use serde_json::Value;
 
-use crate::core::calendar::{EventDateTime, ExtendedProperties, GoogleEvent};
+use crate::core::calendar::{
+    EventDateTime, ExtendedProperties, GoogleEvent, ReminderOverride, Reminders,
+};
 use crate::core::error::AlmanacError;
 use crate::core::profile::Profile;
 
@@ -74,22 +76,10 @@ pub fn map_payload(
     };
 
     let start_raw = required_field(payload, &mapping.start_field, origin)?;
-    let start_dt = DateTime::parse_from_rfc3339(&start_raw).map_err(|e| AlmanacError::ProfileValidation {
-        message: format!(
-            "{origin}: payload field \"{}\" (\"{start_raw}\") is not a valid RFC3339 timestamp: {e}",
-            mapping.start_field
-        ),
-        remedy: "check the source sends an RFC3339 timestamp (e.g. 2026-08-28T09:00:00+00:00)".to_string(),
-    })?;
-    let end_dt = start_dt + Duration::minutes(mapping.duration_minutes);
-
-    let start = EventDateTime {
-        date_time: start_dt.to_rfc3339(),
-        time_zone: mapping.timezone.clone(),
-    };
-    let end = EventDateTime {
-        date_time: end_dt.to_rfc3339(),
-        time_zone: mapping.timezone.clone(),
+    let (start, end) = if mapping.all_day {
+        all_day_window(&start_raw, mapping, origin)?
+    } else {
+        timed_window(&start_raw, mapping, origin)?
     };
 
     let color_id = resolve_color(payload, profile);
@@ -111,16 +101,114 @@ pub fn map_payload(
         None => None,
     };
 
+    let location = match &mapping.location_field {
+        Some(field) => get_field(payload, field).and_then(value_to_string),
+        None => None,
+    };
+
     Ok(GoogleEvent {
         id: None,
         summary,
         description,
-        location: None,
+        location,
         color_id,
         start,
         end,
+        transparency: mapping
+            .busy
+            .map(|busy| if busy { "opaque" } else { "transparent" }.to_string()),
+        status: resolve_status(payload, profile),
+        reminders: mapping.reminders.as_ref().map(|rule| Reminders {
+            // Silence and overrides both mean "not the calendar's
+            // default"; the difference is whether the list is empty.
+            use_default: false,
+            overrides: rule
+                .popup_minutes_before
+                .iter()
+                .map(|m| ReminderOverride {
+                    method: "popup".to_string(),
+                    minutes: *m,
+                })
+                .chain(rule.email_minutes_before.iter().map(|m| ReminderOverride {
+                    method: "email".to_string(),
+                    minutes: *m,
+                }))
+                .collect(),
+        }),
         extended_properties,
     })
+}
+
+/// K14. A timed event: a moment plus a length in minutes.
+fn timed_window(
+    start_raw: &str,
+    mapping: &crate::core::profile::FieldMapping,
+    origin: &str,
+) -> Result<(EventDateTime, EventDateTime), AlmanacError> {
+    let start_dt = DateTime::parse_from_rfc3339(start_raw).map_err(|e| {
+        AlmanacError::ProfileValidation {
+            message: format!(
+                "{origin}: payload field \"{}\" (\"{start_raw}\") is not a valid RFC3339 timestamp: {e}",
+                mapping.start_field
+            ),
+            remedy: "check the source sends an RFC3339 timestamp (e.g. 2026-08-28T09:00:00+00:00)"
+                .to_string(),
+        }
+    })?;
+    // Validated at parse time for a timed profile, so this is
+    // unreachable rather than a silent default.
+    let minutes = mapping.duration_minutes.unwrap_or(60);
+    let end_dt = start_dt + Duration::minutes(minutes);
+    Ok((
+        EventDateTime::timed(start_dt.to_rfc3339(), mapping.timezone.clone()),
+        EventDateTime::timed(end_dt.to_rfc3339(), mapping.timezone.clone()),
+    ))
+}
+
+/// K14. A day marker.
+///
+/// Accepts either a plain `YYYY-MM-DD` or a full timestamp, because a
+/// source that already sends timestamps should not have to change to be
+/// usable as an all-day source — a bin-day sensor reporting
+/// `2026-09-01T00:00:00Z` means the first of September.
+fn all_day_window(
+    start_raw: &str,
+    mapping: &crate::core::profile::FieldMapping,
+    origin: &str,
+) -> Result<(EventDateTime, EventDateTime), AlmanacError> {
+    let start_date = NaiveDate::parse_from_str(start_raw, "%Y-%m-%d")
+        .or_else(|_| DateTime::parse_from_rfc3339(start_raw).map(|dt| dt.date_naive()))
+        .map_err(|e| AlmanacError::ProfileValidation {
+            message: format!(
+                "{origin}: payload field \"{}\" (\"{start_raw}\") is neither a date nor an RFC3339 timestamp: {e}",
+                mapping.start_field
+            ),
+            remedy: "for an all-day profile the source may send either 2026-09-01 or a full \
+                     timestamp on that day"
+                .to_string(),
+        })?;
+
+    let days = mapping.duration_days.unwrap_or(1);
+    // Google's end date is EXCLUSIVE: a one-day event on the 1st ends
+    // on the 2nd. Treating it as inclusive silently produces an event
+    // of zero length that shows up nowhere.
+    let end_date = start_date + Duration::days(days);
+
+    Ok((
+        EventDateTime::all_day(start_date.to_string()),
+        EventDateTime::all_day(end_date.to_string()),
+    ))
+}
+
+/// K17. The same shape as `resolve_color`, deliberately.
+fn resolve_status(payload: &Value, profile: &Profile) -> Option<String> {
+    let rule = profile.mapping.status_by.as_ref()?;
+    let observed = get_field(payload, &rule.field).and_then(value_to_string);
+    Some(
+        observed
+            .and_then(|v| rule.values.get(&v).cloned())
+            .unwrap_or_else(|| rule.default.clone()),
+    )
 }
 
 #[cfg(test)]
@@ -162,9 +250,12 @@ duration_minutes = 60
 
         assert_eq!(event.summary, "Wasmachine klaar");
         assert_eq!(event.description.as_deref(), Some("cyclus voltooid"));
-        assert_eq!(event.start.date_time, "2026-08-28T09:00:00+00:00");
-        assert_eq!(event.end.date_time, "2026-08-28T10:00:00+00:00");
-        assert_eq!(event.start.time_zone, "UTC");
+        assert_eq!(
+            event.start.date_time().unwrap(),
+            "2026-08-28T09:00:00+00:00"
+        );
+        assert_eq!(event.end.date_time().unwrap(), "2026-08-28T10:00:00+00:00");
+        assert_eq!(event.start.time_zone().unwrap(), "UTC");
         assert_eq!(
             event
                 .extended_properties
@@ -261,5 +352,192 @@ duration_minutes = 30
         let payload = json!({"title": "ad-hoc event", "start": "2026-08-28T09:00:00+00:00"});
         let event = map_payload(&payload, &profile, "claude.toml").unwrap();
         assert_eq!(event.extended_properties, None);
+    }
+
+    fn profile_with(extra: &str) -> Profile {
+        let toml = format!(
+            r#"
+schema_version = 1
+source_id = "house"
+target_calendar_id = "cal"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+timezone = "Europe/Brussels"
+{extra}
+"#
+        );
+        Profile::parse(&toml, "test.toml").unwrap()
+    }
+
+    #[test]
+    fn an_all_day_profile_produces_a_day_marker_and_never_a_timestamp() {
+        // K14. The whole point: "bin day" belongs at the top of the
+        // day, not as a 60-minute block at whatever time the sensor
+        // happened to fire.
+        let profile = profile_with("all_day = true");
+        let payload = json!({"title": "Vuilnis buitenzetten", "start": "2026-09-01"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+
+        assert_eq!(event.start.date(), Some("2026-09-01"));
+        assert_eq!(event.start.date_time(), None);
+        assert!(event.start.is_all_day() && event.end.is_all_day());
+    }
+
+    #[test]
+    fn a_one_day_event_ends_the_next_day_because_googles_end_is_exclusive() {
+        // Off by one here does not look like an off-by-one: an event
+        // that starts and ends on the same date has zero length and
+        // simply does not appear.
+        let profile = profile_with("all_day = true");
+        let payload = json!({"title": "x", "start": "2026-09-01"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.end.date(), Some("2026-09-02"));
+    }
+
+    #[test]
+    fn several_days_are_counted_from_the_start() {
+        let profile = profile_with("all_day = true\nduration_days = 3");
+        let payload = json!({"title": "weg", "start": "2026-09-01"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.start.date(), Some("2026-09-01"));
+        assert_eq!(event.end.date(), Some("2026-09-04"));
+    }
+
+    #[test]
+    fn an_all_day_profile_also_accepts_a_source_that_only_speaks_timestamps() {
+        // A sensor reporting 2026-09-01T00:00:00Z means the first of
+        // September. Refusing that would force every existing source to
+        // change before it could feed a day marker.
+        let profile = profile_with("all_day = true");
+        let payload = json!({"title": "x", "start": "2026-09-01T06:30:00+02:00"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.start.date(), Some("2026-09-01"));
+    }
+
+    #[test]
+    fn a_timed_profile_is_unchanged_by_all_of_this() {
+        // Every profile written before K14 must keep working exactly
+        // as it did.
+        let profile = profile_with("duration_minutes = 30");
+        let payload = json!({"title": "x", "start": "2026-09-01T09:00:00+00:00"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.start.date_time(), Some("2026-09-01T09:00:00+00:00"));
+        assert_eq!(event.end.date_time(), Some("2026-09-01T09:30:00+00:00"));
+        assert_eq!(event.start.time_zone(), Some("Europe/Brussels"));
+        assert!(!event.start.is_all_day());
+    }
+
+    #[test]
+    fn location_reaches_the_event_now_that_a_profile_can_name_it() {
+        // K15. Before this the field existed on the event, was
+        // serialized, and was hardcoded empty — a half-built field that
+        // looked finished.
+        let profile = profile_with("duration_minutes = 60\nlocation_field = \"where\"");
+        let payload =
+            json!({"title": "x", "start": "2026-09-01T09:00:00+00:00", "where": "Kerkstraat 1"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.location.as_deref(), Some("Kerkstraat 1"));
+    }
+
+    #[test]
+    fn a_profile_that_names_no_location_still_sends_none() {
+        let profile = profile_with("duration_minutes = 60");
+        let payload =
+            json!({"title": "x", "start": "2026-09-01T09:00:00+00:00", "where": "ignored"});
+        assert_eq!(
+            map_payload(&payload, &profile, "test.toml")
+                .unwrap()
+                .location,
+            None
+        );
+    }
+
+    #[test]
+    fn an_infra_profile_can_say_it_does_not_make_you_busy() {
+        // K17, and the one recommendation that met real data: Grafana
+        // and Uptime Kuma both send incidents, and an incident should
+        // not tell everyone you were unavailable that evening.
+        let profile = profile_with("duration_minutes = 60\nbusy = false");
+        let payload = json!({"title": "x", "start": "2026-09-01T09:00:00+00:00"});
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.transparency.as_deref(), Some("transparent"));
+    }
+
+    #[test]
+    fn saying_nothing_about_busy_leaves_googles_default_alone() {
+        let profile = profile_with("duration_minutes = 60");
+        let payload = json!({"title": "x", "start": "2026-09-01T09:00:00+00:00"});
+        assert_eq!(
+            map_payload(&payload, &profile, "test.toml")
+                .unwrap()
+                .transparency,
+            None
+        );
+    }
+
+    #[test]
+    fn status_is_looked_up_the_same_way_a_colour_is() {
+        let profile = profile_with(
+            "duration_minutes = 60\n[mapping.status_by]\nfield = \"state\"\ndefault = \"confirmed\"\nvalues = { resolved = \"cancelled\" }",
+        );
+        let firing = json!({"title": "x", "start": "2026-09-01T09:00:00+00:00", "state": "firing"});
+        let resolved =
+            json!({"title": "x", "start": "2026-09-01T09:00:00+00:00", "state": "resolved"});
+        assert_eq!(
+            map_payload(&firing, &profile, "t")
+                .unwrap()
+                .status
+                .as_deref(),
+            Some("confirmed")
+        );
+        assert_eq!(
+            map_payload(&resolved, &profile, "t")
+                .unwrap()
+                .status
+                .as_deref(),
+            Some("cancelled")
+        );
+    }
+
+    #[test]
+    fn reminders_asked_for_are_produced_and_silence_is_a_different_thing() {
+        // K16. Three distinct outcomes, and the difference between the
+        // last two is the whole reason the block exists: silence means
+        // "override the calendar's default with nothing", absence means
+        // "use the calendar's default".
+        let asked = profile_with(
+            "duration_minutes = 60\n[mapping.reminders]\npopup_minutes_before = [30]\nemail_minutes_before = [1440]",
+        );
+        let silent = profile_with("duration_minutes = 60\n[mapping.reminders]\nsilent = true");
+        let quiet = profile_with("duration_minutes = 60");
+        let payload = json!({"title": "x", "start": "2026-09-01T09:00:00+00:00"});
+
+        let r = map_payload(&payload, &asked, "t")
+            .unwrap()
+            .reminders
+            .unwrap();
+        assert!(!r.use_default);
+        assert_eq!(r.overrides.len(), 2);
+        assert!(
+            r.overrides
+                .iter()
+                .any(|o| o.method == "popup" && o.minutes == 30)
+        );
+        assert!(
+            r.overrides
+                .iter()
+                .any(|o| o.method == "email" && o.minutes == 1440)
+        );
+
+        let s = map_payload(&payload, &silent, "t")
+            .unwrap()
+            .reminders
+            .unwrap();
+        assert!(!s.use_default);
+        assert!(s.overrides.is_empty());
+
+        assert_eq!(map_payload(&payload, &quiet, "t").unwrap().reminders, None);
     }
 }

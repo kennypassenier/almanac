@@ -350,14 +350,17 @@ mod tests {
             description: None,
             location: None,
             color_id: None,
-            start: EventDateTime {
-                date_time: "2026-08-28T09:00:00+00:00".to_string(),
-                time_zone: "Europe/Brussels".to_string(),
-            },
-            end: EventDateTime {
-                date_time: "2026-08-28T10:00:00+00:00".to_string(),
-                time_zone: "Europe/Brussels".to_string(),
-            },
+            start: EventDateTime::timed(
+                "2026-08-28T09:00:00+00:00".to_string(),
+                "Europe/Brussels".to_string(),
+            ),
+            end: EventDateTime::timed(
+                "2026-08-28T10:00:00+00:00".to_string(),
+                "Europe/Brussels".to_string(),
+            ),
+            transparency: None,
+            status: None,
+            reminders: None,
             extended_properties: None,
         }
     }
