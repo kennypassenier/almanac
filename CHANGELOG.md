@@ -11,6 +11,25 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Added
+
+- **`almanac update`** (K19) — one update, no restart, for a supervisor
+  that owns both. Fetches, verifies, probes and installs, then exits;
+  writes no probation state, because the thing that called it preserved
+  its own copy of the binary and can roll back from outside a process
+  that never starts, which this process cannot.
+
+  Built so the homelab can manage almanac's updates. Its supervised
+  update preserves the binary, runs `update_cmd`, restarts only if the
+  binary actually changed, health-checks and restores on failure —
+  which is why its stack file deliberately carried no `update_cmd`
+  until now: two systems each holding a rollback would race. The split
+  is along what each can actually do.
+
+  `ALMANAC_SELF_UPDATE=off` stops the periodic updater; the explicit
+  command still works with it set, because the variable governs the
+  background loop, not an instruction from whoever is supervising.
+
 ## [1.2.1] — 2026-08-30
 
 ### Fixed
