@@ -41,6 +41,8 @@ pub struct CalendarState {
     /// separately from `fail_times` because the whole point of the
     /// classification is that these two are treated differently.
     pub reject_times: AtomicUsize,
+    /// Calendars created through this stub, keyed by id.
+    pub calendars: Mutex<HashMap<String, Created>>,
     /// Events the stub already holds, keyed by calendar id, returned
     /// from the list endpoint so an upsert can find one.
     pub existing: Mutex<HashMap<String, Vec<Value>>>,
@@ -88,6 +90,14 @@ impl CalendarState {
     pub async fn request_count(&self) -> usize {
         self.requests.lock().await.len()
     }
+}
+
+/// Calendars the stub was asked to create, and who each was shared
+/// with — the pair that must never come apart.
+#[derive(Default)]
+pub struct Created {
+    pub name: String,
+    pub shared_with: Vec<String>,
 }
 
 /// A stand-in for the Google Calendar API.
@@ -210,7 +220,49 @@ async fn delete_event(
     StatusCode::NO_CONTENT
 }
 
+async fn create_calendar(
+    State(state): State<Arc<CalendarState>>,
+    axum::Json(body): axum::Json<Value>,
+) -> (StatusCode, axum::Json<Value>) {
+    state.record("POST", "<new calendar>").await;
+    let id = format!("calendar-{}", state.next_id.fetch_add(1, Ordering::SeqCst));
+    state.calendars.lock().await.insert(
+        id.clone(),
+        Created {
+            name: body["summary"].as_str().unwrap_or_default().to_string(),
+            shared_with: Vec::new(),
+        },
+    );
+    (StatusCode::OK, axum::Json(json!({"id": id})))
+}
+
+async fn insert_acl(
+    State(state): State<Arc<CalendarState>>,
+    Path(calendar_id): Path<String>,
+    axum::Json(rule): axum::Json<Value>,
+) -> (StatusCode, axum::Json<Value>) {
+    state.record("ACL", &calendar_id).await;
+    if let Some(created) = state.calendars.lock().await.get_mut(&calendar_id)
+        && let Some(who) = rule["scope"]["value"].as_str()
+    {
+        created.shared_with.push(who.to_string());
+    }
+    (StatusCode::OK, axum::Json(rule))
+}
+
 impl CalendarStub {
+    /// Who a created calendar ended up shared with.
+    pub async fn shared_with(&self, name: &str) -> Vec<String> {
+        self.state
+            .calendars
+            .lock()
+            .await
+            .values()
+            .find(|c| c.name == name)
+            .map(|c| c.shared_with.clone())
+            .unwrap_or_default()
+    }
+
     /// Starts the stub on a loopback port.
     pub async fn start() -> Self {
         let state = Arc::new(CalendarState::default());
@@ -224,6 +276,8 @@ impl CalendarStub {
                 "/{calendar_id}/events/{event_id}",
                 axum::routing::put(update_event).delete(delete_event),
             )
+            .route("/", axum::routing::post(create_calendar))
+            .route("/{calendar_id}/acl", axum::routing::post(insert_acl))
             .with_state(Arc::clone(&state));
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

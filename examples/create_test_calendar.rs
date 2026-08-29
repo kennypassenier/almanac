@@ -27,7 +27,15 @@ async fn main() {
     let tokens = TokenManager::new(http.clone(), credentials);
     let client = GoogleCalendarClient::new(http, tokens);
 
-    match client.create_calendar("almanac-test").await {
+    // The owner has to be named: a calendar nobody can see is how the
+    // original almanac-test calendar sat unnoticed for months.
+    let owner = std::env::var("ALMANAC_CALENDAR_OWNER").unwrap_or_default();
+    if owner.trim().is_empty() {
+        eprintln!("ALMANAC_CALENDAR_OWNER is not set — set it in Latch first");
+        std::process::exit(1);
+    }
+
+    match client.create_calendar("almanac-test", owner.trim()).await {
         Ok(id) => {
             println!("Created calendar 'almanac-test'.");
             println!("Set this in Latch as ALMANAC_TEST_CALENDAR_ID:");

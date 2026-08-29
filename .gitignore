@@ -15,3 +15,6 @@
 # the repo root should never be tracked again.
 /almanac
 /cal-stacean
+# Release artefacts built by scripts/sign-release.sh — the signed
+# binary and its manifest belong on the GitHub release, not in git.
+dist/

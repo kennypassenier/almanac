@@ -275,7 +275,22 @@ impl GoogleCalendarClient {
     /// through the API — no manual Google Calendar UI step, no sharing
     /// step, since a calendar the service account creates is already
     /// its own.
-    pub async fn create_calendar(&self, summary: &str) -> Result<String, AlmanacError> {
+    /// Creates a calendar and immediately gives `share_with` ownership
+    /// of it.
+    ///
+    /// The two steps are one method on purpose. A calendar this service
+    /// account creates is owned by the service account and invisible to
+    /// every other human being, and that is easy not to notice — the
+    /// `almanac-test` calendar from L1 sat that way for months while
+    /// the live tests wrote into it, and the first two real calendars
+    /// were created the same way an hour before this was written.
+    /// Making sharing a separate call is how that keeps happening, so
+    /// the caller has to name an owner to create anything at all.
+    pub async fn create_calendar(
+        &self,
+        summary: &str,
+        share_with: &str,
+    ) -> Result<String, AlmanacError> {
         let body = NewCalendar { summary };
         let response = self
             .send_with_retry(|http, token| http.post(&self.base_url).bearer_auth(token).json(&body))
@@ -288,7 +303,26 @@ impl GoogleCalendarClient {
                 transient: false,
             })?;
 
+        self.share_calendar(&parsed.id, share_with).await?;
         Ok(parsed.id)
+    }
+
+    /// Gives `user` ownership of a calendar. Idempotent at Google's end:
+    /// re-granting what someone already has is not an error.
+    ///
+    /// Owner rather than writer, so losing the service account never
+    /// strands a calendar somebody depends on — the grantee can rename,
+    /// share onward and delete it without us.
+    pub async fn share_calendar(&self, calendar_id: &str, user: &str) -> Result<(), AlmanacError> {
+        let url = format!("{}/{calendar_id}/acl", self.base_url);
+        let rule = serde_json::json!({
+            "role": "owner",
+            "scope": {"type": "user", "value": user}
+        });
+
+        self.send_with_retry(|http, token| http.post(&url).bearer_auth(token).json(&rule))
+            .await?;
+        Ok(())
     }
 }
 
@@ -388,5 +422,54 @@ mod tests {
 
         assert!(found.is_none());
         assert_eq!(calendar.state.request_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn creating_a_calendar_shares_it_in_the_same_breath() {
+        // A calendar this service account creates is invisible to every
+        // other human until it is shared, and that is easy not to
+        // notice: the almanac-test calendar sat that way for months
+        // while the live tests wrote into it, and the first two real
+        // calendars were created the same way. The two steps are one
+        // method so they cannot drift apart again.
+        let calendar = CalendarStub::start().await;
+        let client = stubbed(&calendar).await;
+
+        let id = client
+            .create_calendar("Almanac · Huishouden", "mendax1@example.com")
+            .await
+            .unwrap();
+
+        assert!(!id.is_empty());
+        assert_eq!(
+            calendar.shared_with("Almanac · Huishouden").await,
+            vec!["mendax1@example.com".to_string()],
+            "a calendar created without being shared is a calendar nobody can see"
+        );
+    }
+
+    #[tokio::test]
+    async fn sharing_an_existing_calendar_works_on_its_own_too() {
+        // For the calendars that already exist and were created before
+        // the two steps were joined.
+        let calendar = CalendarStub::start().await;
+        let client = stubbed(&calendar).await;
+
+        let id = client
+            .create_calendar("Almanac · Infra", "first@example.com")
+            .await
+            .unwrap();
+        client
+            .share_calendar(&id, "second@example.com")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            calendar.shared_with("Almanac · Infra").await,
+            vec![
+                "first@example.com".to_string(),
+                "second@example.com".to_string()
+            ]
+        );
     }
 }

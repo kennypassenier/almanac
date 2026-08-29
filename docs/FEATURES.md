@@ -42,6 +42,7 @@ from here on. Changes after the freeze go through a mini-round only
 | M8 | One coherent versioning/tagging scheme; Docker image tagged to match the git version (fixes the current drift between manual and CI auto-tagging, and `:latest`-only image pushes) | Essential | CI check asserting the pushed image tag exactly matches the git tag from the same run. |
 | M9 | Dry-run/validation tool for a mapping profile — shows the `GoogleEvent` a profile+sample payload would produce, without writing to Google | Desired | Test feeding a profile + sample payload, asserting the expected (unsent) `GoogleEvent` structure comes back. |
 | M12 | Management dashboard — login (remember-me cookie + logout, not browser basic auth), register a source and generate/revoke its token, copy-paste commands carrying a real token (masked, reveal for 10s, copy without displaying), plus the K11/M11 status views. `/healthz` and any metrics stay open so monitoring cannot fail closed. | Essential | Every page rendered with seeded state; a revoked token stops working *immediately*; the printed command carries a working token; plaintext-scan proving no token reaches logs, metrics or any page except behind the reveal control. *(Added 2026-08-28 via mini-round during the L3 report — see amendment note below.)* |
+| M13 | Prometheus metrics endpoint — delivered events, failed deliveries, journal depth, entries set aside, token refreshes, exposed in the Prometheus text format | Gewenst | Scraped successfully by the real Prometheus on CT 113; a test asserting no token, calendar id or payload content appears in the output. *(Added 2026-08-29 via mini-round — see amendment note below.)* |
 | M11 | Raw request capture — a debug endpoint that accepts any inbound request, stores it verbatim (headers + full body, in memory, capped and expiring), and hands it back on request, so an undocumented webhook's real shape can be observed before a mapping profile is written for it | Essential | Test posting an arbitrary payload to the capture endpoint and reading back the exact headers and body; test that the cap and expiry both hold. *(Added 2026-08-28 via mini-round during L2 — see amendment note below.)* |
 | M10 | Full self-update — the running service checks for, verifies (checksum manifest), and applies new versions itself; keeps the previous binary, verify-before-replace, clean handover of port and in-flight requests | Essential | E2E test against a local mock release: old binary updates to new, health endpoint answers throughout minus the swap window, rollback works when the new binary fails verification. *(Added 2026-08-28 via mini-round during Phase 4 — see amendment note below.)* |
 
@@ -105,3 +106,33 @@ deliberately **not** folded into Almanac. Almanac repeats the mailbox
 pattern; the central-issuer idea is recorded as an ecosystem candidate
 for its own project so it gets its own scope phase rather than being
 smuggled in here.
+
+## M13 amendment (mini-round, 2026-08-29)
+
+The frozen list had no metrics feature. The word appeared exactly once,
+in passing inside M12: "`/healthz` and any metrics stay open so
+monitoring cannot fail closed", and again in its acceptance criterion
+"no token reaches logs, metrics or any page". Anticipated in the design,
+never specified, never built.
+
+**The new insight:** a Prometheus now runs on CT 113 and already scrapes
+mailbox and the Proxmox fleet, and Kenny named Almanac as a target in
+his metrics form. Without this endpoint Almanac would be the only
+service in the fleet with no metrics — and the numbers already exist
+inside it, kept in memory for the debug page and thrown away on every
+restart.
+
+A detour worth recording: the first suggestion was to point Prometheus
+at `/healthz`. The homelab session corrected that — Prometheus parses
+its own exposition format, not JSON, so the target would sit permanently
+"down" on a service that is running perfectly. That correction also
+matches AR21, which already names Uptime Kuma as the watcher of
+`/healthz`. Liveness there, metrics here.
+
+**Consequences for what is already built:** none. A new endpoint beside
+the existing ones on the same port, nothing rebuilt.
+
+**Decision:** adopted as Desired, 2026-08-29 — after the deployment
+drills (Traefik route, reboot, self-update on hardware), not before. The
+same no-tokens rule that the dashboard and the log already enforce with
+tests applies to it.

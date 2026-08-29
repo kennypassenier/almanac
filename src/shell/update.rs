@@ -62,14 +62,22 @@ pub const SELF_UPDATE_ENV: &str = "ALMANAC_SELF_UPDATE";
 /// The minisign public key matching the offline secret key that signs
 /// releases (AR19, AR24).
 ///
-/// Empty on purpose until Kenny generates the key pair: an updater
-/// with no key must refuse to update, never fall back to installing
-/// something unverified. There is deliberately exactly one key rather
-/// than a baked-in spare — a spare kept in the same vault protects
-/// against rotation, not loss, and rotation only matters across many
-/// machines (AR24). The recovery path when the key is lost is in
-/// docs/OPERATIONS_RUNBOOK.md.
-pub const RELEASE_PUBKEY: &str = "";
+/// This is the same key that signs Latch, by Kenny's decision
+/// (2026-08-29). His own AR24 reasoning applies unchanged: a separate
+/// Almanac key would sit beside the Latch key in the same directory and
+/// the same vault, so whoever holds one holds the other — twice the
+/// bookkeeping for no extra protection, and two recovery procedures
+/// instead of one.
+///
+/// Verified rather than assumed: this public half checks out against a
+/// real Latch v2.0.1 release, and the same check was used to verify the
+/// latch binary before it was installed on the LXC.
+///
+/// An empty value here disables self-update entirely rather than
+/// installing something unverifiable — the fail-closed direction, and
+/// what `scripts/sign-release.sh` refuses to sign over. The recovery
+/// path when the key is lost is in docs/OPERATIONS_RUNBOOK.md R6.
+pub const RELEASE_PUBKEY: &str = "RWQWCzzUBquIHGkS3YERMkuqEm4C3vBArnlb9rySbr8z5ytgVYuji3bS";
 
 /// Where the current version number is published. GitHub serves the
 /// newest release's assets under `latest/download/`, so an asset named

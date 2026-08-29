@@ -232,9 +232,14 @@ through.
 ## R9 · Roll back on purpose
 
 ```bash
-systemctl stop almanac
-install -m 0755 <old binary> /opt/almanac/almanac
-systemctl start almanac
+# Rename, never overwrite: writing over a binary that is executing
+# fails with "Text file busy". A rename replaces the directory entry
+# and leaves the running process on its old inode, which is exactly
+# what the self-updater does.
+install -m 0755 <old binary> /opt/almanac/almanac.new
+chown almanac:almanac /opt/almanac/almanac.new
+mv /opt/almanac/almanac.new /opt/almanac/almanac
+systemctl restart almanac
 ```
 
 Then either publish a newer release or the updater will put the newer
