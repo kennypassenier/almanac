@@ -139,6 +139,20 @@ outage. Only sustained failures with no deliveries are a problem.
 at all — and the depth gauge is then absent rather than zero, so an
 alert written against "pending == 0" will not quietly hide it.
 
+### Ask Google, not Almanac
+
+When the question is "did it really land, and does it look right", read
+the calendar back rather than trusting Almanac's own log:
+
+```bash
+ALMANAC_SHOW_CALENDAR=<calendar id> latch run -- cargo run --example show_events
+```
+
+It prints each event's summary, start, end, free/busy marker and the
+private property Almanac matches on. Almanac's log says what it sent;
+this says what Google stored, and those are different claims — an event
+can be accepted and stored as something other than what was meant.
+
 ### The log
 
 ```bash
