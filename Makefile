@@ -56,7 +56,7 @@ define bump
 	sed -i '0,/^version = /s/^version = .*/version = "$(1)"/' Cargo.toml
 	cargo update --workspace --quiet
 	git add Cargo.toml Cargo.lock
-	git commit -m "chore: release v$(1)"
+	git commit -m "chore(release): v$(1) [M8, meta]"
 	git tag v$(1)
 	@echo "Cargo.toml is now $(1) and tag v$(1) exists locally."
 	@echo "Run 'git push && git push --tags' to publish, then ./scripts/sign-release.sh"
