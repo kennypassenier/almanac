@@ -38,17 +38,44 @@ one asset is how running instances discover a new version.
 ## R2 · First install on a fresh machine
 
 ```bash
-# as root
-useradd --system --home /opt/almanac --shell /usr/sbin/nologin almanac
+# as root, on the machine itself
+apt-get install -y ca-certificates git   # git: `latch run` reads a git clone
+useradd --system --home-dir /opt/almanac --shell /usr/sbin/nologin almanac
 mkdir -p /opt/almanac/{data,profiles} /etc/almanac
 install -m 0755 almanac /opt/almanac/almanac
+install -m 0755 latch /usr/local/bin/latch
 cp fixtures/profiles/*.toml /opt/almanac/profiles/   # the three working profiles
-chown -R almanac:almanac /opt/almanac
+```
 
-# the key that lets Latch open Almanac's secrets, and nothing else
-printf 'LATCH_KEY_ALMANAC=%s\n' "$key" > /etc/almanac/latch.env
-chmod 0600 /etc/almanac/latch.env
+Latch needs its cached clone and a link. Copy the clone from your
+desktop rather than logging Latch in here — the clone is ciphertext
+only, so copying it puts nothing readable on the machine, and it means
+no GitHub token lives on an unattended box:
 
+```bash
+# from your desktop
+tar czf - -C ~/.latch repo | ssh <machine> 'mkdir -p /opt/almanac/.latch && tar xzf - -C /opt/almanac/.latch'
+# on the machine: tell latch which project this directory is
+printf 'repo = "kennypassenier/secrets"\n\n[[projects]]\nname = "almanac"\ndir = "/opt/almanac"\n' \
+    > /opt/almanac/.latch/config.toml
+chown -R almanac:almanac /opt/almanac && chmod 700 /opt/almanac/.latch
+```
+
+The one key that opens those secrets. Pipe it — never paste it on a
+command line, where it is visible in `ps`:
+
+```bash
+# from your desktop; the value never appears on screen or on disk
+latch key show --reveal | awk '/^value/{print $2}' | \
+    ssh <machine> 'umask 077; read k; printf "LATCH_KEY_ALMANAC=%s\n" "$k" > /etc/almanac/latch.env'
+```
+
+Take the value from the `value` line, not from a pattern of your own:
+the key is 68 hex characters, and an extraction that assumes 64 will
+silently truncate it and produce "stored key has 32 bytes, expected 34"
+much later.
+
+```bash
 cp deploy/almanac.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now almanac
 ```

@@ -21,6 +21,20 @@ Documentation=https://github.com/kennypassenier/almanac
 Wants=network-online.target
 After=network-online.target
 
+# No start limit (AR21). A power cut can start Almanac before DNS is
+# up; systemd's default five-tries-in-ten-seconds would then park the
+# unit in `failed` permanently with nobody watching. Almanac's own
+# startup retry handles transient failures and a genuinely broken key
+# still exits — this only makes sure a restartable process keeps being
+# restarted.
+#
+# It lives in [Unit], not [Service]. systemd silently ignores it in
+# [Service] with "Unknown key", which is how the first deployment of
+# this file ran for a few minutes with the protection AR21 exists for
+# not actually in effect.
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
 [Service]
 Type=exec
 User=almanac
@@ -57,14 +71,8 @@ Environment=ALMANAC_TOKEN_STORE=/opt/almanac/data/tokens.json
 
 ExecStart=/usr/local/bin/latch run -- /opt/almanac/almanac
 
-# No start limit (AR21). A power cut can start Almanac before DNS is
-# up; the default five-tries-in-ten-seconds would park the unit in
-# `failed` permanently with nobody watching. Almanac's own startup
-# retry handles transient failures, and a genuinely broken key still
-# exits — this just makes sure a restartable process gets restarted.
 Restart=always
 RestartSec=5s
-StartLimitIntervalSec=0
 
 # M2's graceful shutdown drains in-flight requests and the worker
 # before exiting; give it room rather than SIGKILLing mid-delivery.
