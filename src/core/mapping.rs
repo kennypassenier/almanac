@@ -79,7 +79,7 @@ pub fn map_payload(
     let (start, end) = if mapping.all_day {
         all_day_window(&start_raw, mapping, origin)?
     } else {
-        timed_window(&start_raw, mapping, origin)?
+        timed_window(payload, &start_raw, mapping, origin)?
     };
 
     let color_id = resolve_color(payload, profile);
@@ -141,6 +141,7 @@ pub fn map_payload(
 
 /// K14. A timed event: a moment plus a length in minutes.
 fn timed_window(
+    payload: &Value,
     start_raw: &str,
     mapping: &crate::core::profile::FieldMapping,
     origin: &str,
@@ -155,10 +156,42 @@ fn timed_window(
                 .to_string(),
         }
     })?;
-    // Validated at parse time for a timed profile, so this is
-    // unreachable rather than a silent default.
-    let minutes = mapping.duration_minutes.unwrap_or(60);
-    let end_dt = start_dt + Duration::minutes(minutes);
+    // K18. The end comes from the payload when the profile names a
+    // field for it, because a source reporting a *period* knows when it
+    // ends and a fixed duration would be a guess dressed up as a fact.
+    let end_dt = match &mapping.end_field {
+        Some(field) => {
+            let end_raw = required_field(payload, field, origin)?;
+            let end = DateTime::parse_from_rfc3339(&end_raw).map_err(|e| {
+                AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: payload field \"{field}\" (\"{end_raw}\") is not a valid RFC3339 timestamp: {e}"
+                    ),
+                    remedy: "check the source sends an RFC3339 timestamp for the event's end"
+                        .to_string(),
+                }
+            })?;
+            // An end at or before the start is a zero- or
+            // negative-length event. Google's own behaviour there is
+            // unhelpful and the result is invisible on a calendar, so
+            // say what is wrong instead of writing it.
+            if end <= start_dt {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!(
+                        "{origin}: the payload's end (\"{end_raw}\") is not after its start (\"{start_raw}\")"
+                    ),
+                    remedy: "check the source's start and end fields are the right way round — an \
+                             event ending before it starts does not appear on a calendar at all"
+                        .to_string(),
+                });
+            }
+            end
+        }
+        // Validated at parse time for a timed profile, so the fallback
+        // is unreachable rather than a silent default.
+        None => start_dt + Duration::minutes(mapping.duration_minutes.unwrap_or(60)),
+    };
+
     Ok((
         EventDateTime::timed(start_dt.to_rfc3339(), mapping.timezone.clone()),
         EventDateTime::timed(end_dt.to_rfc3339(), mapping.timezone.clone()),
@@ -539,5 +572,70 @@ timezone = "Europe/Brussels"
         assert!(s.overrides.is_empty());
 
         assert_eq!(map_payload(&payload, &quiet, "t").unwrap().reminders, None);
+    }
+
+    #[test]
+    fn the_end_can_come_from_the_payload_when_the_profile_names_it() {
+        // K18, and the case that forced it: a cheap-power window is
+        // 480 minutes today and might be 45 tomorrow. A fixed duration
+        // would put an hour-long block on the calendar for an
+        // eight-hour window — a calendar showing something other than
+        // what it says.
+        let profile = profile_with("end_field = \"until\"");
+        let payload = json!({
+            "title": "Goedkope stroom",
+            "start": "2026-09-01T08:45:00+02:00",
+            "until": "2026-09-01T16:45:00+02:00"
+        });
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.start.date_time(), Some("2026-09-01T08:45:00+02:00"));
+        assert_eq!(event.end.date_time(), Some("2026-09-01T16:45:00+02:00"));
+    }
+
+    #[test]
+    fn an_end_before_the_start_is_refused_rather_than_written() {
+        // Google accepts this and the result is invisible: an event of
+        // negative length appears on no calendar. Saying so beats
+        // writing something that silently is not there.
+        let profile = profile_with("end_field = \"until\"");
+        let payload = json!({
+            "title": "x",
+            "start": "2026-09-01T16:45:00+02:00",
+            "until": "2026-09-01T08:45:00+02:00"
+        });
+        let err = map_payload(&payload, &profile, "test.toml").unwrap_err();
+        assert!(err.to_string().contains("not after its start"), "{err}");
+        assert!(err.remedy().contains("right way round"), "{}", err.remedy());
+    }
+
+    #[test]
+    fn an_end_equal_to_the_start_is_refused_too() {
+        let profile = profile_with("end_field = \"until\"");
+        let payload = json!({
+            "title": "x",
+            "start": "2026-09-01T08:45:00+02:00",
+            "until": "2026-09-01T08:45:00+02:00"
+        });
+        assert!(map_payload(&payload, &profile, "test.toml").is_err());
+    }
+
+    #[test]
+    fn a_missing_end_names_the_field_and_the_profile() {
+        let profile = profile_with("end_field = \"until\"");
+        let payload = json!({"title": "x", "start": "2026-09-01T08:45:00+02:00"});
+        let err = map_payload(&payload, &profile, "test.toml").unwrap_err();
+        assert!(err.to_string().contains("until"), "{err}");
+    }
+
+    #[test]
+    fn a_profile_using_a_fixed_duration_is_untouched_by_k18() {
+        let profile = profile_with("duration_minutes = 30");
+        let payload = json!({
+            "title": "x",
+            "start": "2026-09-01T09:00:00+00:00",
+            "until": "ignored because no end_field names it"
+        });
+        let event = map_payload(&payload, &profile, "test.toml").unwrap();
+        assert_eq!(event.end.date_time(), Some("2026-09-01T09:30:00+00:00"));
     }
 }

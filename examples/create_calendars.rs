@@ -34,9 +34,14 @@ const CALENDARS: &str = "https://www.googleapis.com/calendar/v3/calendars";
 const OWNER_ENV: &str = "ALMANAC_CALENDAR_OWNER";
 
 /// The calendars, and which mapping profiles point at each.
-const WANTED: [(&str, &str); 2] = [
+const WANTED: [(&str, &str); 3] = [
     ("Almanac · Huishouden", "home-assistant"),
     ("Almanac · Infra", "grafana, uptime-kuma"),
+    // Energy prices get their own calendar rather than sharing Infra:
+    // a cheap-power window can span most of an afternoon, and a daily
+    // eight-hour block sitting on top of the alert calendar would bury
+    // the thing you actually want to notice there.
+    ("Almanac · Energie", "energy-prices"),
 ];
 
 #[tokio::main]

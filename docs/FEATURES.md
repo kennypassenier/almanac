@@ -31,6 +31,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K15 | Location reachable from a mapping profile | Essential | A profile naming `location_field` puts that payload field on the event; the pinned regression fixture shows it. Closes a half-built field that was serialized and always empty. *(Added 2026-08-29 via mini-round.)* |
 | K16 | Reminders per profile — a set of overrides, or deliberate silence | Gewenst | A profile asking for reminders produces them on the event; one asking for silence produces `useDefault: false` with no overrides; one saying nothing omits the block so the calendar's own default applies. *(Added 2026-08-29 via mini-round.)* |
 | K17 | Free/busy and event status per profile | Gewenst | A profile with `busy = false` produces `transparency: "transparent"`, so an infra incident does not mark Kenny busy; `status_by` maps a payload field onto Google's three statuses and rejects any other value at startup. *(Added 2026-08-29 via mini-round.)* |
+| K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -189,3 +190,38 @@ changes an existing profile. Every new key is optional and absent means
 today's behaviour. `duration_minutes` becomes optional rather than
 required, because an all-day profile has no minutes to give — existing
 profiles that supply it are unaffected.
+
+## Variable event length (mini-round, 2026-08-29)
+
+Found while building Almanac's first real source rather than by
+testing — the third time in one day that using the thing found what 267
+green tests did not.
+
+**The case.** Kenny's Home Assistant knows when electricity is cheap:
+the EPEX sensor carries all 96 quarter-hours of the day with a price
+position for each, so the actual cheap windows can be computed rather
+than guessed. Verified against live data before proposing anything: on
+2026-08-29 that yields one contiguous window from 08:45 to 16:45.
+
+**What pinched.** A mapping profile can say "start at this field" but
+only "and last this many minutes" as a constant. A cheap-power window is
+480 minutes today and might be 45 tomorrow. The length is in the
+payload and no profile could reach it.
+
+The workaround was available and rejected: post a fixed hour and put the
+real window in the title. That puts a one-hour block on the calendar for
+an eight-hour window — a calendar showing something other than what it
+says, which is worse than no calendar entry.
+
+**Decision:** `end_field` adopted as Essential. Exactly one of
+`duration_minutes`, `duration_days` and `end_field` may be set, checked
+at startup like the existing all-day contradiction. Absent, a profile
+behaves exactly as before.
+
+**Consequences for what is already built:** none. Every existing profile
+uses `duration_minutes` and is untouched.
+
+**Why Essential rather than Desired:** every source that reports a
+*period* rather than a *moment* hits this, and that is not only energy
+prices — "the washing machine ran from X to Y", "away from Monday to
+Friday", "the backup took three hours" are all the same shape.

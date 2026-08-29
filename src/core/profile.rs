@@ -73,6 +73,12 @@ pub struct FieldMapping {
     /// K14. How many days an all-day event covers; defaults to one.
     #[serde(default)]
     pub duration_days: Option<i64>,
+    /// K18. The payload field holding the event's end, for sources that
+    /// report a period rather than a moment — a cheap-power window, a
+    /// wash cycle, a week away. Mutually exclusive with the two
+    /// durations above.
+    #[serde(default)]
+    pub end_field: Option<String>,
     /// K17. `false` makes the event show on the calendar without
     /// consuming availability. Absent leaves Google's default (busy).
     #[serde(default)]
@@ -204,7 +210,52 @@ impl Profile {
         // one would let a profile say "all day, 60 minutes" and get
         // something nobody asked for.
         let m = &profile.mapping;
+
+        // K18. Three ways to say how long an event is, and exactly one
+        // of them applies. Two at once is two instructions, and quietly
+        // honouring whichever the code reads first produces an event
+        // nobody asked for, on every payload, forever.
+        let set: Vec<&str> = [
+            m.duration_minutes.is_some().then_some("duration_minutes"),
+            m.duration_days.is_some().then_some("duration_days"),
+            m.end_field.is_some().then_some("end_field"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if set.len() > 1 {
+            return Err(AlmanacError::ProfileValidation {
+                message: format!(
+                    "{origin}: {} are set together, but an event has one length",
+                    set.join(" and ")
+                ),
+                remedy: format!(
+                    "keep exactly one of duration_minutes, duration_days or end_field in {origin}"
+                ),
+            });
+        }
+        if let Some(field) = &m.end_field
+            && field.trim().is_empty()
+        {
+            return Err(AlmanacError::ProfileValidation {
+                message: format!("{origin}: mapping.end_field is empty"),
+                remedy: format!(
+                    "set mapping.end_field in {origin} to the payload field holding the event's \
+                     end, or remove it and use duration_minutes"
+                ),
+            });
+        }
+
         if m.all_day {
+            if m.end_field.is_some() {
+                return Err(AlmanacError::ProfileValidation {
+                    message: format!("{origin}: mapping.end_field is set on an all-day profile"),
+                    remedy: format!(
+                        "an all-day event is measured in days — use duration_days in {origin}, or \
+                         set all_day = false to take the end from the payload"
+                    ),
+                });
+            }
             if m.duration_minutes.is_some() {
                 return Err(AlmanacError::ProfileValidation {
                     message: format!(
@@ -235,6 +286,7 @@ impl Profile {
                 });
             }
             match m.duration_minutes {
+                None if m.end_field.is_some() => {}
                 None => {
                     return Err(AlmanacError::ProfileValidation {
                         message: format!("{origin}: mapping.duration_minutes is missing"),
@@ -637,5 +689,47 @@ timezone = "UTC"
         let rule = profile.mapping.reminders.unwrap();
         assert!(!rule.silent);
         assert_eq!(rule.popup_minutes_before, vec![30, 1440]);
+    }
+
+    #[test]
+    fn two_ways_of_saying_how_long_are_refused_together() {
+        // K18. Each pair, because "the code happens to read this one
+        // first" is not a specification.
+        for combo in [
+            "duration_minutes = 60\nend_field = \"until\"",
+            "all_day = true\nduration_days = 2\nend_field = \"until\"",
+            "duration_minutes = 60\nduration_days = 2",
+        ] {
+            let err = parse_mapping(combo).unwrap_err();
+            assert!(
+                err.to_string().contains("one length")
+                    || err.to_string().contains("duration_days")
+                    || err.to_string().contains("end_field"),
+                "{combo:?} should be refused, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_timed_profile_may_take_its_end_from_the_payload_instead_of_minutes() {
+        let profile = parse_mapping("end_field = \"until\"").unwrap();
+        assert_eq!(profile.mapping.end_field.as_deref(), Some("until"));
+        assert_eq!(profile.mapping.duration_minutes, None);
+    }
+
+    #[test]
+    fn an_all_day_profile_cannot_take_its_end_from_the_payload() {
+        // An all-day event is measured in days; a timestamp field there
+        // is a category error, and refusing it says which of the two
+        // the author meant to write.
+        let err = parse_mapping("all_day = true\nend_field = \"until\"").unwrap_err();
+        assert!(err.to_string().contains("all-day"), "{err}");
+        assert!(err.remedy().contains("duration_days"), "{}", err.remedy());
+    }
+
+    #[test]
+    fn an_empty_end_field_is_rejected_rather_than_looked_up() {
+        let err = parse_mapping("end_field = \"\"").unwrap_err();
+        assert!(err.to_string().contains("end_field is empty"), "{err}");
     }
 }

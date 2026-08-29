@@ -103,11 +103,18 @@ timezone = "Europe/Brussels"
 | `external_id_field` | no | The field holding the source's own id for this thing. This is what makes updates converge instead of duplicating — see 3.1. |
 | `start_field` | yes | The field holding the start time, as RFC 3339. |
 | `duration_minutes` | for a timed event | How long the event is. Must be greater than zero. Leave it out on an all-day profile — setting both is refused at startup rather than silently resolved. |
+| `end_field` | for an event whose length varies | Which payload field holds the end time, as RFC 3339 (K18). Use instead of `duration_minutes` when the source reports a period rather than a moment — a cheap-power window, a wash cycle, a week away. |
 | `location_field` | no | Which payload field becomes the event's location (K15). |
 | `all_day` | no | `true` makes a day marker instead of a timed block (K14). The start field may then be either `2026-09-01` or a full timestamp on that day. |
 | `duration_days` | no | How many days an all-day event covers; defaults to 1. Only on an all-day profile. |
 | `busy` | no | `false` shows the event without consuming your availability (K17) — what an infra incident should do. Absent leaves Google's default, which is busy. |
 | `timezone` | yes | An IANA name, e.g. `Europe/Brussels`. Checked at startup (M4) — a typo is caught when the service starts, not by Google days later. |
+
+**Exactly one of `duration_minutes`, `duration_days` and `end_field`**
+applies, and setting two is refused when the profile loads rather than
+resolved in whatever order the code happens to read them. An end at or
+before the start is refused too: Google accepts it, and the result is an
+event that appears on no calendar at all.
 
 **Nested fields work** with dots: `title_field = "data.alert.name"`
 reads `{"data": {"alert": {"name": "…"}}}`.

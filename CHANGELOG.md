@@ -13,6 +13,23 @@ against before it installs anything.
 
 ### Added
 
+- **Event length from the payload** (K18). `end_field` names the payload
+  field holding the end, for sources that report a period rather than a
+  moment. Exactly one of `duration_minutes`, `duration_days` and
+  `end_field` may be set, refused at load time rather than resolved by
+  read order. An end at or before the start is refused as well — Google
+  accepts it and the result appears on no calendar, which is the worst
+  kind of accepted.
+
+  Found while building the first real source, not by testing: 267 tests
+  were green and the four fields added hours earlier were proven against
+  the real Google API, but a profile could only state a *constant*
+  length. A cheap-power window is 480 minutes today and might be 45
+  tomorrow. Third time in one day that using the thing found what
+  testing did not.
+
+### Added
+
 - **All-day events** (K14). A profile with `all_day = true` produces a
   day marker rather than a timed block, which is what bin day, a
   birthday or a week away actually is. Accepts either a plain date or a
