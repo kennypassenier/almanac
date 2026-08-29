@@ -58,6 +58,17 @@ impl KeyLocks {
 pub struct Delivered {
     pub event_id: String,
     pub created: bool,
+    /// The key this delivery deduplicated against, or `None` when the
+    /// source offered neither an external id nor an idempotency key.
+    ///
+    /// Carried back out so the debug surface can show it. It used to be
+    /// hardcoded to `None` there, which meant every routing decision
+    /// claimed there had been no upsert key — including the ones that
+    /// plainly had, since they converged on the same event. Someone
+    /// chasing a duplicate would read that, conclude the profile had no
+    /// `external_id_field`, and go and edit a profile that was already
+    /// correct.
+    pub upsert_key: Option<String>,
 }
 
 /// Resolves the upsert key for an entry: the mapping's own
@@ -109,6 +120,7 @@ pub async fn deliver(
         return Ok(Delivered {
             event_id: created.id.unwrap_or_default(),
             created: true,
+            upsert_key: None,
         });
     };
 
@@ -126,6 +138,7 @@ pub async fn deliver(
             Ok(Delivered {
                 event_id: created.id.unwrap_or_default(),
                 created: true,
+                upsert_key: Some(key),
             })
         }
         UpsertAction::Update(google_id) => {
@@ -133,6 +146,7 @@ pub async fn deliver(
             Ok(Delivered {
                 event_id: updated.id.unwrap_or(google_id),
                 created: false,
+                upsert_key: Some(key),
             })
         }
     }
@@ -212,6 +226,54 @@ mod tests {
     fn neither_source_of_identity_means_no_key_and_an_unconditional_create() {
         let event = event_with_property(None);
         assert_eq!(upsert_key(&entry(None), &event), None);
+    }
+
+    #[tokio::test]
+    async fn a_delivery_reports_the_key_it_deduplicated_against() {
+        // Found by using Almanac once as a source really would, in
+        // Phase 9. The debug surface's `upsert_key` was hardcoded to
+        // None, so every routing decision claimed there had been no
+        // upsert key — including the redelivery that had just converged
+        // on the same Google event and therefore obviously had one.
+        //
+        // That is a lie in exactly the place someone looks when they
+        // are chasing a duplicate: the debugging guide sends them to
+        // the routing decisions, they read "no upsert key", and they go
+        // and add an `external_id_field` to a profile that already has
+        // one.
+        let calendar = crate::shell::testing::CalendarStub::start().await;
+        let client = stubbed_client(&calendar).await;
+        let locks = KeyLocks::new();
+
+        let mut entry = payload_entry("home-assistant", "bin day");
+        entry.idempotency_key = Some("bin-day-2026-09-01".to_string());
+
+        let delivered = deliver(
+            &entry,
+            &profile_for("home-assistant", "household@group.calendar.google.com"),
+            &client,
+            &locks,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            delivered.upsert_key.as_deref(),
+            Some("home-assistant:bin-day-2026-09-01"),
+            "a delivery that deduplicated must say what it deduplicated against"
+        );
+
+        // And a delivery with nothing to deduplicate against still
+        // reports honestly, rather than inventing a key.
+        let anonymous = deliver(
+            &payload_entry("uptime-kuma", "jellyfin down"),
+            &profile_for("uptime-kuma", "infra@group.calendar.google.com"),
+            &client,
+            &locks,
+        )
+        .await
+        .unwrap();
+        assert_eq!(anonymous.upsert_key, None);
     }
 
     #[tokio::test]

@@ -60,7 +60,12 @@ pub async fn record_route(
         at: (state.now)(),
         source_id: entry.source_id.clone(),
         entry_id: entry.id.clone(),
-        upsert_key: None,
+        // Whatever the delivery actually deduplicated against. A
+        // failure has no key to report, since it never got that far.
+        upsert_key: match &result {
+            Ok(d) => d.upsert_key.clone(),
+            Err(_) => None,
+        },
         outcome,
     });
 }
