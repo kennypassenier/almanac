@@ -19,7 +19,7 @@ Phase 5.)
 |---|---|
 | Current phase | 9 · Release & lifecycle — deployed and serving, drills outstanding |
 | Last completed gate | Phase 7 closed (22 of 24 gaps closed, 2 accepted); deployment report signed off — 2026-08-29 |
-| Next gate | the reboot and self-update drills, then Phase 8 documentation |
+| Next gate | Phase 8 documentation (both drills passed) |
 | AFK mode | off since 2026-08-28 |
 | Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
 
@@ -30,9 +30,19 @@ service account and shared with Kenny. The full chain is proven on that
 machine: an event created, redelivered without duplicating, and deleted.
 Real calendar ids live only in the deployment, never in this repository.
 
-**M13 (Prometheus metrics)** was adopted by mini-round on 2026-08-29 as
-Desired, scheduled after the drills. The homelab's Prometheus on CT 113
-has the scrape job ready and commented out.
+**M13 (Prometheus metrics)** is built and serving: `/metrics` on
+`10.10.10.12:8080`, unauthenticated like `/healthz`, six `almanac_`
+series plus `almanac_build_info`. The homelab's Prometheus on CT 113
+can uncomment its scrape job.
+
+**Both drills passed on 2026-08-29.** The reboot drill (hard power
+cut) replayed an undelivered event and fired AR21's startup retry.
+The self-update drill went 0.1.2 → 0.1.3 over the air in five
+minutes — and found a real bug first: the six-hour check interval
+was scheduled from process start rather than from the end of the
+startup delay, so the first check landed six hours out while every
+unit test passed. Fixed in 0.1.2, proven on hardware, and a check
+now logs a line either way so a silently dead updater is visible.
 
 Per standing rule 19: work happens in a session opened in this project
 directory (`~/Projects/almanac`). L0 is done: renamed to almanac
