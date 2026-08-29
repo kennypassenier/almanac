@@ -1,0 +1,26 @@
+# AR15 regression fixture for K14-K17 — the shape a household source
+# uses. Pinned like the other three: a change to how an all-day event,
+# a reminder or a free/busy marker is written shows up as a diff
+# against a real file, not as an assertion buried in a unit test.
+#
+# This one exists because K14's JSON is the part most likely to break
+# silently: Google accepts exactly one of `date` and `dateTime`, and
+# the first build of this feature sent the wrong field names entirely.
+
+schema_version = 1
+source_id = "household-all-day"
+target_calendar_id = "primary"
+
+[mapping]
+title_field = "title"
+description_field = "note"
+external_id_field = "entity_id"
+location_field = "where"
+start_field = "date"
+all_day = true
+duration_days = 1
+timezone = "Europe/Brussels"
+busy = false
+
+[mapping.reminders]
+popup_minutes_before = [600]

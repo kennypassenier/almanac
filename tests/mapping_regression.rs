@@ -35,6 +35,16 @@ fn run_fixture(name: &str) {
     );
 }
 
+/// K14-K17. The one fixture whose JSON shape is most likely to break
+/// silently: Google accepts exactly one of `date` and `dateTime`, and
+/// the first build of all-day support sent the wrong field names
+/// altogether. Pinning it means a change to the boundary shape, the
+/// reminder block or the free/busy marker shows up as a file diff.
+#[test]
+fn household_all_day_fixture_matches_pinned_output() {
+    run_fixture("household-all-day");
+}
+
 #[test]
 fn home_assistant_fixture_matches_pinned_output() {
     run_fixture("home-assistant");
