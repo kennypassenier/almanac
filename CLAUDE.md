@@ -17,11 +17,22 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 7 · Hardening |
-| Last completed gate | Phase 7 gap form answered — 22 of 24 gaps closed, 2 accepted — 2026-08-29 |
-| Next gate | Phase 7 report, then the deployment |
+| Current phase | 9 · Release & lifecycle — deployed and serving, drills outstanding |
+| Last completed gate | Phase 7 closed (22 of 24 gaps closed, 2 accepted); deployment report signed off — 2026-08-29 |
+| Next gate | the reboot and self-update drills, then Phase 8 documentation |
 | AFK mode | off since 2026-08-28 |
-| Open, gated on Kenny | the rollout itself (D9: go per action), generating the minisign release key, and the two manual Home Assistant steps |
+| Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
+
+**Live since 2026-08-29:** CT 112 on Proxmox, `10.10.10.12:8080`, systemd
+under `latch run`, self-update armed against GitHub Releases. Two real
+calendars — Almanac · Huishouden and Almanac · Infra — created by the
+service account and shared with Kenny. The full chain is proven on that
+machine: an event created, redelivered without duplicating, and deleted.
+Real calendar ids live only in the deployment, never in this repository.
+
+**M13 (Prometheus metrics)** was adopted by mini-round on 2026-08-29 as
+Desired, scheduled after the drills. The homelab's Prometheus on CT 113
+has the scrape job ready and commented out.
 
 Per standing rule 19: work happens in a session opened in this project
 directory (`~/Projects/almanac`). L0 is done: renamed to almanac
