@@ -104,6 +104,49 @@ async fn check_mode() -> ! {
     std::process::exit(0);
 }
 
+/// K19 — `almanac update`: one update, no restart, for a supervisor
+/// that owns both.
+///
+/// Exits 0 when there was nothing to do AND when a new version was
+/// installed, because neither is a failure and the caller decides what
+/// happens next by looking at the binary. Exits 1 only when the attempt
+/// itself failed, which is the homelab's signal to leave the service on
+/// the version it is already running.
+async fn supervised_update() {
+    let http = reqwest::Client::new();
+    let notifier = Notifier::from_env(http.clone());
+
+    let Some(updater) = Updater::from_env(http, notifier, data_dir()) else {
+        // from_env already said why on stdout — no release URL, no
+        // compiled key, or switched off. None of those is an error for
+        // a supervisor: there is simply nothing to install.
+        eprintln!("almanac update: self-update is not configured here; nothing to do");
+        std::process::exit(0);
+    };
+
+    match updater.supervised().check_once().await {
+        Ok(update::Outcome::UpToDate(version)) => {
+            println!("almanac update: already on {version}");
+            std::process::exit(0)
+        }
+        Ok(update::Outcome::Skipped(reason)) => {
+            println!("almanac update: an update was available but not installed — {reason}");
+            std::process::exit(0)
+        }
+        Ok(update::Outcome::Installed { from, to }) => {
+            println!(
+                "almanac update: installed {from} -> {to}; the binary changed, restart when ready"
+            );
+            std::process::exit(0)
+        }
+        Err(e) => {
+            eprintln!("almanac update failed: {e}");
+            eprintln!("  remedy: {}", e.remedy());
+            std::process::exit(1)
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -114,6 +157,15 @@ async fn main() {
 
     if std::env::args().any(|arg| arg == update::CHECK_ARG) {
         check_mode().await;
+    }
+
+    // K19. Before the data-directory lock, deliberately: this runs
+    // while the service is up, and taking the lock would make it refuse
+    // to start against its own running instance. Nothing here touches
+    // the journal — it reads a release, verifies it, and replaces a
+    // file on disk.
+    if std::env::args().any(|arg| arg == update::UPDATE_ARG) {
+        supervised_update().await;
     }
 
     let data_dir = data_dir();

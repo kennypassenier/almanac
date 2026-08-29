@@ -369,6 +369,40 @@ Only after that line has appeared is the previous binary released and a
 restart safe. It arrives 60 seconds after the new version starts
 serving.
 
+## R12b · When the homelab manages updates
+
+Two update mechanisms exist and exactly one should be armed.
+
+**Almanac alone** (the default): the periodic updater checks every six
+hours, installs, restarts itself, and reverts on the next start if the
+new version does not serve. Nothing else needed.
+
+**Under the homelab**: set `ALMANAC_SELF_UPDATE=off` in the unit's
+environment and give `stacks/almanac/service.yml` an `update_cmd`:
+
+```yaml
+update_cmd: runuser -u almanac -- /opt/almanac/almanac update
+```
+
+`almanac update` fetches, verifies, probes and installs — then exits
+**without restarting**. The homelab restarts the unit, checks it came
+up, and restores the binary it preserved beforehand if it did not.
+
+Exit codes, because the homelab reads them: `0` both when there was
+nothing to do and when a new version was installed — the caller decides
+what happens next by comparing the binary's checksum, which is exactly
+what it does. `1` only when the attempt itself failed, which leaves the
+service on the version it is already running.
+
+**Never arm both.** Two systems each preserving and restoring a binary
+will eventually restore each other's copy. If `almanac update` is in the
+stack file, `ALMANAC_SELF_UPDATE` must be off; if it is not, it must
+not be.
+
+The explicit command still works while the variable is off. That is
+deliberate: the variable governs the background loop, not an instruction
+from whoever is supervising.
+
 ## R13 · Is the self-updater still looking?
 
 Every six hours, and five minutes after each start, the log gets one

@@ -32,6 +32,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K16 | Reminders per profile — a set of overrides, or deliberate silence | Gewenst | A profile asking for reminders produces them on the event; one asking for silence produces `useDefault: false` with no overrides; one saying nothing omits the block so the calendar's own default applies. *(Added 2026-08-29 via mini-round.)* |
 | K17 | Free/busy and event status per profile | Gewenst | A profile with `busy = false` produces `transparency: "transparent"`, so an infra incident does not mark Kenny busy; `status_by` maps a payload field onto Google's three statuses and rejects any other value at startup. *(Added 2026-08-29 via mini-round.)* |
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
+| K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -225,3 +226,40 @@ uses `duration_minutes` and is untouched.
 *period* rather than a *moment* hits this, and that is not only energy
 prices — "the washing machine ran from X to Y", "away from Monday to
 Friday", "the backup took three hours" are all the same shape.
+
+## Supervised updates (2026-08-30)
+
+Kenny: *"Zorg dat het Homelab Rust dit project binnenkort kan beheren,
+dan kan dit gesprek gearchiveerd worden."* Recorded as an amendment
+rather than a mini-round form because the instruction *is* the decision;
+what follows is only how it was carried out.
+
+**The state before.** The homelab adopted CT 112 on 2026-08-29 and backs
+it up nightly, but `stacks/almanac/service.yml` deliberately carried no
+`update_cmd`, with the note: *"the app has (or may have) its own
+complete rollback mechanism, and two systems restoring binaries can
+fight each other. Ownership is Kenny's call (form pending)."*
+
+**Why almanac could not simply be handed the job.** The homelab's
+supervised update preserves the binary, runs `update_cmd`, and restarts
+**only if the binary actually changed** — then health-checks and, on
+failure, restores the preserved copy from outside. Almanac's own updater
+restarts itself and arms its own revert. Pointing `update_cmd` at that
+would give two systems a rollback each, and they would race.
+
+**The split that resolves it.** Almanac knows how to find a release,
+verify its signature and checksum, and prove the new binary starts on
+this machine. The homelab knows how to restart a unit and restore a
+binary when the process is dead — something a dead process cannot do for
+itself. So: `almanac update` does the first half and stops, writing no
+probation state; the homelab does the second half.
+
+`ALMANAC_SELF_UPDATE=off` on the deployment stops the periodic updater,
+so only the supervisor initiates. The explicit `update` command still
+works with that set — the variable governs the background loop, not an
+instruction from whoever is in charge.
+
+**Consequences for what is already built:** none. The unsupervised path
+is unchanged and still arms AR23's revert, with a test asserting it, so
+a machine running almanac without a supervisor keeps exactly today's
+behaviour.

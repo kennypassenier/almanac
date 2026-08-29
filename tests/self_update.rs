@@ -364,3 +364,61 @@ async fn an_unreachable_release_host_leaves_the_service_alone() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// K19. The supervised install: same fetch, same verification, same
+/// probe, but no probation state — because the homelab preserved its
+/// own copy of the binary before calling `almanac update` and rolls
+/// back from outside if the restart does not come up.
+///
+/// Writing state here would arm a second rollback competing with
+/// theirs, and theirs is the one that can act on a process that never
+/// starts. Two systems restoring binaries is exactly the collision that
+/// kept `update_cmd` out of almanac's stack file until this existed.
+#[tokio::test]
+async fn a_supervised_install_leaves_the_rollback_to_the_supervisor() {
+    let dir = install_dir("supervised");
+    let base = serve(good_release()).await;
+
+    let outcome = updater(&base, &dir)
+        .supervised()
+        .check_once()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        Outcome::Installed {
+            from: Version::parse("0.1.0").unwrap(),
+            to: Version::parse("0.2.0").unwrap(),
+        }
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("almanac")).unwrap(),
+        GOOD_BINARY,
+        "the new binary must still be installed — only the bookkeeping differs"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("almanac.prev")).unwrap(),
+        INSTALLED_BINARY,
+        "the replaced binary is still kept; the supervisor is not the only copy"
+    );
+    assert!(
+        almanac::shell::update::read_state(&dir).is_none(),
+        "a supervised install must not arm almanac's own revert — the next start would \
+         otherwise undo an update the supervisor is in the middle of verifying"
+    );
+}
+
+/// And the unsupervised path must keep arming it, or AR23 quietly stops
+/// working the day someone adds a flag.
+#[tokio::test]
+async fn an_unsupervised_install_still_arms_almanacs_own_revert() {
+    let dir = install_dir("unsupervised");
+    let base = serve(good_release()).await;
+
+    updater(&base, &dir).check_once().await.unwrap();
+
+    let state = almanac::shell::update::read_state(&dir)
+        .expect("without a supervisor, almanac supervises itself");
+    assert_eq!(state.to_version, "0.2.0");
+}

@@ -92,6 +92,18 @@ const STATE_FILE: &str = "update-state.json";
 /// The argument that makes a binary prove it starts and then exit.
 pub const CHECK_ARG: &str = "--check";
 
+/// K19. One-shot update, for a supervisor that owns the restart.
+///
+/// `almanac update` fetches, verifies, probes and installs a newer
+/// release and then **exits without restarting**. The difference from
+/// the built-in updater is deliberate and is the whole point: the
+/// homelab restarts the unit itself, checks it came up, and restores
+/// the binary it preserved beforehand if it did not. A rollback driven
+/// from outside a dead process is one this process cannot perform, and
+/// two systems both restoring binaries is the collision that kept
+/// `update_cmd` out of almanac's stack file until now.
+pub const UPDATE_ARG: &str = "update";
+
 /// How long the `--check` probe gets before it is considered a
 /// failure. Generous: it parses profiles and opens the token store,
 /// but touches no network.
@@ -141,6 +153,10 @@ pub struct Updater {
     /// release host is reported once rather than every six hours
     /// (AR24).
     verification_failures: std::sync::atomic::AtomicU32,
+    /// K19. True when something outside this process owns the restart
+    /// and the rollback — the homelab's supervised update. Changes what
+    /// `install` does after the swap, and nothing else.
+    supervised: bool,
 }
 
 /// After this many consecutive verification failures, say so out loud.
@@ -245,6 +261,7 @@ impl Updater {
             current,
             notifier,
             verification_failures: std::sync::atomic::AtomicU32::new(0),
+            supervised: false,
         }
     }
 
@@ -296,6 +313,12 @@ impl Updater {
     ///
     /// Returns what happened rather than logging and swallowing it, so
     /// the caller decides whether to restart.
+    /// K19. Hands the restart and the rollback to whoever called us.
+    pub fn supervised(mut self) -> Self {
+        self.supervised = true;
+        self
+    }
+
     pub async fn check_once(&self) -> Result<Outcome, AlmanacError> {
         let latest = Version::parse(&self.get_text(VERSION_PATH).await?)?;
         if !should_update(self.current, latest) {
@@ -439,20 +462,34 @@ impl Updater {
         }
         fsync_parent_dir(&self.binary);
 
-        // Written before the restart, deliberately: if the machine
-        // loses power between the swap and the restart, the next start
-        // still finds an unproven update and still supervises it.
-        self.write_state(&UpdateState {
-            from_version: self.current.to_string(),
-            to_version: version.to_string(),
-            previous_binary: previous.display().to_string(),
-            attempts: 0,
-        })?;
+        if self.supervised {
+            // K19. No probation state: the supervisor preserved its own
+            // copy of the binary before calling us and rolls back from
+            // outside if the restart does not come up. Writing state
+            // here would arm a second, competing rollback — and the one
+            // that can act on a process that never starts is theirs,
+            // not ours.
+            tracing::info!(
+                from = %self.current, to = %version,
+                "installed; the supervisor owns the restart"
+            );
+        } else {
+            // Written before the restart, deliberately: if the machine
+            // loses power between the swap and the restart, the next
+            // start still finds an unproven update and still supervises
+            // it.
+            self.write_state(&UpdateState {
+                from_version: self.current.to_string(),
+                to_version: version.to_string(),
+                previous_binary: previous.display().to_string(),
+                attempts: 0,
+            })?;
 
-        tracing::info!(
-            from = %self.current, to = %version, previous = %previous.display(),
-            "installed; restarting into the new version"
-        );
+            tracing::info!(
+                from = %self.current, to = %version, previous = %previous.display(),
+                "installed; restarting into the new version"
+            );
+        }
 
         self.notifier
             .send(Event {
