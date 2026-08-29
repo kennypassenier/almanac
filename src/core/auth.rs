@@ -21,7 +21,7 @@ pub struct ServiceAccountCredentials {
 
 /// Validates that all three required credential values were found.
 /// This project only ever reads these three fields from the Google
-/// service-account JSON (see INVENTORY.md AUTH-1 — the old
+/// service-account JSON (see docs/legacy/INVENTORY.md AUTH-1 — the old
 /// `.env.example` listed ten, unused ones were dead documentation).
 pub fn validate_credentials(
     client_email: Option<String>,

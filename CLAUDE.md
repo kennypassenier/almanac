@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 9 · Release & lifecycle — deployed and serving, drills outstanding |
+| Current phase | 8 · Documentation — drafted, awaiting per-document approval |
 | Last completed gate | Phase 7 closed (22 of 24 gaps closed, 2 accepted); deployment report signed off — 2026-08-29 |
-| Next gate | Phase 8 documentation (both drills passed) |
+| Next gate | the Phase 8 approval form, one item per document |
 | AFK mode | off since 2026-08-28 |
 | Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
 
@@ -56,7 +56,10 @@ blocked), `src/core`/`src/shell` split in place per AR13.
 | Doc | Purpose |
 |---|---|
 | docs/SCOPE.md | goals, non-goals, success criteria, constraints (Phase 0) — done |
-| docs/INVENTORY.md | existing cal-stacean behaviour, brownfield sweep (Phase 1) — done, 268 lines, 19 defects logged |
+| docs/USER_GUIDE.md | how to connect a source, shape events, update and delete them (Phase 8) |
+| docs/DEBUGGING_GUIDE.md | the evidence trail and symptom→cause tables (Phase 8) |
+| docs/ARCHITECTURE_REFERENCE.md | the system as built (Phase 8) |
+| docs/legacy/ | INVENTORY.md and AFK_QUEUE.md — history, not maintained |
 | docs/FEATURES.md | rated feature list with permanent IDs (Phase 2) — done, frozen, 24 features (M10, M11 added via mini-rounds) |
 | docs/ARCHITECTURE_DECISIONS.md | frozen AR decisions incl. tech choice (Phases 3-4) — done, AR1–AR19 frozen |
 | docs/REALIZATION_PLAN.md | milestones + status table (Phase 5) — done, L0–L5 approved |

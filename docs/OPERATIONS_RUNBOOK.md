@@ -289,7 +289,7 @@ So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
 the moment of the backup, which means deliveries were failing then.
 
-## Metrics (M13)
+## R12 · Metrics and what to alert on (M13)
 
 `GET /metrics` on the same port, no token needed. Prometheus on CT 113
 scrapes it:
@@ -325,7 +325,7 @@ are here (exposition format). Prometheus parses only its own format, so
 pointed at `/healthz` it would report a perfectly healthy service as
 permanently down.
 
-## Is the self-updater still looking?
+## R13 · Is the self-updater still looking?
 
 Every six hours, and five minutes after each start, the log gets one
 line either way:
@@ -346,7 +346,7 @@ To see when it last looked:
 journalctl -u almanac | grep "checked for a new release" | tail -3
 ```
 
-## Who installs new versions
+## R14 · Who installs new versions
 
 Almanac updates itself, unless it is running from an image somebody
 else builds.
@@ -406,7 +406,7 @@ environment:
 systemctl edit almanac      # Environment=ALMANAC_SELF_UPDATE=off
 ```
 
-## Replacing the service account
+## R15 · Replacing the service account
 
 Done once, on 2026-08-29, when the account was still called
 `cal-stacean` and every mail Google sent said so. A service account's

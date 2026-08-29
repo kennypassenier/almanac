@@ -47,14 +47,23 @@ else in the homelab ever holds them.
 
 ## Documentation
 
-| Document | What is in it |
+Start with whichever question you have.
+
+| I want to know | Document |
 |---|---|
-| [docs/SCOPE.md](docs/SCOPE.md) | What Almanac is for, and what it deliberately is not |
-| [docs/FEATURES.md](docs/FEATURES.md) | The frozen feature list with acceptance criteria |
-| [docs/ARCHITECTURE_DECISIONS.md](docs/ARCHITECTURE_DECISIONS.md) | Every architectural decision and the objection that forced it |
-| [docs/REALIZATION_PLAN.md](docs/REALIZATION_PLAN.md) | Milestones, status, and the decisions taken at each gate |
-| [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Releasing, installing, and what to do when a notification arrives |
-| [docs/integrations/home-assistant.md](docs/integrations/home-assistant.md) | The Home Assistant side, including the generic retrying HTTP helper |
+| How do I connect a source, change an event, delete one? | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) |
+| Why is it not on my calendar? | [docs/DEBUGGING_GUIDE.md](docs/DEBUGGING_GUIDE.md) |
+| How do I install, release, restore, rotate the account? | [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) |
+| How is it built? | [docs/ARCHITECTURE_REFERENCE.md](docs/ARCHITECTURE_REFERENCE.md) |
+| Why is it built that way? | [docs/ARCHITECTURE_DECISIONS.md](docs/ARCHITECTURE_DECISIONS.md) |
+| What is proven, and where? | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) |
+| What is it for, and not for? | [docs/SCOPE.md](docs/SCOPE.md) |
+| What was agreed to build? | [docs/FEATURES.md](docs/FEATURES.md) · [docs/REALIZATION_PLAN.md](docs/REALIZATION_PLAN.md) |
+| The Home Assistant side specifically | [docs/integrations/home-assistant.md](docs/integrations/home-assistant.md) |
+
+[docs/legacy/](docs/legacy/) holds documents kept for history and not
+maintained — the Phase 1 inventory of the service this replaced, and
+the AFK queue that closed empty.
 
 ## HTTP surface
 
@@ -64,6 +73,7 @@ else in the homelab ever holds them.
 | `POST` | `/v1/ingest/{source_id}/sync` | The same, but wait for delivery and return the Google event id |
 | `DELETE` | `/v1/ingest/{source_id}/events/{external_id}` | Remove an event this source created, addressed by the id the source itself used |
 | `GET` | `/healthz` | Liveness, no authentication — this is what Uptime Kuma watches |
+| `GET` | `/metrics` | Prometheus counters, no authentication — monitoring that cannot log in reports a healthy service as down |
 | `GET` | `/v1/debug/status` | Profiles, journal depth and recent routing decisions |
 | `GET` | `/v1/debug/capture` | Recently captured requests, verbatim |
 | `GET` | `/dashboard` | Operator UI: status, sources and tokens, captures |
@@ -71,7 +81,10 @@ else in the homelab ever holds them.
 Ingest endpoints authenticate with that source's own bearer token. The
 debug endpoints and the dashboard use the operator's credential, and
 refuse every request when none is configured — an unconfigured admin
-surface closes rather than opens.
+surface closes rather than opens. `/healthz` and `/metrics` are open
+deliberately, and both are numbers only: no token, calendar id or
+payload content appears in either, which is asserted by a test rather
+than intended.
 
 ## Configuration
 
@@ -112,8 +125,13 @@ systemd on its own LXC ([deploy/almanac.service](deploy/almanac.service)),
 because self-update replaces the running binary and a container would
 silently discard that on the next recreation. A compose file
 ([deploy/docker-compose.yml](deploy/docker-compose.yml)) ships alongside
-it for the future homelab-v2 migration; in that mode self-update turns
-itself off and homelab v2 owns updates.
+it for the future homelab-v2 migration.
+
+The binary works out which of the two it is in: inside a Docker or
+Podman image it switches self-update off and says so, leaving updates to
+whatever builds the image. LXC is deliberately not treated as an image —
+that is a long-lived machine, not a rebuilt artifact, and it is where
+self-update is meant to run.
 
 Installation, first run and recovery are in
 [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md).
