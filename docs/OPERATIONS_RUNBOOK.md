@@ -288,3 +288,60 @@ in one place.
 So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
 the moment of the backup, which means deliveries were failing then.
+
+## Metrics (M13)
+
+`GET /metrics` on the same port, no token needed. Prometheus on CT 113
+scrapes it:
+
+```yaml
+  - job_name: almanac
+    static_configs:
+      - targets: ["10.10.10.12:8080"]
+```
+
+Six series, all prefixed `almanac_`: events accepted, delivered,
+failed, set aside, token refreshes, and the journal depth. Plus
+`almanac_build_info{version="..."}`, which is how you see at a glance
+which version the hub is actually on.
+
+Two of these are worth an alert:
+
+- `almanac_journal_pending` climbing and not coming back down means
+  deliveries are failing. The hub is doing the right thing — that is
+  what the journal is for — but nobody is looking at the reason yet.
+- `almanac_journal_readable` at 0 means the scrape could not read the
+  journal at all. The depth gauge is deliberately absent in that case
+  rather than reported as zero, so an alert on `pending == 0` will not
+  fire and hide it. Alert on this one separately.
+
+`almanac_deliveries_failed_total` climbing while
+`almanac_events_delivered_total` also climbs is a retry story, not an
+outage. Only sustained failures with no deliveries are a problem.
+
+Do not point Uptime Kuma at `/metrics` or Prometheus at `/healthz`.
+Liveness is `/healthz` (JSON, watched by Uptime Kuma per AR21); metrics
+are here (exposition format). Prometheus parses only its own format, so
+pointed at `/healthz` it would report a perfectly healthy service as
+permanently down.
+
+## Is the self-updater still looking?
+
+Every six hours, and five minutes after each start, the log gets one
+line either way:
+
+```
+checked for a new release; already on the latest version=0.1.3
+```
+
+If that line has not appeared since the last restart plus five minutes,
+the updater is not running — which is a real failure mode: it once sat
+silent for six hours because the check interval was scheduled from
+process start rather than from the end of the startup delay, and
+nothing in the log distinguished that from working correctly.
+
+To see when it last looked:
+
+```bash
+journalctl -u almanac | grep "checked for a new release" | tail -3
+```
