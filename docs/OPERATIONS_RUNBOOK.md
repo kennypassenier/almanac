@@ -405,3 +405,53 @@ environment:
 # on the LXC, to hand updates to something else
 systemctl edit almanac      # Environment=ALMANAC_SELF_UPDATE=off
 ```
+
+## Replacing the service account
+
+Done once, on 2026-08-29, when the account was still called
+`cal-stacean` and every mail Google sent said so. A service account's
+name cannot be changed after creation, so a rename means a new account
+— and a new account owns nothing, which is most of the work.
+
+**In the Google Cloud console (only a person can do this):** create the
+service account, give it no roles at all (Almanac only touches calendars
+it created itself), add a JSON key, and make sure the Google Calendar
+API is enabled on the project.
+
+**Then, on Kenny's machine:**
+
+```bash
+latch edit .env      # replace CLIENT_EMAIL and PRIVATE_KEY
+latch commit .env && latch push
+latch run -- cargo run --example create_calendars      # new account, new calendars
+latch run -- cargo run --example create_test_calendar  # for the live tests
+latch edit .env      # point ALMANAC_TEST_CALENDAR_ID at the new one
+latch commit .env && latch push
+latch run -- cargo test --test calendar_e2e -- --ignored   # prove it before touching the deployment
+gh secret set CLIENT_EMAIL PRIVATE_KEY ALMANAC_TEST_CALENDAR_ID   # the nightly live tests
+```
+
+**Then, on the deployment:** the LXC has a ciphertext-only clone with no
+credentials to pull with, by design — copy `~/.latch/repo` across again
+(`tar`, `pct push`, `chown -R almanac:almanac`), update
+`target_calendar_id` in every profile under `/opt/almanac/profiles/` to
+the new calendars, and restart. `almanac_token_refreshes_total` going to
+1 on `/metrics` is the proof it authenticated with the new key.
+
+**Three things that cost time and will again:**
+
+`latch edit` honours `VISUAL` before `EDITOR`. On this machine `VISUAL`
+was set to `“kate -b”` with typographic quotes, so every attempt tried
+to launch a program literally named `“kate`. Set both variables, and
+point them at an executable file — latch spawns the value as one
+program name, not through a shell, so `EDITOR="python3 script.py"` is
+read as a binary called `python3 script.py`.
+
+The profiles on the deployment hold the calendar ids, and they are not
+in this repository (deliberately — they are the household's, not the
+code's). Changing accounts without changing the profiles leaves Almanac
+authenticating perfectly and writing to calendars it no longer owns.
+
+The old calendars stay in Kenny's calendar list until the old service
+account is deleted; they are owned by that account, not by him. Deleting
+the old project in the console removes both.
