@@ -289,6 +289,22 @@ So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
 the moment of the backup, which means deliveries were failing then.
 
+**The data directory is exactly three plain files**, and that is worth
+stating because it is not true of every service: `journal.jsonl`,
+`tokens.json`, and an empty `.lock`. No database, so no companion files
+that carry the recent writes somewhere else — the trap that costs
+people a store is moving a SQLite `.db` without its `-wal` and `-shm`,
+where the database looks tiny and complete while the actual data sits
+in the log beside it. Nothing here works that way; copy the directory
+and you have copied everything.
+
+Copying it while the service runs is safe. The journal is append-only,
+so the worst a hot copy can catch is a half-written final line, and
+replay is written to tolerate exactly that — `replay_survives_a_torn_final_line`
+in `shell::journal` is the test that keeps it true. Restore it by
+putting the files back and starting the service; anything undelivered
+goes out on that start.
+
 ## R12 · Metrics and what to alert on (M13)
 
 `GET /metrics` on the same port, no token needed. Prometheus on CT 113
