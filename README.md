@@ -60,6 +60,7 @@ Start with whichever question you have.
 | What is it for, and not for? | [docs/SCOPE.md](docs/SCOPE.md) |
 | What was agreed to build? | [docs/FEATURES.md](docs/FEATURES.md) · [docs/REALIZATION_PLAN.md](docs/REALIZATION_PLAN.md) |
 | The Home Assistant side specifically | [docs/integrations/home-assistant.md](docs/integrations/home-assistant.md) |
+| What changed between versions | [CHANGELOG.md](CHANGELOG.md) |
 
 [docs/legacy/](docs/legacy/) holds documents kept for history and not
 maintained — the Phase 1 inventory of the service this replaced, and
