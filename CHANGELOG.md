@@ -121,7 +121,7 @@ readiness, and it is recorded here rather than glossed over.
 - The debug surface reported `upsert_key: null` for every routing
   decision, including ones that had plainly deduplicated against a key.
   Found by using Almanac once as a source really would (Phase 9
-  dogfood), and it mattered: it is the field someone reads when chasing
+  field test), and it mattered: it is the field someone reads when chasing
   a duplicate, and it sent them to edit a profile that was already
   correct.
 
