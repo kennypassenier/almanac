@@ -17,10 +17,11 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | 10 · Retrospective — 1.0.0 released and live; lessons awaiting Kenny |
-| Last completed gate | Phase 9 closed — 1.0.0 signed, published, and installed by CT 112 on its own — 2026-08-29 |
-| Next gate | Phase 10 · retrospective, landing as a diff on dev-procedure |
+| Current phase | done — 1.3.1 live, updates handed to the homelab |
+| Last completed gate | Phase 10 closed; update ownership handed to the homelab — 2026-08-30 |
+| Next gate | none — the homelab's own 3.2.0 client still has to ship before its nightly supervised update can run |
 | AFK mode | off since 2026-08-28 |
+| Updates | **the homelab owns them** since 2026-08-30. `ALMANAC_SELF_UPDATE=off` on CT 112; `stacks/almanac/service.yml` carries `update_cmd: runuser -u almanac -- /opt/almanac/almanac update`. Exactly one of the two may ever be armed |
 | Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
 
 **Live since 2026-08-29:** CT 112 on Proxmox, `10.10.10.12:8080`, systemd

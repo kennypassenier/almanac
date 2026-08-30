@@ -110,6 +110,7 @@ and the results are recorded here because nothing re-runs them.
 | What | When | Result |
 |---|---|---|
 | M10 self-update, end to end | 2026-08-29 14:17–14:22 | 0.1.2 saw the published 0.1.3, verified the signature and checksum, probed the new binary, swapped it, restarted into it, and cleared its own probation. `/metrics` went from 404 to 200 without anyone touching the machine. |
+| K19 handover to the homelab | 2026-08-30 08:38 → 08:50 | The same command, before and after 1.3.1. On 1.3.0, run the way the supervisor runs it: `nothing to do`, exit 0 — a silent no-op the supervisor would have read as success. On 1.3.1: `already on 1.3.1`, exit 0, having actually checked. The periodic updater then switched off, logging that whatever supervises the process owns updates. |
 | M10 self-update, unattended | 2026-08-29 16:36–16:42 | 0.1.4 → 1.0.0 with nobody touching the machine: published, seen five minutes after a restart, verified, probed, installed, restarted into, and its probation cleared 60s later. The third full run of the day, after 0.1.2→0.1.3 and 0.1.3→0.1.4. |
 | M10 first-check timing | 2026-08-29 13:43:27 → 13:48:28 | The first check falls five minutes after start, not a whole interval later. This is the drill that found the bug it now guards. |
 | AR21 startup retry | 2026-08-29, hard power cut | Started before the network settled, logged "could not reach Google yet; retrying", and recovered on its own. |
