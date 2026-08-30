@@ -403,6 +403,26 @@ The explicit command still works while the variable is off. That is
 deliberate: the variable governs the background loop, not an instruction
 from whoever is supervising.
 
+**It also finds releases without being told where they are.** The
+supervisor runs `update_cmd` outside systemd, so the unit's
+`Environment=` lines are absent from that process. 1.3.0 read the URL
+from there and, not finding it, printed "self-update is not configured
+here; nothing to do" and exited **0** — which the supervisor reads as a
+successful update that installed nothing. Demonstrated on CT 112 before
+the switch-over rather than reasoned about:
+
+```
+$ pct exec 112 -- runuser -u almanac -- /opt/almanac/almanac update
+almanac update: self-update is not configured here; nothing to do
+$ echo $?
+0
+```
+
+1.3.1 compiles the release URL in, the same way the signing key already
+is. When checking this by hand, run it the way the supervisor does —
+`runuser`, no environment — not from a shell that happens to have the
+variables.
+
 ## R13 · Is the self-updater still looking?
 
 Every six hours, and five minutes after each start, the log gets one
