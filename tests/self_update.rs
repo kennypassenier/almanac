@@ -422,3 +422,24 @@ async fn an_unsupervised_install_still_arms_almanacs_own_revert() {
         .expect("without a supervisor, almanac supervises itself");
     assert_eq!(state.to_version, "0.2.0");
 }
+
+/// K19. The explicit command must not depend on the unit's environment,
+/// because the thing that runs it does not have it.
+///
+/// The homelab invokes `update_cmd` outside systemd, so the
+/// `Environment=` lines that carry this deployment's release URL are
+/// simply absent. Without the compiled-in fallback the command would
+/// find no URL, report "not configured", exit 0, and change nothing —
+/// and the supervisor would read that as a successful update. Almost
+/// shipped exactly that.
+#[test]
+fn the_update_command_knows_where_releases_live_without_being_told() {
+    assert!(
+        almanac::shell::update::DEFAULT_RELEASE_URL.starts_with("https://"),
+        "the fallback must be a real URL, not a placeholder"
+    );
+    assert!(
+        almanac::shell::update::DEFAULT_RELEASE_URL.contains("almanac"),
+        "and it must point at this project's releases"
+    );
+}

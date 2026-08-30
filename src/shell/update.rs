@@ -54,6 +54,20 @@ use crate::shell::notify::{Event, Notifier, ops};
 /// Base URL of the release directory. Absent means self-update is off.
 pub const UPDATE_URL_ENV: &str = "ALMANAC_UPDATE_URL";
 
+/// Where almanac's releases live, for the explicit `update` command.
+///
+/// A property of the project, not of a deployment — the same fact as
+/// the compiled-in signing key, and just as unhelpful to require twice.
+/// `UPDATE_URL_ENV` still overrides it.
+///
+/// Deliberately NOT a default for the periodic updater: an unset URL
+/// there means "this machine does not self-update", and defaulting it
+/// would arm the loop on every machine that had switched it off by
+/// saying nothing. An explicit `almanac update` is a different thing —
+/// someone asked for it, and refusing because they did not also say
+/// where releases live would be pedantry.
+pub const DEFAULT_RELEASE_URL: &str = "https://github.com/kennypassenier/almanac/releases";
+
 /// Set to `off` to disable self-update even when a URL is configured.
 /// The compose file sets it, because a container's replaced binary
 /// lives in the writable layer and is discarded on the next recreation
@@ -313,6 +327,65 @@ impl Updater {
     ///
     /// Returns what happened rather than logging and swallowing it, so
     /// the caller decides whether to restart.
+    /// K19. Builds an updater for the explicit `update` command.
+    ///
+    /// Differs from [`from_env`] in two ways, both because this is an
+    /// instruction rather than a schedule: `ALMANAC_SELF_UPDATE=off` is
+    /// not consulted (it governs the background loop, and the whole
+    /// point of the supervised arrangement is that the loop is off
+    /// while the supervisor still updates), and the release URL falls
+    /// back to the compiled-in default.
+    ///
+    /// That fallback is not a nicety. The homelab runs `update_cmd`
+    /// outside systemd, so it never sees the unit's `Environment=`
+    /// lines — where this deployment's URL happens to live. Without the
+    /// default, the command would find no URL, report that self-update
+    /// is not configured, exit 0, and change nothing. The supervisor
+    /// would read that as success. A silent no-op wearing a success
+    /// code is the exact failure this project spent a day removing.
+    pub fn for_command(
+        http: reqwest::Client,
+        notifier: Notifier,
+        data_dir: PathBuf,
+    ) -> Result<Self, AlmanacError> {
+        let base_url = std::env::var(UPDATE_URL_ENV)
+            .ok()
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+            .unwrap_or_else(|| DEFAULT_RELEASE_URL.to_string());
+
+        if RELEASE_PUBKEY.trim().is_empty() {
+            return Err(AlmanacError::Config {
+                message: "this binary was built without a release public key, so it cannot verify \
+                          an update"
+                    .to_string(),
+                remedy: "rebuild with RELEASE_PUBKEY set — see docs/OPERATIONS_RUNBOOK.md"
+                    .to_string(),
+            });
+        }
+
+        let binary = std::env::current_exe().map_err(|e| AlmanacError::Config {
+            message: format!("cannot determine our own path: {e}"),
+            remedy: "run the command by its absolute path".to_string(),
+        })?;
+
+        let current =
+            Version::parse(env!("CARGO_PKG_VERSION")).map_err(|e| AlmanacError::Config {
+                message: format!("cannot parse our own version: {e}"),
+                remedy: "this is a build problem, not a configuration one".to_string(),
+            })?;
+
+        Ok(Self::new(
+            http,
+            base_url,
+            RELEASE_PUBKEY,
+            binary,
+            data_dir,
+            current,
+            notifier,
+        ))
+    }
+
     /// K19. Hands the restart and the rollback to whoever called us.
     pub fn supervised(mut self) -> Self {
         self.supervised = true;

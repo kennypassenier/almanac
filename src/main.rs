@@ -116,12 +116,13 @@ async fn supervised_update() {
     let http = reqwest::Client::new();
     let notifier = Notifier::from_env(http.clone());
 
-    let Some(updater) = Updater::from_env(http, notifier, data_dir()) else {
-        // from_env already said why on stdout — no release URL, no
-        // compiled key, or switched off. None of those is an error for
-        // a supervisor: there is simply nothing to install.
-        eprintln!("almanac update: self-update is not configured here; nothing to do");
-        std::process::exit(0);
+    let updater = match Updater::for_command(http, notifier, data_dir()) {
+        Ok(updater) => updater,
+        Err(e) => {
+            eprintln!("almanac update: {e}");
+            eprintln!("  remedy: {}", e.remedy());
+            std::process::exit(1)
+        }
     };
 
     match updater.supervised().check_once().await {

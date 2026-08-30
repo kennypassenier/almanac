@@ -11,6 +11,26 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`almanac update` would have done nothing under the homelab, and
+  reported success.** The command read the release URL from the
+  environment, but the homelab runs `update_cmd` outside systemd and so
+  never sees the unit's `Environment=` lines — and with
+  `ALMANAC_SELF_UPDATE=off`, which the supervised arrangement requires,
+  the updater refused to build at all. Both paths ended in "not
+  configured", exit 0, nothing changed, and a supervisor reading that as
+  a successful update.
+
+  The command now falls back to a compiled-in release URL — a property
+  of the project, like the signing key — and ignores the
+  `ALMANAC_SELF_UPDATE` switch, which governs the background loop rather
+  than an explicit instruction. The periodic updater is unchanged: an
+  unset URL there still means "this machine does not self-update".
+
+  Caught between publishing 1.3.0 and switching the deployment over,
+  which is the only window in which it was findable.
+
 ### Added
 
 - **`almanac update`** (K19) — one update, no restart, for a supervisor
