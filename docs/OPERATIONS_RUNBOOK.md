@@ -593,3 +593,19 @@ under `latch run`, and latch resolves its project link by absolute path.
 Moving the working directory without telling latch gives
 `'<dir>' is not linked to a latch project`. Relink latch, or leave the
 working directory where it is and move only the state root.
+
+**If you relink, relink in the service user's HOME.** Latch reads
+`~/.latch/config.toml`, not a `.latch` beside the working directory.
+The almanac user's home is `/opt/almanac`, so that is the file that
+counts — and this is easy to get wrong in a way that looks fixed: the
+homelab's migration on 2026-08-31 ran perfectly with an identical
+`.latch` copy sitting in the new working directory, then failed the
+moment the old `/opt/almanac/.latch` was renamed, because latch had
+never been reading the copy. Recorded on their side as F128.
+
+**What a healthy backup of the state root looks like.** After that
+migration, and after deleting the redundant latch clone that had been
+riding along, the backup went from 217 files / 5 345 657 bytes to
+**7 files / 8 571 bytes** — the journal, the sealed tokens, and the
+mapping profiles. If a snapshot of this root is megabytes, something
+that is not almanac's state is in it.
