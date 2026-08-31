@@ -11,6 +11,25 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Added
+
+- **`ALMANAC_STATE_DIR`** (K20) — one setting moves Almanac's whole
+  state tree. `profiles/` and `data/` derive from it, and the journal
+  and token store from the resolved data directory. Unset, the root is
+  the working directory, which is exactly what almanac did before.
+
+  Asked for by the homelab, which is moving the native services onto
+  bind-mounted host paths so a container can be destroyed and recreated
+  for nothing. It tried almanac on 2026-08-31 and could not: four
+  independent path settings whose defaults *happened* to form a coherent
+  tree, with nothing to move. Now a standing requirement in the dev
+  procedure — rule 28, "state has an address, and Kenny owns it".
+
+  The four per-path settings remain and still win where present, with a
+  test asserting the live deployment's exact configuration resolves
+  unchanged. Adopting this release changes nothing anywhere; moving is a
+  separate, deliberate act.
+
 ### Fixed
 
 - **`almanac update` would have done nothing under the homelab, and

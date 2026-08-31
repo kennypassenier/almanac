@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use almanac::core::paths::Paths;
 use almanac::core::token::hash_token;
 use almanac::shell;
 use almanac::shell::admin::BOOTSTRAP_TOKEN_ENV;
@@ -22,11 +23,6 @@ use almanac::shell::token_store::TokenStore;
 use almanac::shell::update::{self, Startup, Updater};
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
-
-const DEFAULT_PROFILES_DIR: &str = "profiles";
-const DEFAULT_JOURNAL_PATH: &str = "data/journal.jsonl";
-const DEFAULT_TOKEN_STORE: &str = "data/tokens.json";
-const DEFAULT_DATA_DIR: &str = "data";
 
 /// How long a freshly-installed version has to stay up before the
 /// update is confirmed and the previous binary stops being a fallback
@@ -55,22 +51,24 @@ fn die(e: impl std::fmt::Display) -> ! {
     std::process::exit(1);
 }
 
+/// K20. Every path, from one place. Resolved on each call rather than
+/// cached, because the callers are a handful of one-shot startup paths
+/// and a stale copy of "where my state lives" is a worse bargain than
+/// re-reading four environment variables.
+fn paths() -> Paths {
+    Paths::resolve(|key| std::env::var(key).ok())
+}
+
 fn profiles_dir() -> PathBuf {
-    PathBuf::from(
-        std::env::var("ALMANAC_PROFILES_DIR").unwrap_or_else(|_| DEFAULT_PROFILES_DIR.to_string()),
-    )
+    paths().profiles_dir
 }
 
 fn data_dir() -> PathBuf {
-    PathBuf::from(
-        std::env::var("ALMANAC_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()),
-    )
+    paths().data_dir
 }
 
 fn token_store_path() -> PathBuf {
-    PathBuf::from(
-        std::env::var("ALMANAC_TOKEN_STORE").unwrap_or_else(|_| DEFAULT_TOKEN_STORE.to_string()),
-    )
+    paths().token_store
 }
 
 /// `--check` (AR22): prove this binary can start on this machine, then
@@ -213,8 +211,9 @@ async fn main() {
     };
     if profiles.is_empty() {
         die(format!(
-            "no mapping profiles found in {} — create at least one *.toml profile there, or set \
-             ALMANAC_PROFILES_DIR to where they live",
+            "no mapping profiles found in {} — create at least one *.toml profile there, or \
+             point ALMANAC_STATE_DIR at the directory holding profiles/ and data/ (or \
+             ALMANAC_PROFILES_DIR at the profiles alone)",
             profiles_dir.display()
         ));
     }
@@ -268,9 +267,7 @@ async fn main() {
         }
     }
 
-    let journal_path = PathBuf::from(
-        std::env::var("ALMANAC_JOURNAL").unwrap_or_else(|_| DEFAULT_JOURNAL_PATH.to_string()),
-    );
+    let journal_path = paths().journal;
     // Absent means the admin surface (K11/M11/M9) refuses every
     // request rather than opening up; the ingest paths are unaffected.
     let bootstrap_token_hash = match std::env::var(BOOTSTRAP_TOKEN_ENV) {

@@ -33,6 +33,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K17 | Free/busy and event status per profile | Gewenst | A profile with `busy = false` produces `transparency: "transparent"`, so an infra incident does not mark Kenny busy; `status_by` maps a payload field onto Google's three statuses and rejects any other value at startup. *(Added 2026-08-29 via mini-round.)* |
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 | K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
+| K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -263,3 +264,47 @@ instruction from whoever is in charge.
 is unchanged and still arms AR23's revert, with a test asserting it, so
 a machine running almanac without a supervisor keeps exactly today's
 behaviour.
+
+## State has an address (2026-09-01)
+
+Requested by the homelab session on Kenny's instruction (his form item
+A1, 2026-08-31), and now a standing requirement rather than a one-off:
+dev-procedure **rule 28**, *state has an address, and Kenny owns it*,
+with a mandatory Phase 2 item behind it. Verified in that repo before
+acting on the report rather than taken on trust.
+
+**How it was found.** The homelab is moving the four native Rust
+services onto bind-mounted host paths, so a container can be destroyed
+and recreated for nothing and the host's restic job can reach the state.
+It tried almanac on 2026-08-31 and the attempt failed live — eight
+minutes down, reverted, nothing lost. Almanac was the one service in the
+house that could not be moved.
+
+**What was actually wrong.** Almanac had four independent settings —
+`ALMANAC_PROFILES_DIR`, `ALMANAC_DATA_DIR`, `ALMANAC_JOURNAL`,
+`ALMANAC_TOKEN_STORE` — whose *defaults happened to* form a coherent
+tree. Happening to agree is not being derived. There was no single thing
+to move, and the deployment set all four absolutely, so relocating meant
+editing four values in agreement and hoping.
+
+**Decision.** `ALMANAC_STATE_DIR` names one root; `profiles/` and
+`data/` are derived from it, and the journal and token store from the
+resolved data directory rather than from the root — someone who moves
+only the data directory means the journal too, and a journal separated
+from the lock that guards it is two processes away from a corrupted log.
+
+The four per-path settings stay, and a specific one wins over the root.
+Deployments already set them, and a release that silently relocated a
+live journal because a tidier knob had appeared would be the worst kind
+of upgrade.
+
+**No cache is excluded because there is no cache.** Rule 28 asks for
+regenerable state to live outside the backed-up root; almanac keeps none
+on disk, and saying so is more useful than inventing a directory to
+satisfy the shape of the rule.
+
+**Consequences for what is already built:** none, deliberately. The
+default root is `.`, which reproduces the previous relative defaults
+exactly, and there is a test asserting CT 112's four absolute settings
+resolve unchanged. The migration is the homelab's to perform when it
+chooses.

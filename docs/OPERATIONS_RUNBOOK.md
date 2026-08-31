@@ -553,3 +553,43 @@ authenticating perfectly and writing to calendars it no longer owns.
 The old calendars stay in Kenny's calendar list until the old service
 account is deleted; they are owned by that account, not by him. Deleting
 the old project in the console removes both.
+
+## R16 · Moving Almanac's state somewhere else
+
+Everything Almanac keeps lives under one root, and one setting moves it:
+
+```
+ALMANAC_STATE_DIR=/appdata/almanac
+```
+
+That yields `/appdata/almanac/profiles` and `/appdata/almanac/data`,
+with the journal, the sealed tokens, the update state and the exclusive
+lock inside the latter. Unset, the root is the working directory, which
+is what almanac did before this existed.
+
+**The binary is not state.** It belongs to a version, not to the data,
+and stays where the unit expects it. Moving the state root does not move
+it and should not.
+
+**There is no cache to leave behind.** Almanac keeps nothing regenerable
+on disk, so the root is exactly what a backup needs and a backup of it
+carries no ballast.
+
+**The four older settings still work and still win.**
+`ALMANAC_PROFILES_DIR`, `ALMANAC_DATA_DIR`, `ALMANAC_JOURNAL` and
+`ALMANAC_TOKEN_STORE` override the derived paths individually. CT 112
+sets all four absolutely and is therefore unaffected by this feature
+until someone removes them — which is the point: adopting the release
+changes nothing, and the move is a separate, deliberate act.
+
+To actually migrate a deployment: stop the service, copy the tree,
+replace the four settings with one `ALMANAC_STATE_DIR`, make sure
+`ReadWritePaths` in the unit covers the new root (`ProtectSystem=strict`
+makes everything else read-only, and the failure is
+`Read-only file system (os error 30)`), then start it.
+
+One trap that is not almanac's but bites here: the unit runs the binary
+under `latch run`, and latch resolves its project link by absolute path.
+Moving the working directory without telling latch gives
+`'<dir>' is not linked to a latch project`. Relink latch, or leave the
+working directory where it is and move only the state root.

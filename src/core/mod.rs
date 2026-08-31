@@ -17,6 +17,7 @@ pub mod mapping;
 pub mod metrics;
 pub mod observability;
 pub mod pacing;
+pub mod paths;
 pub mod profile;
 pub mod retry;
 pub mod secrets;
