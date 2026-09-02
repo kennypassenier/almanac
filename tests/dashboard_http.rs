@@ -952,6 +952,150 @@ async fn k21_writing_a_profile_needs_a_session() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[tokio::test]
+async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
+    // Kyu's model, which Kenny asked for by name: the row stays with a
+    // badge rather than the source vanishing without trace.
+    let dir = scratch_dir("k21-retire");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+        ))
+        .await
+        .unwrap();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/kobo/issue",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/kobo/retire",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    assert!(
+        !dir.join("profiles/kobo.toml").exists(),
+        "the profile should have left the loaded set"
+    );
+    assert!(
+        dir.join("profiles/kobo.toml.retired").exists(),
+        "and it should still be on disk as the record"
+    );
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(body.contains("kobo"), "the row must survive retirement");
+    assert!(body.contains("retired"), "and say that it is retired");
+
+    // The token went with it: a retired source cannot post.
+    let posted = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/ingest/kobo")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, "Bearer whatever")
+                .body(Body::from(
+                    r#"{"title":"x","start":"2026-01-01T09:00:00+00:00"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(posted.status(), StatusCode::UNAUTHORIZED);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_a_source_with_undelivered_events_is_not_retired() {
+    // The worker needs the profile to know which calendar an entry
+    // belongs to. Retiring it while entries wait would leave them in
+    // the journal forever — the journal never drops one — logging an
+    // error on every pass and deliverable by nothing.
+    let dir = scratch_dir("k21-retire-pending");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    st.journal
+        .accept(&almanac::core::journal::Entry {
+            id: "entry-1".to_string(),
+            source_id: "home-assistant".to_string(),
+            received_at: "2026-09-02T10:00:00+00:00".to_string(),
+            payload: serde_json::json!({"title": "waiting"}),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/home-assistant/retire",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "re-render with the reason"
+    );
+
+    let body = text(response).await;
+    assert!(
+        body.contains("waiting to be delivered"),
+        "the refusal must say why"
+    );
+    assert!(
+        dir.join("profiles/home-assistant.toml").exists(),
+        "the profile must be untouched"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_retiring_a_source_needs_a_session() {
+    let dir = scratch_dir("k21-retire-auth");
+    let st = state_with_profiles_dir(&dir);
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/home-assistant/retire",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        dir.join("profiles/home-assistant.toml").exists(),
+        "an anonymous POST must not retire anything"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Not an assertion — a way to look at the page.
 ///
 /// `ALMANAC_DUMP_SOURCES_PAGE=<path> cargo test --test dashboard_http
@@ -979,6 +1123,22 @@ async fn k21_dump_the_sources_page_for_review() {
     almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/issue",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &format!("profile={}", urlencode(&profile_toml("grafana"))),
+        ))
+        .await
+        .unwrap();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/grafana/retire",
             Some(&cookie),
             "",
         ))

@@ -261,7 +261,27 @@ Idempotency-Key: shopping-run-2026-09-01
 
 The profile's own `external_id_field` wins when both are present.
 
-### 3.2 · Deleting an event (K8)
+### 3.2 · Retiring a source (K21)
+
+*Retire* on `/dashboard/sources` ends a source: its token is revoked and
+its profile is renamed to `<source_id>.toml.retired`, which the loader
+does not read. It stops posting immediately, no restart.
+
+The file stays, and so does its row on the page, marked `retired` — a
+source that vanished without trace is indistinguishable from one that
+was never there, and the question months later is always "did we have
+one of these?". To undo it: rename the file back to `.toml` and press
+*Reload profiles from disk*.
+
+Retiring is refused while that source still has events waiting in the
+journal, and says how many. Deliveries resolve their calendar through
+the profile, so retiring first would strand them.
+
+**Events already on the calendar are not touched.** They belong to the
+calendar now. To remove them, delete them by external id (3.3) *before*
+retiring the source, while its token still works.
+
+### 3.3 · Deleting an event (K8)
 
 Address it by the id the source itself used:
 
@@ -280,7 +300,7 @@ pretending to have done something. A source can only delete events it
 created — one source's token cannot delete another's event, even
 knowing the id.
 
-### 3.3 · When you need the event id back (K8)
+### 3.4 · When you need the event id back (K8)
 
 The ordinary endpoint answers 202 and does not wait. When the caller
 genuinely needs to know it landed — a Claude session that wants to

@@ -35,6 +35,25 @@ against before it installs anything.
   whose file already exists, because replacing a working profile over a
   retyped id is the mistake that could not be undone from the same page.
 
+- **Retire a source from the dashboard** (K21), on kyu's model at
+  Kenny's request: revoking an app there keeps its row with a badge
+  rather than erasing it. *Retire* revokes the source's token and
+  renames its profile to `<source_id>.toml.retired` — which the loader
+  does not read — so the source leaves the running set while the file,
+  and the row, stay as the record that it existed. Renaming the file
+  back and reloading undoes it.
+
+  Refused while that source still has undelivered events, and the
+  refusal says how many. The worker resolves an entry's calendar
+  through its profile and the journal never drops an entry, so retiring
+  first would strand them: unreachable, erroring on every pass, forever.
+
+  *Revoke* is now labelled *Revoke token*, because it always meant "take
+  the key away, leave the source" and there are two destructive buttons
+  on that row now.
+
+  Neither adding nor retiring touches events already on the calendar.
+
 ### Security
 
 - **`source_id` is now checked for the characters it contains**, not

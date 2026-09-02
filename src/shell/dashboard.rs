@@ -368,7 +368,10 @@ async fn render_sources(state: &AppState, error: Option<&str>, draft: Option<&st
     <button class="btn btn-sm btn-outline-warning" type="submit">Re-issue</button>
   </form>
   <form method="post" action="/dashboard/sources/{id}/revoke" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button>
+    <button class="btn btn-sm btn-outline-secondary" type="submit">Revoke token</button>
+  </form>
+  <form method="post" action="/dashboard/sources/{id}/retire" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Retire</button>
   </form>
 </td></tr>
 <tr id="out-{id}" class="d-none"><td colspan="3"><pre class="mb-0 small" id="pre-{id}"></pre></td></tr>"#,
@@ -382,11 +385,33 @@ async fn render_sources(state: &AppState, error: Option<&str>, draft: Option<&st
   <form method="post" action="/dashboard/sources/{id}/issue" class="d-inline">
     <button class="btn btn-sm btn-primary" type="submit">Issue token</button>
   </form>
+  <form method="post" action="/dashboard/sources/{id}/retire" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Retire</button>
+  </form>
 </td></tr>"#
                 ),
             }
         })
         .collect();
+
+    // Retired sources keep their row, the way kyu keeps a revoked
+    // app's: a source that vanished without trace is indistinguishable
+    // from one that was never there, and the question three months
+    // later is always "did we have one of these?".
+    let retired_rows: String = crate::shell::profiles::retired(&state.profiles_dir)
+        .into_iter()
+        .map(|id| {
+            let id = escape(&id);
+            format!(
+                r#"<tr class="text-secondary">
+<td><code>{id}</code></td>
+<td><span class="badge text-bg-secondary">retired</span></td>
+<td class="text-end"><span class="small">profile kept on disk</span></td>
+</tr>"#
+            )
+        })
+        .collect();
+    let rows = format!("{rows}{retired_rows}");
 
     // The reveal and copy controls fetch the token only when clicked,
     // so a token never sits in the page source waiting to be read over
@@ -528,6 +553,12 @@ async function copyCmd(id) {
 <div class="alert alert-secondary" role="alert">
   <h2 class="h6">Where these live, and what survives</h2>
   <p class="mb-0">
+    <b>Revoke token</b> takes a source's key away and leaves everything else; issue it a new
+    one and it works again. <b>Retire</b> ends the source: its token is revoked and its profile
+    is renamed out of the loaded set, keeping the file — and the row above — as the record that
+    it existed. Neither touches events already on the calendar; those are the calendar's now.
+  </p>
+  <p class="mb-0">
     Profiles are plain files in <code>{profiles_dir}</code>, which is the directory the
     homelab declares as almanac's data and backs up nightly. An update replaces the binary
     somewhere else entirely and never touches them. Adding a source here is the same act as
@@ -582,6 +613,70 @@ async fn create_source(
             // the profile still on screen.
             render_sources(&state, Some(&e.to_string()), Some(&form.profile)).await
         }
+    }
+}
+
+/// `POST /dashboard/sources/{source_id}/retire` — end a source (K21).
+///
+/// Revokes its token and renames its profile out of the loaded set,
+/// keeping the file. Modelled on kyu's app revocation, which keeps the
+/// row rather than erasing it.
+async fn retire_source(
+    State(state): State<Arc<AppState>>,
+    Path(source_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+    if !state.profiles().contains_key(&source_id) {
+        return (StatusCode::NOT_FOUND, "no such source").into_response();
+    }
+
+    // Refused while anything of this source's is still waiting to be
+    // delivered. The worker needs the profile to know which calendar
+    // an entry belongs to; retiring it first would leave those entries
+    // in the journal forever, logging an error on every pass and
+    // deliverable by nothing. The journal never drops an entry, so the
+    // only honest answer is "not yet".
+    let waiting = match state.journal.pending() {
+        Ok(pending) => pending
+            .iter()
+            .filter(|entry| entry.source_id == source_id)
+            .count(),
+        Err(e) => {
+            return render_sources(&state, Some(&e.to_string()), None).await;
+        }
+    };
+    if waiting > 0 {
+        let message = format!(
+            "{source_id} still has {waiting} event(s) waiting to be delivered. \
+             Retiring it now would leave them in the journal with no profile to deliver them by. \
+             Wait for the queue to drain, or fix whatever is blocking delivery, and retire it then."
+        );
+        return render_sources(&state, Some(&message), None).await;
+    }
+
+    if let Err(e) = state.tokens.revoke(&source_id).await {
+        return render_sources(&state, Some(&e.to_string()), None).await;
+    }
+
+    let kept = match crate::shell::profiles::retire(&state.profiles_dir, &source_id) {
+        Ok(path) => path,
+        Err(e) => return render_sources(&state, Some(&e.to_string()), None).await,
+    };
+
+    match crate::shell::profiles::load_map(&state.profiles_dir) {
+        Ok(profiles) => {
+            state.set_profiles(profiles);
+            tracing::info!(
+                source_id = %source_id,
+                kept = %kept.display(),
+                "retired a source from the dashboard"
+            );
+            Redirect::to("/dashboard/sources").into_response()
+        }
+        Err(e) => render_sources(&state, Some(&e.to_string()), None).await,
     }
 }
 
@@ -776,6 +871,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/dashboard/sources/{source_id}/revoke",
             axum::routing::post(revoke_token),
+        )
+        .route(
+            "/dashboard/sources/{source_id}/retire",
+            axum::routing::post(retire_source),
         )
         .route(
             "/dashboard/sources/{source_id}/token",

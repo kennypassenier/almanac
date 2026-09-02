@@ -34,7 +34,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 | K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
 | K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
-| K21 | Add a source from the dashboard — submit its mapping profile, validated by the same rules startup uses, written to the profiles directory and live without a restart; plus a reload for profiles placed by hand | Essential | Round trip: a profile saved through the surface is read back by `load_all`; an invalid one writes nothing; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
+| K21 | Manage sources from the dashboard — submit a mapping profile, validated by the same rules startup uses, written to the profiles directory and live without a restart; retire one, which revokes its token and renames its profile out of the loaded set while keeping the file; plus a reload for profiles placed by hand | Essential | Round trip: a profile saved through the surface is read back by `load_all`; an invalid one writes nothing; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; retiring keeps the file and the row, refuses while that source still has undelivered events, and revokes its token. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -341,8 +341,28 @@ for being non-empty, and it is now also a filename, so
 `"../../etc/cron.d/x"` had to stop being a legal value. The three
 deployed source ids are unaffected and a test says so.
 
-**Deliberately not built:** editing or deleting an existing profile from
-the dashboard. This page adds sources. Replacing a working profile
+**Ending a source: kyu's model, by name.** Kenny asked for deletion and
+then said "kopieer het kyu model" — where revoking an app keeps its row
+with a badge rather than erasing it. *Retire* therefore revokes the
+source's token and renames its profile to `<source_id>.toml.retired`,
+which the loader does not read. The file stays, the row stays, and
+renaming it back plus a reload undoes it. A source retired, recreated
+and retired again keeps both files: the older one is the record of a
+different configuration.
+
+*Revoke token* keeps its old meaning — take the key away, leave
+everything else — and is relabelled so the two are not confused.
+
+**A retirement is refused while that source still has undelivered
+events.** The worker resolves an entry's calendar through its profile,
+and the journal never drops an entry; retiring first would leave those
+entries unreachable, erroring on every pass forever. The refusal says
+how many are waiting.
+
+**Deliberately not built:** editing an existing profile from the
+dashboard, and deleting anything outright. Replacing a working profile
 because a `source_id` was retyped is the one mistake that could not be
-undone from the same page, so a save that would overwrite is refused
-outright.
+undone from the same page, so a save that would overwrite is refused.
+Neither adding nor retiring touches events already on the calendar —
+those belong to the calendar now, and a button that silently swept up
+months of entries would be the most expensive click on the page.
