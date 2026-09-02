@@ -127,10 +127,16 @@ async fn login(st: &Arc<AppState>) -> String {
 }
 
 fn urlencode(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-            other => format!("%{:02X}", other as u8),
+    // Per BYTE, not per char: `as u8` on a multi-byte character keeps
+    // only its last byte, so "Almanac · Huishouden" arrived at the
+    // handler as mojibake and a test about keeping what was typed
+    // failed for a reason that had nothing to do with the code.
+    s.bytes()
+        .map(|b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
         })
         .collect()
 }
@@ -735,12 +741,17 @@ async fn the_copy_control_works_without_a_secure_context() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// K21: the same seeded state, but with a real profiles directory on
-/// disk holding the profile the in-memory map starts with. A reload
-/// reads that directory, so a test whose directory is empty would
-/// assert that reloading deletes every source — true, and not the
-/// behaviour under test.
-fn state_with_profiles_dir(dir: &std::path::Path) -> Arc<AppState> {
+/// K21: seeded state with a real profiles directory AND a stubbed
+/// Google, so find-or-create a calendar can be exercised offline.
+///
+/// The directory holds the profile the in-memory map starts with: a
+/// reload reads that directory, so a test whose directory is empty
+/// would assert that reloading deletes every source — true, and not
+/// the behaviour under test.
+async fn state_with_calendar(
+    dir: &std::path::Path,
+    owner: Option<&str>,
+) -> (Arc<AppState>, almanac::shell::testing::CalendarStub) {
     let profiles_dir = dir.join("profiles");
     std::fs::create_dir_all(&profiles_dir).unwrap();
     std::fs::write(
@@ -749,8 +760,29 @@ fn state_with_profiles_dir(dir: &std::path::Path) -> Arc<AppState> {
     )
     .unwrap();
 
-    let state = Arc::try_unwrap(state(dir)).unwrap_or_else(|_| unreachable!());
-    Arc::new(state.with_profiles_dir(profiles_dir))
+    let calendar = almanac::shell::testing::CalendarStub::start().await;
+    let tokens = almanac::shell::testing::TokenStub::start(3600).await;
+    let http = reqwest::Client::new();
+    let store = TokenStore::with_key_loading(dir.join("tokens.json"), [5u8; 32]).unwrap();
+
+    let mut profiles = HashMap::new();
+    profiles.insert("home-assistant".to_string(), profile("home-assistant"));
+
+    let state = AppState::new(
+        profiles,
+        Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+        GoogleCalendarClient::with_base_url(
+            http.clone(),
+            TokenManager::new(http, almanac::shell::testing::stub_credentials(&tokens.url)),
+            &calendar.base_url,
+        ),
+        Some(hash_token(BOOTSTRAP)),
+        store,
+    )
+    .with_profiles_dir(profiles_dir)
+    .with_calendar_owner(owner.map(str::to_string));
+
+    (Arc::new(state), calendar)
 }
 
 fn profile_toml(source_id: &str) -> String {
@@ -768,12 +800,21 @@ duration_minutes = 60
     )
 }
 
+fn add_source_body(source_id: &str, calendar: &str) -> String {
+    format!(
+        "source_id={}&calendar={}",
+        urlencode(source_id),
+        urlencode(calendar)
+    )
+}
+
 #[tokio::test]
-async fn k21_the_sources_page_offers_a_way_to_add_one() {
-    // The bug this feature exists for: Kenny opened this page to add a
-    // source and there was nothing to click.
+async fn k21_the_sources_page_asks_for_a_name_and_a_calendar() {
+    // The bug this exists for: Kenny opened this page to add a source
+    // and there was nothing to click. The first fix asked for a whole
+    // mapping profile, which he corrected — two fields, not fifteen.
     let dir = scratch_dir("k21-offers");
-    let st = state_with_profiles_dir(&dir);
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     let body = text(
@@ -788,10 +829,11 @@ async fn k21_the_sources_page_offers_a_way_to_add_one() {
         body.contains(r#"action="/dashboard/sources""#),
         "no add form"
     );
-    assert!(body.contains("name=\"profile\""), "no profile field");
+    assert!(body.contains(r#"name="source_id""#), "no source name field");
+    assert!(body.contains(r#"name="calendar""#), "no calendar field");
     assert!(
-        body.contains("schema_version = 1"),
-        "the box should arrive pre-filled with a starter profile"
+        !body.contains(r#"name="profile""#),
+        "the profile textarea should be gone"
     );
     assert!(
         body.contains("/dashboard/sources/reload"),
@@ -802,28 +844,38 @@ async fn k21_the_sources_page_offers_a_way_to_add_one() {
 }
 
 #[tokio::test]
-async fn k21_a_saved_profile_becomes_a_source_that_can_be_issued_a_token() {
-    // End to end: the thing Kenny wanted to do in one sitting.
-    let dir = scratch_dir("k21-save");
-    let st = state_with_profiles_dir(&dir);
+async fn k21_adding_a_source_creates_its_calendar_and_makes_it_issuable() {
+    // End to end, in one sitting and without a restart: name, calendar,
+    // token.
+    let dir = scratch_dir("k21-add");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+            &add_source_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER, "should redirect");
 
+    let written = std::fs::read_to_string(dir.join("profiles/kobo.toml"))
+        .expect("the profile should be on disk");
     assert!(
-        dir.join("profiles/kobo.toml").exists(),
-        "the profile should be on disk"
+        written.contains(r#"title_field = "title""#),
+        "the plain shape should be filled in for the person"
+    );
+    assert!(
+        !written.contains("Almanac · Test"),
+        "the profile must carry the calendar ID, not its display name"
     );
 
-    // Live without a restart — the point of the whole feature.
+    let calendars = cal.state.calendars.lock().await;
+    assert_eq!(calendars.len(), 1, "the calendar should have been created");
+    drop(calendars);
+
     let issued = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/issue",
@@ -835,39 +887,68 @@ async fn k21_a_saved_profile_becomes_a_source_that_can_be_issued_a_token() {
     assert_eq!(
         issued.status(),
         StatusCode::SEE_OTHER,
-        "issuing a token for the new source should work without restarting"
-    );
-
-    let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
-            .oneshot(get("/dashboard/sources", Some(&cookie)))
-            .await
-            .unwrap(),
-    )
-    .await;
-    assert!(body.contains("kobo"), "the new source should be listed");
-    assert!(
-        body.contains("home-assistant"),
-        "the profiles already loaded must survive the reload"
+        "the new source must be issuable without restarting"
     );
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
-async fn k21_a_rejected_profile_keeps_the_text_that_was_typed() {
-    // Losing the typing as well as the mistake is what makes a form
-    // feel hostile; and the error has to name the field, not just fail.
-    let dir = scratch_dir("k21-reject");
-    let st = state_with_profiles_dir(&dir);
+async fn k21_a_second_source_on_the_same_calendar_does_not_create_a_second_one() {
+    // A duplicate calendar is close to invisible: events land, nothing
+    // errors, and half of them are on a calendar nobody has open.
+    let dir = scratch_dir("k21-reuse");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
-    let broken = profile_toml("kobo").replace("target_calendar_id = \"primary\"", "");
+    for source in ["kobo", "washing-machine"] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(post_form(
+                "/dashboard/sources",
+                Some(&cookie),
+                &add_source_body(source, "Almanac · Huishouden"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER, "{source} failed");
+    }
+
+    assert_eq!(
+        cal.state.calendars.lock().await.len(),
+        1,
+        "the second source must reuse the calendar the first one made"
+    );
+
+    let first = std::fs::read_to_string(dir.join("profiles/kobo.toml")).unwrap();
+    let second = std::fs::read_to_string(dir.join("profiles/washing-machine.toml")).unwrap();
+    let id_of = |t: &str| {
+        t.lines()
+            .find(|l| l.starts_with("target_calendar_id"))
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        id_of(&first),
+        id_of(&second),
+        "both profiles must point at the same calendar"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
+    // Losing the typing as well as the mistake is what makes a form
+    // feel hostile — and this name would have named a file.
+    let dir = scratch_dir("k21-reject");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &format!("profile={}", urlencode(&broken)),
+            &add_source_body("../../etc/passwd", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -875,17 +956,58 @@ async fn k21_a_rejected_profile_keeps_the_text_that_was_typed() {
 
     let body = text(response).await;
     assert!(
-        body.contains("target_calendar_id"),
-        "the error should name the field"
+        body.contains("source name"),
+        "the error must name the field"
     );
     assert!(
-        body.contains("source_id = &quot;kobo&quot;") || body.contains("source_id = \"kobo\""),
-        "the submitted text should still be in the box"
+        body.contains("Almanac · Test") || body.contains("Almanac &#183; Test"),
+        "the calendar that was typed should still be in the form"
     );
+    assert_eq!(
+        cal.state.calendars.lock().await.len(),
+        0,
+        "a rejected name must not create a calendar either"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir.join("profiles")).unwrap().count(),
+        1,
+        "only the seeded profile may exist"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_without_an_owner_an_unknown_calendar_is_refused_rather_than_created() {
+    // A calendar the service account creates belongs to the service
+    // account and is invisible to every human until it is shared. That
+    // mistake has been made here twice; making it from a button would
+    // be the third.
+    let dir = scratch_dir("k21-noowner");
+    let (st, cal) = state_with_calendar(&dir, None).await;
+    let cookie = login(&st).await;
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &add_source_body("kobo", "Nobody Can See This"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = text(response).await;
     assert!(
-        !dir.join("profiles/kobo.toml").exists(),
-        "nothing may be written for a rejected profile"
+        body.contains("ALMANAC_CALENDAR_OWNER"),
+        "the refusal must say which setting is missing"
     );
+    assert_eq!(
+        cal.state.calendars.lock().await.len(),
+        0,
+        "nothing may be created without an owner to share it with"
+    );
+    assert!(!dir.join("profiles/kobo.toml").exists());
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -893,7 +1015,7 @@ async fn k21_a_rejected_profile_keeps_the_text_that_was_typed() {
 #[tokio::test]
 async fn k21_reload_picks_up_a_profile_written_by_hand() {
     let dir = scratch_dir("k21-reload");
-    let st = state_with_profiles_dir(&dir);
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     std::fs::write(dir.join("profiles/grafana.toml"), profile_toml("grafana")).unwrap();
@@ -920,51 +1042,18 @@ async fn k21_reload_picks_up_a_profile_written_by_hand() {
 }
 
 #[tokio::test]
-async fn k21_writing_a_profile_needs_a_session() {
-    // This endpoint writes configuration that decides which calendar
-    // gets written to. It may never be reachable without logging in.
-    let dir = scratch_dir("k21-auth");
-    let st = state_with_profiles_dir(&dir);
-
-    for (uri, body) in [
-        (
-            "/dashboard/sources",
-            format!("profile={}", urlencode(&profile_toml("kobo"))),
-        ),
-        ("/dashboard/sources/reload", String::new()),
-    ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
-            .oneshot(post_form(uri, None, &body))
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::SEE_OTHER,
-            "{uri} should send an anonymous caller to the login page"
-        );
-    }
-
-    assert!(
-        !dir.join("profiles/kobo.toml").exists(),
-        "an anonymous POST must not write a profile"
-    );
-
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[tokio::test]
 async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
     // Kyu's model, which Kenny asked for by name: the row stays with a
     // badge rather than the source vanishing without trace.
     let dir = scratch_dir("k21-retire");
-    let st = state_with_profiles_dir(&dir);
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+            &add_source_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -987,13 +1076,10 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
-    assert!(
-        !dir.join("profiles/kobo.toml").exists(),
-        "the profile should have left the loaded set"
-    );
+    assert!(!dir.join("profiles/kobo.toml").exists());
     assert!(
         dir.join("profiles/kobo.toml.retired").exists(),
-        "and it should still be on disk as the record"
+        "the profile should still be on disk as the record"
     );
 
     let body = text(
@@ -1006,7 +1092,6 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
     assert!(body.contains("kobo"), "the row must survive retirement");
     assert!(body.contains("retired"), "and say that it is retired");
 
-    // The token went with it: a retired source cannot post.
     let posted = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(
             Request::builder()
@@ -1028,12 +1113,11 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
 
 #[tokio::test]
 async fn k21_a_source_with_undelivered_events_is_not_retired() {
-    // The worker needs the profile to know which calendar an entry
-    // belongs to. Retiring it while entries wait would leave them in
-    // the journal forever — the journal never drops one — logging an
-    // error on every pass and deliverable by nothing.
+    // The worker resolves an entry's calendar through its profile, and
+    // the journal never drops an entry, so retiring first would strand
+    // them: unreachable, erroring on every pass, forever.
     let dir = scratch_dir("k21-retire-pending");
-    let st = state_with_profiles_dir(&dir);
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     st.journal
@@ -1066,31 +1150,40 @@ async fn k21_a_source_with_undelivered_events_is_not_retired() {
         body.contains("waiting to be delivered"),
         "the refusal must say why"
     );
-    assert!(
-        dir.join("profiles/home-assistant.toml").exists(),
-        "the profile must be untouched"
-    );
+    assert!(dir.join("profiles/home-assistant.toml").exists());
 
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
-async fn k21_retiring_a_source_needs_a_session() {
-    let dir = scratch_dir("k21-retire-auth");
-    let st = state_with_profiles_dir(&dir);
+async fn k21_changing_sources_needs_a_session() {
+    // These endpoints write configuration that decides which calendar
+    // gets written to, and can create a calendar at Google.
+    let dir = scratch_dir("k21-auth");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
-        .oneshot(post_form(
-            "/dashboard/sources/home-assistant/retire",
-            None,
-            "",
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(
-        dir.join("profiles/home-assistant.toml").exists(),
-        "an anonymous POST must not retire anything"
+    for (uri, body) in [
+        ("/dashboard/sources", add_source_body("kobo", "Anything")),
+        ("/dashboard/sources/reload", String::new()),
+        ("/dashboard/sources/home-assistant/retire", String::new()),
+    ] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(post_form(uri, None, &body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SEE_OTHER,
+            "{uri} should send an anonymous caller to the login page"
+        );
+    }
+
+    assert!(!dir.join("profiles/kobo.toml").exists());
+    assert!(dir.join("profiles/home-assistant.toml").exists());
+    assert_eq!(
+        cal.state.calendars.lock().await.len(),
+        0,
+        "an anonymous POST must not reach Google at all"
     );
 
     std::fs::remove_dir_all(&dir).ok();
@@ -1109,14 +1202,14 @@ async fn k21_dump_the_sources_page_for_review() {
         return;
     };
     let dir = scratch_dir("k21-dump");
-    let st = state_with_profiles_dir(&dir);
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
     almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+            &add_source_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -1132,7 +1225,7 @@ async fn k21_dump_the_sources_page_for_review() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &format!("profile={}", urlencode(&profile_toml("grafana"))),
+            &add_source_body("grafana", "Almanac · Infra"),
         ))
         .await
         .unwrap();

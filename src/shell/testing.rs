@@ -11,8 +11,14 @@
 //! Both stubs are real HTTP servers on a loopback port, so the code
 //! under test performs genuine requests: no mocked client, no
 //! behaviour that exists only in tests.
-
-#![cfg(test)]
+//!
+//! Compiled into the library rather than gated behind `cfg(test)`:
+//! integration tests in `tests/` link the library as an ordinary
+//! dependency and cannot see a test-gated module, and K21's dashboard
+//! tests have to create a calendar without reaching Google. The
+//! alternative was a second hand-rolled stub under `tests/` — the same
+//! fixture maintained twice, which is the shape of every drift this
+//! project has had to repair.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -117,6 +123,20 @@ fn transient_body() -> Value {
 fn permanent_body() -> Value {
     json!({"error": {"errors": [{"reason": "permissionDenied"}],
                      "message": "the service account cannot access this calendar"}})
+}
+
+/// The calendars this "account" can see — whatever the stub has been
+/// asked to create. Enough for K21's find-or-create to be tested
+/// without a live Google.
+async fn list_calendars(
+    State(state): State<Arc<CalendarState>>,
+) -> (StatusCode, axum::Json<Value>) {
+    let calendars = state.calendars.lock().await;
+    let items: Vec<Value> = calendars
+        .iter()
+        .map(|(id, created)| json!({"id": id, "summary": created.name}))
+        .collect();
+    (StatusCode::OK, axum::Json(json!({"items": items})))
 }
 
 async fn list_events(
@@ -277,6 +297,7 @@ impl CalendarStub {
                 axum::routing::put(update_event).delete(delete_event),
             )
             .route("/", axum::routing::post(create_calendar))
+            .route("/calendarList", axum::routing::get(list_calendars))
             .route("/{calendar_id}/acl", axum::routing::post(insert_acl))
             .with_state(Arc::clone(&state));
 
@@ -372,7 +393,34 @@ impl TokenStub {
 /// A throwaway RSA key generated for this test suite alone. It signs
 /// JWTs that only ever reach the local stub above, and grants access to
 /// nothing. Kept here rather than duplicated per test file.
-pub const TEST_ONLY_THROWAWAY_KEY: &str = crate::shell::auth::tests::TEST_ONLY_THROWAWAY_KEY;
+pub const TEST_ONLY_THROWAWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCzEluLXIZ/BS/L
+w29MNxikrQDpi6rp68cJ+hbiaSHdBRWx3fJqnzlxhl4PtVKyef7zVa9WcvhgOzSi
+ZzCwEUprF8vAVMbFQOhPK1xSh3YuxpH9RoFceuoPk1B6j1SuJqkX65e5KaeI4kby
+CMwDbwX63WNl2aEKOnc+/U4Q4E/BXTxeVrhLuVdsm7KNrxDzKcKuddPpQUjS94nn
+JiHlWXp8CG2ALeuvAxUg+2NCqPU4jq0oGU6De701k15ZT2qRyPTwvmGKYqULvVSl
+Dvg/34GiwtR+8AtiZATK5NMdXbTEC+rznHzNJV82cjAckPl+yZpKFhosTMSP0Prv
+FN+azeDnAgMBAAECggEAMLqsIq5ZAzO8H+zc2pabpCRX/TW+ms1IapSdqZsGVgjO
+MIq/LviJPzVbX1buXBcKo9kLT7EVmcpCtnbyLtdlsuLU1U+8j2zsSq73/pVSOcRb
+cdq/1RS1oOtrmQ5r8sAef53iucZ2Cq/YsoBmVADgVbXtGIgyZIAodwGjPsBrs6hg
+WjQ0D8sd7seogE3s4kPNsBmf+8dgNox4cMONg5up4Xehxl/98dBFFHDTUgKZOSsj
+pVHp/OeNKi6PtmZSmW7MxSFpisAnYH94nnDyuWJ7a/N470eybvyRRF1B0l3v09sB
+JmigaIuffpACCEeoj1/4zvje02uyXVIoMfSbMetwMQKBgQDt4/qpf4ZjBb8pUb3v
+SCu6Zix0dqIZ09NYd8nShv5j70PnMDnxnrq6dyXJAVGvfWrQ2O1HxqlZpsKH9yeH
+feQEx5ZzAua+fzcoNaEop2LBlOEx6vw0zbsQGG3I2+3DezmcZ38ojs8wLyKZToD9
+NFo0dTKD+eUp0yoRtudMJab0cwKBgQDAtB1TChueN97Qfa4MvHdjCJc7I5+OkhgQ
+SW+R5lz2Jk+/GVn53YzmH18JdnRAQDsTG8nv2DePJGxiq+jFFIF8jL7gB1vyBfOu
+5CNZ6W4Rd6IeGlTLFlM5/N8qalKZUoq/wZMGbLrz09ephOpzVUA51eYATUw4DHwc
+zusntFT4vQKBgQC2eh0JrX+JL5xN9pzKEkMwrTVGdMWtKBZDE0flzJUQVTVx/kVE
+OOylIcYDJJbjFUI9R1jjqNi4ozkvEH/q579jhzG5sS0MTQsjNdgUFimjsi73mnex
+jWoDU6nK3CDKxRgRCDa7BqiZHl7c2CILl//lo0yHfcWySn9HrVRIzcz+TwKBgEns
+jpdNeFzQyAwpOnyuTApUwFcyikISL2MIGOHagmz3M352xjqBUEzzWezyYRRIz6C7
+91KoGmAyM9YCZrA79pSGFa8xg4cr21iLMjiKwOu4fhuYNFEYRmMna6EE2pzwukNn
+ifRb/7gL216vm5UU7ieBs9MH1CZoO7B9fF5l4nbtAoGAL53WIGpZ9qMrn0v+6YA/
+eZxhaEs2l12zgGgk1sJ4wIPNqqdtInRMlih+w4HrSsiVVuLlyEhPo730MZ1gILSC
+ibQwm/ptqIi9PyZwuYkV4lrxsBZfuHo2UUvhheQ14CRCahoyS3BmE9sGgltWuJK5
+Mv4b6oszn6H7ZA5VPrqSeE8=
+-----END PRIVATE KEY-----";
 
 /// Credentials pointing at a token stub, signed with that key.
 pub fn stub_credentials(token_url: &str) -> crate::core::auth::ServiceAccountCredentials {

@@ -34,7 +34,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 | K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
 | K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
-| K21 | Manage sources from the dashboard — submit a mapping profile, validated by the same rules startup uses, written to the profiles directory and live without a restart; retire one, which revokes its token and renames its profile out of the loaded set while keeping the file; plus a reload for profiles placed by hand | Essential | Round trip: a profile saved through the surface is read back by `load_all`; an invalid one writes nothing; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; retiring keeps the file and the row, refuses while that source still has undelivered events, and revokes its token. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
+| K21 | Manage sources from the dashboard — add one with a name and a calendar, which Almanac creates and shares if it does not exist yet, writing the profile itself and loading it without a restart; retire one, which revokes its token and renames its profile out of the loaded set while keeping the file; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; retiring keeps the file and the row, refuses while that source still has undelivered events, and revokes its token. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -323,15 +323,40 @@ The user guide meanwhile said the dashboard would "register the source",
 which is why he went looking. That sentence has been corrected in the
 same change.
 
-**What was decided.** A profile editor rather than a field-by-field
-wizard. The profile format has fourteen settings and several that
-exclude one another — `duration_minutes`, `duration_days` and
-`end_field` may never appear in pairs — and all of those rules already
-live in `Profile::parse`, which runs at startup. A wizard would need a
-second copy of them in the browser, and the copy that drifts is always
-the one that says "fine" to something the service then refuses. A
-textarea validated by the real loader has one set of rules by
-construction.
+**What was decided, and then corrected the same evening.** The first
+version asked for the whole mapping profile in a textarea, validated by
+`Profile::parse` so the browser held no second copy of the rules. Kenny
+rejected it on sight: *"dat zou enkel een naam van de bron en de naam
+van de target kalender moeten zijn"* — and he was right about his own
+sources. Measuring the three deployed profiles shows why the first
+version looked reasonable and was still wrong: they differ in almost
+every field (`title` vs `commonLabels.alertname` vs `monitor.name`),
+because each matches a third-party webhook that will not change what it
+sends. A source Kenny adds himself is one he controls, so it is cheaper
+for the source to speak Almanac's shape than for Almanac to learn a
+fourth.
+
+So the form is two fields, and the profile it writes is the plain shape
+— field for field the deployed `home-assistant` profile that
+`tests/mapping_regression.rs` already pins, minus `external_id_field`.
+That omission is deliberate: naming that field makes it *required* in
+every payload, so defaulting it would meet a new source with a 422 on
+its first post. The template carries it as a commented line instead.
+
+Anything the plain shape cannot express is still a file, edited by hand
+and picked up by the reload — which is what the three existing profiles
+are.
+
+**The calendar is resolved by name, not by id.** A calendar id is an
+opaque string nobody types on purpose, and having to go and find one
+first was half of why adding a source was a chore. Almanac looks for a
+calendar with that display name and creates one if there is none —
+matching on the name first, because a duplicate calendar is close to
+invisible: events land, nothing errors, and half of them are on a
+calendar nobody has open. Creating requires `ALMANAC_CALENDAR_OWNER`;
+without it an unknown name is refused rather than turned into a calendar
+owned by the service account and visible to no human, a mistake this
+project has already made twice.
 
 **What it changed in what was already built.** Profiles moved behind a
 lock so the set can be swapped while the service runs; readers take an

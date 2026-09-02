@@ -322,6 +322,12 @@ async fn main() {
         )
         .with_capture_token(capture_token_hash)
         .with_profiles_dir(profiles_dir.clone())
+        .with_calendar_owner(
+            std::env::var("ALMANAC_CALENDAR_OWNER")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+        )
         .with_metrics(metrics),
     );
 

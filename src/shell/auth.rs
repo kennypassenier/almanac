@@ -215,39 +215,10 @@ impl TokenManager {
 pub(crate) mod tests {
     use super::*;
 
-    /// A throwaway RSA key, generated locally purely for this test
-    /// suite (`openssl genrsa 2048`) — never used to access anything,
-    /// not a real credential. Needed only so `jsonwebtoken::encode`
-    /// succeeds and a test can reach the network layer; tests that
-    /// only need *some* failure keep using an invalid string instead.
-    pub(crate) const TEST_ONLY_THROWAWAY_KEY: &str = "-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCzEluLXIZ/BS/L
-w29MNxikrQDpi6rp68cJ+hbiaSHdBRWx3fJqnzlxhl4PtVKyef7zVa9WcvhgOzSi
-ZzCwEUprF8vAVMbFQOhPK1xSh3YuxpH9RoFceuoPk1B6j1SuJqkX65e5KaeI4kby
-CMwDbwX63WNl2aEKOnc+/U4Q4E/BXTxeVrhLuVdsm7KNrxDzKcKuddPpQUjS94nn
-JiHlWXp8CG2ALeuvAxUg+2NCqPU4jq0oGU6De701k15ZT2qRyPTwvmGKYqULvVSl
-Dvg/34GiwtR+8AtiZATK5NMdXbTEC+rznHzNJV82cjAckPl+yZpKFhosTMSP0Prv
-FN+azeDnAgMBAAECggEAMLqsIq5ZAzO8H+zc2pabpCRX/TW+ms1IapSdqZsGVgjO
-MIq/LviJPzVbX1buXBcKo9kLT7EVmcpCtnbyLtdlsuLU1U+8j2zsSq73/pVSOcRb
-cdq/1RS1oOtrmQ5r8sAef53iucZ2Cq/YsoBmVADgVbXtGIgyZIAodwGjPsBrs6hg
-WjQ0D8sd7seogE3s4kPNsBmf+8dgNox4cMONg5up4Xehxl/98dBFFHDTUgKZOSsj
-pVHp/OeNKi6PtmZSmW7MxSFpisAnYH94nnDyuWJ7a/N470eybvyRRF1B0l3v09sB
-JmigaIuffpACCEeoj1/4zvje02uyXVIoMfSbMetwMQKBgQDt4/qpf4ZjBb8pUb3v
-SCu6Zix0dqIZ09NYd8nShv5j70PnMDnxnrq6dyXJAVGvfWrQ2O1HxqlZpsKH9yeH
-feQEx5ZzAua+fzcoNaEop2LBlOEx6vw0zbsQGG3I2+3DezmcZ38ojs8wLyKZToD9
-NFo0dTKD+eUp0yoRtudMJab0cwKBgQDAtB1TChueN97Qfa4MvHdjCJc7I5+OkhgQ
-SW+R5lz2Jk+/GVn53YzmH18JdnRAQDsTG8nv2DePJGxiq+jFFIF8jL7gB1vyBfOu
-5CNZ6W4Rd6IeGlTLFlM5/N8qalKZUoq/wZMGbLrz09ephOpzVUA51eYATUw4DHwc
-zusntFT4vQKBgQC2eh0JrX+JL5xN9pzKEkMwrTVGdMWtKBZDE0flzJUQVTVx/kVE
-OOylIcYDJJbjFUI9R1jjqNi4ozkvEH/q579jhzG5sS0MTQsjNdgUFimjsi73mnex
-jWoDU6nK3CDKxRgRCDa7BqiZHl7c2CILl//lo0yHfcWySn9HrVRIzcz+TwKBgEns
-jpdNeFzQyAwpOnyuTApUwFcyikISL2MIGOHagmz3M352xjqBUEzzWezyYRRIz6C7
-91KoGmAyM9YCZrA79pSGFa8xg4cr21iLMjiKwOu4fhuYNFEYRmMna6EE2pzwukNn
-ifRb/7gL216vm5UU7ieBs9MH1CZoO7B9fF5l4nbtAoGAL53WIGpZ9qMrn0v+6YA/
-eZxhaEs2l12zgGgk1sJ4wIPNqqdtInRMlih+w4HrSsiVVuLlyEhPo730MZ1gILSC
-ibQwm/ptqIi9PyZwuYkV4lrxsBZfuHo2UUvhheQ14CRCahoyS3BmE9sGgltWuJK5
-Mv4b6oszn6H7ZA5VPrqSeE8=
------END PRIVATE KEY-----";
+    /// Re-exported from `shell::testing`, which is where it lives now
+    /// that the stubs are compiled into the library: a `cfg(test)`
+    /// module cannot be referenced from one that is not.
+    pub(crate) use crate::shell::testing::TEST_ONLY_THROWAWAY_KEY;
 
     fn test_manager(expires_at_secs: u64) -> TokenManager {
         test_manager_with_key(expires_at_secs, "unused-in-this-test")

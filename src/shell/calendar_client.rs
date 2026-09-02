@@ -23,6 +23,10 @@ use crate::shell::auth::TokenManager;
 /// calendar) — `{CALENDAR_EVENTS_BASE}/{calendar_id}/events` is the
 /// events collection under one specific calendar.
 const CALENDAR_EVENTS_BASE: &str = "https://www.googleapis.com/calendar/v3/calendars";
+/// Google keeps "which calendars can this account see" on a different
+/// path from "do something to a calendar", so it cannot be derived from
+/// the events base at call time.
+const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 
 /// How long one call may spend retrying before it gives up.
 ///
@@ -56,6 +60,9 @@ pub struct GoogleCalendarClient {
     /// failure survived in the retry loop until an audit read it.
     /// Production never sets it; the default is the real endpoint.
     base_url: String,
+    /// Where "which calendars can this account see" lives. Derived
+    /// from `base_url` in tests so a stub serves both from one port.
+    calendar_list_url: String,
 }
 
 #[derive(Serialize)]
@@ -74,6 +81,7 @@ impl GoogleCalendarClient {
             http,
             tokens,
             base_url: CALENDAR_EVENTS_BASE.to_string(),
+            calendar_list_url: CALENDAR_LIST_URL.to_string(),
         }
     }
 
@@ -84,10 +92,12 @@ impl GoogleCalendarClient {
         tokens: Arc<TokenManager>,
         base_url: impl Into<String>,
     ) -> Self {
+        let base_url = base_url.into().trim_end_matches('/').to_string();
         Self {
+            calendar_list_url: format!("{base_url}/calendarList"),
             http,
             tokens,
-            base_url: base_url.into().trim_end_matches('/').to_string(),
+            base_url,
         }
     }
 
@@ -305,6 +315,56 @@ impl GoogleCalendarClient {
 
         self.share_calendar(&parsed.id, share_with).await?;
         Ok(parsed.id)
+    }
+
+    /// Finds a calendar this account can see by its display name, or
+    /// `None`.
+    ///
+    /// By name because that is what a person knows. Calendar ids are
+    /// opaque strings nobody types on purpose, which is exactly why
+    /// adding a source used to mean going and finding one first.
+    pub async fn find_calendar_by_summary(
+        &self,
+        summary: &str,
+    ) -> Result<Option<String>, AlmanacError> {
+        let response = self
+            .send_with_retry(|http, token| http.get(&self.calendar_list_url).bearer_auth(token))
+            .await?;
+
+        let parsed: serde_json::Value =
+            response.json().await.map_err(|e| AlmanacError::GoogleApi {
+                message: format!("failed to parse the calendar list: {e}"),
+                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
+                transient: false,
+            })?;
+
+        Ok(parsed["items"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .iter()
+            .find(|c| c["summary"].as_str() == Some(summary))
+            .and_then(|c| c["id"].as_str())
+            .map(str::to_string))
+    }
+
+    /// The id of the calendar called `summary`, creating and sharing it
+    /// if this account cannot see one (K21).
+    ///
+    /// Matching on the name before creating is what stops a second
+    /// "Almanac · Huishouden" appearing every time someone adds a
+    /// source to it — and a duplicate calendar is close to invisible:
+    /// events land, nothing errors, and half of them are on a calendar
+    /// nobody has open.
+    pub async fn ensure_calendar(
+        &self,
+        summary: &str,
+        share_with: &str,
+    ) -> Result<(String, bool), AlmanacError> {
+        if let Some(id) = self.find_calendar_by_summary(summary).await? {
+            return Ok((id, false));
+        }
+        let id = self.create_calendar(summary, share_with).await?;
+        Ok((id, true))
     }
 
     /// Gives `user` ownership of a calendar. Idempotent at Google's end:

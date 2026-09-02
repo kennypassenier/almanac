@@ -52,6 +52,12 @@ pub struct AppState {
     /// Where those profiles live, so a reload reads the same directory
     /// startup did (K20's resolved path, not a second guess at it).
     pub profiles_dir: std::path::PathBuf,
+    /// Who a calendar created from the dashboard is shared with (K21).
+    /// `None` disables creating calendars rather than creating one
+    /// nobody can see: a calendar the service account makes is owned by
+    /// the service account and invisible to every human until it is
+    /// shared, and that mistake has already been made here twice.
+    pub calendar_owner: Option<String>,
     pub journal: Journal,
     pub client: GoogleCalendarClient,
     pub locks: KeyLocks,
@@ -102,6 +108,7 @@ impl AppState {
         Self {
             profiles: std::sync::RwLock::new(Arc::new(profiles)),
             profiles_dir: std::path::PathBuf::from("profiles"),
+            calendar_owner: None,
             journal,
             client,
             tokens,
@@ -145,6 +152,12 @@ impl AppState {
     /// path, and every test would otherwise have to invent one.
     pub fn with_profiles_dir(mut self, dir: std::path::PathBuf) -> Self {
         self.profiles_dir = dir;
+        self
+    }
+
+    /// Sets who a dashboard-created calendar is shared with (K21).
+    pub fn with_calendar_owner(mut self, owner: Option<String>) -> Self {
+        self.calendar_owner = owner;
         self
     }
 

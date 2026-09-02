@@ -18,7 +18,14 @@ pub mod ingest;
 pub mod journal;
 pub mod notify;
 pub mod profiles;
-#[cfg(test)]
+/// Stubs for Google and the token endpoint.
+///
+/// Not `#[cfg(test)]`: integration tests in `tests/` link the library
+/// as an ordinary dependency and would not see it, and K21's dashboard
+/// tests need to create a calendar without reaching Google. The
+/// alternative was a second hand-rolled stub under `tests/` — the same
+/// fixture maintained twice, which is the shape of every drift this
+/// project has had to fix.
 pub mod testing;
 pub mod token_store;
 pub mod update;

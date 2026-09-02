@@ -9,6 +9,55 @@ Releases are signed. Every published release carries `SHA256SUMS` and
 compiled into the binary — which is what the self-updater verifies
 against before it installs anything.
 
+## [Unreleased]
+
+### Changed
+
+- **Adding a source is two fields, not a profile** (K21). Kenny opened
+  the surface shipped hours earlier and said what it should have been:
+  *"enkel een naam van de bron en de naam van de target kalender"*. He
+  was right, and measuring the three deployed profiles shows why the
+  first version looked reasonable and was still wrong — they differ in
+  almost every field because each matches a webhook nobody here
+  controls (`commonLabels.alertname`, `monitor.name`). A source Kenny
+  adds himself is one he controls, so it is cheaper for the source to
+  speak Almanac's shape than for Almanac to learn a fourth.
+
+  The form now takes a source name and a calendar name. Almanac writes
+  the profile — the plain shape, field for field the deployed
+  `home-assistant` profile — and resolves the calendar **by its display
+  name**, creating and sharing it when none exists. A calendar id is an
+  opaque string nobody types on purpose, and having to find one first
+  was half the chore.
+
+  Matching on the name before creating is what stops a second "Almanac ·
+  Huishouden" appearing per source. A duplicate calendar is close to
+  invisible: events land, nothing errors, and half of them are on a
+  calendar nobody has open.
+
+  Creating needs `ALMANAC_CALENDAR_OWNER`. Without it an unknown name is
+  refused with that reason rather than made into a calendar owned by the
+  service account and visible to no human — a mistake this project has
+  made twice already.
+
+  `external_id_field` is deliberately absent from the written profile:
+  naming it makes the field *required* in every payload, so a default
+  would meet a new source with a 422 on its first post. It is a
+  commented line in the file, to be turned on once the source has a
+  stable id.
+
+  Anything the plain shape cannot express is still a file, edited by
+  hand and picked up by *Reload profiles from disk*.
+
+### Internal
+
+- `shell::testing` is compiled into the library instead of being
+  `cfg(test)`. Integration tests link the library as an ordinary
+  dependency and could not see it, and the alternative was a second
+  hand-rolled Google stub under `tests/` — the same fixture maintained
+  twice, which is the shape of every drift this project has had to
+  repair.
+
 ## [1.5.0] — 2026-09-02
 
 ### Added

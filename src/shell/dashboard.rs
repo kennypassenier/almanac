@@ -317,24 +317,6 @@ async fn status_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
     .into_response()
 }
 
-/// The starter profile the add-a-source box is pre-filled with.
-///
-/// A blank textarea is a worse question than a filled one: it asks
-/// Kenny to remember a format instead of edit an example. These are the
-/// four fields every profile needs plus the one that makes redelivery
-/// converge, with the rest documented rather than guessed at.
-const STARTER_PROFILE: &str = r#"schema_version = 1
-source_id = "my-new-source"
-target_calendar_id = "paste the calendar id here"
-
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
-timezone = "Europe/Brussels"
-# external_id_field = "entity_id"   # makes a resend update instead of duplicate
-"#;
-
 async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if !is_logged_in(&state, &headers).await {
         return Redirect::to("/login").into_response();
@@ -342,11 +324,15 @@ async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
     render_sources(&state, None, None).await
 }
 
-/// Renders the page, optionally with an error and the text that caused
-/// it. Keeping the draft is the whole point of re-rendering rather than
-/// redirecting: a rejected profile that vanishes on submit costs the
-/// typing as well as the mistake.
-async fn render_sources(state: &AppState, error: Option<&str>, draft: Option<&str>) -> Response {
+/// Renders the page, optionally with an error and the values that
+/// caused it. Keeping what was typed is the whole point of re-rendering
+/// rather than redirecting: a rejected form that empties itself costs
+/// the typing as well as the mistake.
+async fn render_sources(
+    state: &AppState,
+    error: Option<&str>,
+    draft: Option<(&str, &str)>,
+) -> Response {
     let issued: HashMap<String, String> = state.tokens.list().await.into_iter().collect();
     let loaded = state.profiles();
     let mut profiles: Vec<_> = loaded.values().collect();
@@ -498,8 +484,20 @@ async function copyCmd(id) {
         })
         .unwrap_or_default();
 
-    let editor = escape(draft.unwrap_or(STARTER_PROFILE));
+    let (draft_source, draft_calendar) = draft.unwrap_or(("", ""));
+    let draft_source = escape(draft_source);
+    let draft_calendar = escape(draft_calendar);
     let profiles_dir = escape(&state.profiles_dir.display().to_string());
+    // Without an owner a created calendar would belong to the service
+    // account and be visible to nobody, so the form says so instead of
+    // making one.
+    let can_create = state.calendar_owner.is_some();
+    let calendar_help = if can_create {
+        "If no calendar by that name exists yet, Almanac creates it and shares it with you."
+    } else {
+        "ALMANAC_CALENDAR_OWNER is not set, so an existing calendar must be named — \
+         Almanac will not create one nobody can see."
+    };
 
     page(
         "Sources",
@@ -517,23 +515,34 @@ async function copyCmd(id) {
 <div class="card mb-4"><div class="card-body">
   <h2 class="h6 card-title">Add a source</h2>
   <p class="text-secondary small">
-    Edit the profile below and save it. Almanac checks it with exactly the same rules it
-    uses at startup — if something is wrong it says which field and why, and saves nothing.
-    A saved profile takes effect immediately; no restart.
+    Two things: what the source is called, and which calendar its events land on.
+    Everything else gets Almanac's plain shape — a payload carrying
+    <code>title</code>, <code>description</code> and <code>start</code>. It takes effect
+    immediately; no restart.
   </p>
-  <form method="post" action="/dashboard/sources">
-    <div class="mb-2">
-      <label class="form-label" for="profile">Mapping profile</label>
-      <textarea class="form-control font-monospace" id="profile" name="profile"
-                rows="12" spellcheck="false" required>{editor}</textarea>
-      <div class="form-text">
-        Saved as <code>{profiles_dir}/&lt;source_id&gt;.toml</code>. The full list of fields is in
-        the user guide; the four above plus a timezone are the minimum.
-      </div>
+  <form method="post" action="/dashboard/sources" class="row g-2 align-items-end">
+    <div class="col-sm-4">
+      <label class="form-label" for="source_id">Source name</label>
+      <input type="text" class="form-control" id="source_id" name="source_id"
+             value="{draft_source}" placeholder="kobo" required>
+      <div class="form-text">Letters, digits, dots, hyphens, underscores.</div>
     </div>
-    <button class="btn btn-primary" type="submit">Save profile</button>
-    <span class="text-secondary small ms-2">then issue it a token below</span>
+    <div class="col-sm-5">
+      <label class="form-label" for="calendar">Calendar</label>
+      <input type="text" class="form-control" id="calendar" name="calendar"
+             value="{draft_calendar}" placeholder="Almanac · Huishouden" required>
+      <div class="form-text">{calendar_help}</div>
+    </div>
+    <div class="col-sm-auto">
+      <button class="btn btn-primary" type="submit">Add source</button>
+    </div>
   </form>
+  <p class="text-secondary small mt-3 mb-0">
+    Written to <code>{profiles_dir}/&lt;source name&gt;.toml</code>. Anything the plain shape
+    cannot express — a webhook that sends <code>monitor.name</code> instead of
+    <code>title</code>, a colour per severity, an all-day event — is a line in that file;
+    edit it there and press <em>Reload profiles from disk</em>.
+  </p>
 </div></div>
 
 <h2 class="h5">Registered</h2>
@@ -571,15 +580,21 @@ async function copyCmd(id) {
     .into_response()
 }
 
-/// The submitted profile text. One field, because the browser sends the
-/// profile as a whole rather than as fifteen inputs that would each need
-/// their own copy of the validation rules (K21).
+/// What the add-a-source form sends: a name and a calendar (K21).
+///
+/// Two fields rather than a profile, after Kenny opened the first
+/// version and said it should be "enkel een naam van de bron en de
+/// naam van de target kalender". He was right about his own sources:
+/// the profiles that need every field are the ones matching a webhook
+/// nobody here controls, and those are files.
 #[derive(Deserialize)]
 struct NewSource {
-    profile: String,
+    source_id: String,
+    calendar: String,
 }
 
-/// `POST /dashboard/sources` — validate, write, reload (K21).
+/// `POST /dashboard/sources` — resolve or create the calendar, write
+/// the profile, reload (K21).
 async fn create_source(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -589,14 +604,67 @@ async fn create_source(
         return Redirect::to("/login").into_response();
     }
 
-    let profile = match crate::shell::profiles::save_new(&state.profiles_dir, &form.profile) {
-        Ok(profile) => profile,
-        Err(e) => {
-            // Re-render rather than redirect, so the error sits next to
-            // the text that caused it and the typing is not lost.
-            return render_sources(&state, Some(&e.to_string()), Some(&form.profile)).await;
-        }
+    let source_id = form.source_id.trim();
+    let calendar = form.calendar.trim();
+    let draft = Some((source_id, calendar));
+
+    // Checked here as well as in the parser: this one names the file
+    // AND becomes a URL segment, and the message should point at the
+    // field the person just typed rather than at a TOML they never saw.
+    if !crate::core::profile::source_id_is_safe(source_id) {
+        return render_sources(
+            &state,
+            Some(&format!(
+                "\"{source_id}\" cannot be a source name — use letters, digits, '.', '-' and '_', and do not start with a dot."
+            )),
+            draft,
+        )
+        .await;
+    }
+    if calendar.is_empty() {
+        return render_sources(
+            &state,
+            Some("Name the calendar this source writes to."),
+            draft,
+        )
+        .await;
+    }
+
+    // Resolved before anything is written: a profile pointing at a
+    // calendar that does not exist accepts payloads and fails every
+    // delivery, which looks like Google being down.
+    let calendar_id = match state.calendar_owner.as_deref() {
+        Some(owner) => match state.client.ensure_calendar(calendar, owner).await {
+            Ok((id, created)) => {
+                if created {
+                    tracing::info!(calendar = %calendar, id = %id, "created a calendar from the dashboard");
+                }
+                id
+            }
+            Err(e) => return render_sources(&state, Some(&e.to_string()), draft).await,
+        },
+        None => match state.client.find_calendar_by_summary(calendar).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                return render_sources(
+                    &state,
+                    Some(&format!(
+                        "no calendar called \"{calendar}\" exists, and ALMANAC_CALENDAR_OWNER is not set — \
+                         without an owner to share it with, a calendar Almanac creates is visible to nobody. \
+                         Set that variable, or name a calendar that already exists."
+                    )),
+                    draft,
+                )
+                .await;
+            }
+            Err(e) => return render_sources(&state, Some(&e.to_string()), draft).await,
+        },
     };
+
+    let toml = crate::core::profile::default_profile_toml(source_id, &calendar_id);
+    if let Err(e) = crate::shell::profiles::save_new(&state.profiles_dir, &toml) {
+        return render_sources(&state, Some(&e.to_string()), draft).await;
+    }
 
     // Reload from disk rather than inserting the parsed profile: the
     // set is what has to stay valid, and reading it back is also the
@@ -604,15 +672,10 @@ async fn create_source(
     match crate::shell::profiles::load_map(&state.profiles_dir) {
         Ok(profiles) => {
             state.set_profiles(profiles);
-            tracing::info!(source_id = %profile.source_id, "added a source from the dashboard");
+            tracing::info!(source_id = %source_id, "added a source from the dashboard");
             Redirect::to("/dashboard/sources").into_response()
         }
-        Err(e) => {
-            // The file is written and valid on its own, so this is the
-            // set being broken by something else on disk. Say so with
-            // the profile still on screen.
-            render_sources(&state, Some(&e.to_string()), Some(&form.profile)).await
-        }
+        Err(e) => render_sources(&state, Some(&e.to_string()), draft).await,
     }
 }
 

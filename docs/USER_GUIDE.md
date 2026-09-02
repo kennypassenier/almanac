@@ -76,16 +76,32 @@ afternoon of reverse-engineering, not a log.
 
 ### 2.2 · Write the mapping profile (K5)
 
-One TOML file per source. The quickest way is the dashboard: on
-`/dashboard/sources` the **Add a source** box comes pre-filled with a
-starter profile — edit it, save it, and it is live immediately, with no
-restart (K21). The same rules that run at startup check it first, so a
-mistake names its field and saves nothing.
+**The short way: two fields on the dashboard.** On
+`/dashboard/sources`, **Add a source** asks for a name and a calendar
+(K21). Almanac writes the profile, and if no calendar by that name
+exists yet it creates one and shares it with you. Live immediately, no
+restart.
 
-The file itself lands in the profiles directory
-(`/appdata/almanac/almanac-config/profiles/` on the deployment) and can
-equally be written there by hand; **Reload profiles from disk** on the
-same page picks that up without a restart. Either way it looks like
+What that profile says is the plain shape — a payload carrying `title`,
+`description` and `start`, one hour long, Europe/Brussels:
+
+```json
+POST /v1/ingest/kobo
+{"title": "Finished a chapter", "start": "2026-09-03T21:00:00+02:00"}
+```
+
+That is the trade, and it is worth understanding: the three profiles
+written by hand each match a webhook nobody here controls — Grafana
+sends `commonLabels.alertname`, Uptime Kuma sends `monitor.name` — so
+they say so field by field. A source you write yourself is cheaper to
+point at Almanac's shape than to describe.
+
+**The long way, for everything else.** The file lands in the profiles
+directory (`/appdata/almanac/almanac-config/profiles/` on the
+deployment) and is an ordinary TOML file: edit it for a nested field
+path, a colour rule, an all-day event or a different length, then press
+**Reload profiles from disk** on the same page — again no restart. A
+profile written there by hand is picked up the same way. It looks like
 this:
 
 ```toml
@@ -197,8 +213,7 @@ profile — not "mapping failed".
 ### 2.4 · Issue the source its token (K6, M12)
 
 From the dashboard at `/dashboard/sources`: the source appears in the
-list as soon as its profile is loaded (2.2), and *Issue token* gives it
-one. Paste that into the source's configuration. The token is shown
+list as soon as it is added (2.2), and *Issue token* gives it one. Paste that into the source's configuration. The token is shown
 once for copying and stored encrypted; the file on disk never contains
 the plaintext.
 

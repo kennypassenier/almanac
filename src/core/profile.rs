@@ -380,6 +380,56 @@ impl Profile {
     }
 }
 
+/// The profile the dashboard writes when someone adds a source with
+/// nothing but a name and a calendar (K21, corrected 2026-09-02).
+///
+/// The first version of that surface asked for the whole TOML. Kenny's
+/// correction: *"dat zou enkel een naam van de bron en de naam van de
+/// target kalender moeten zijn"*. This is the rest of the file, and it
+/// is deliberately the plain shape almanac already documents rather
+/// than a new invention — field for field the deployed `home-assistant`
+/// profile, which `tests/mapping_regression.rs` already pins.
+///
+/// The trade this makes, stated because it is the whole design: the
+/// three profiles written by hand each match a third-party webhook's
+/// shape (`commonLabels.alertname`, `monitor.name`), because Grafana
+/// and Uptime Kuma will not change what they send. A source Kenny adds
+/// from the dashboard is one he controls, so it is cheaper for the
+/// source to speak almanac's shape than for almanac to learn a fourth.
+/// Anything that genuinely cannot is still a file, edited by hand and
+/// picked up by the reload.
+///
+/// `external_id_field` is deliberately absent. Setting it makes the
+/// field REQUIRED in every payload — a mapping that names it and does
+/// not find it is refused — so defaulting it would meet a new source
+/// with a 422 on its first post. Redelivery therefore creates a second
+/// event unless the sender supplies an `Idempotency-Key` header (M7);
+/// the dashboard says so, and the line can be added to the file once
+/// the source has a stable id.
+pub fn default_profile_toml(source_id: &str, calendar_id: &str) -> String {
+    format!(
+        r#"# Written from the dashboard. The plain shape: a payload carrying
+# "title", "description" and "start".
+# Edit this file for anything else — the dashboard's reload picks it up.
+
+schema_version = {SUPPORTED_SCHEMA_VERSION}
+source_id = "{source_id}"
+target_calendar_id = "{calendar_id}"
+
+[mapping]
+title_field = "title"
+description_field = "description"
+start_field = "start"
+duration_minutes = 60
+timezone = "Europe/Brussels"
+
+# Uncomment once this source sends a stable id of its own, so that
+# resending the same thing updates its event instead of adding one:
+# external_id_field = "id"
+"#
+    )
+}
+
 /// Whether a `source_id` may be used as-is in a URL path and as a file
 /// name.
 ///
@@ -462,6 +512,51 @@ duration_minutes = 60
             valid_profile_toml().replace("source_id = \"home-assistant\"", "source_id = \"\"");
         let err = Profile::parse(&toml, "bad.toml").unwrap_err();
         assert!(err.to_string().contains("source_id"));
+    }
+
+    #[test]
+    fn k21_the_profile_the_dashboard_writes_is_a_profile_almanac_accepts() {
+        // The template and the parser are the same rules or they are
+        // not: a dashboard that writes something startup then refuses
+        // is worse than no dashboard.
+        let toml = default_profile_toml("kobo", "abc@group.calendar.google.com");
+        let profile = Profile::parse(&toml, "the default template").expect("must parse");
+
+        assert_eq!(profile.source_id, "kobo");
+        assert_eq!(profile.target_calendar_id, "abc@group.calendar.google.com");
+        assert_eq!(profile.mapping.title_field, "title");
+        assert_eq!(profile.mapping.duration_minutes, Some(60));
+    }
+
+    #[test]
+    fn k21_the_default_profile_does_not_demand_an_external_id() {
+        // Naming the field makes it REQUIRED in every payload, so a
+        // default would meet a new source with a 422 on its first post.
+        let toml = default_profile_toml("kobo", "cal");
+        let profile = Profile::parse(&toml, "the default template").unwrap();
+        assert!(
+            profile.mapping.external_id_field.is_none(),
+            "the default must not force a field the source may not send"
+        );
+        assert!(
+            toml.contains("# external_id_field"),
+            "but it must show how to turn it on"
+        );
+    }
+
+    #[test]
+    fn k21_the_default_matches_the_shape_the_regression_fixture_pins() {
+        // The template is not a new invention: it is the deployed
+        // home-assistant profile minus the parts a new source cannot
+        // promise. If that shape ever changes, this fails next to it.
+        let toml = default_profile_toml("x", "y");
+        for field in [
+            r#"title_field = "title""#,
+            r#"description_field = "description""#,
+            r#"start_field = "start""#,
+        ] {
+            assert!(toml.contains(field), "{field} missing from the default");
+        }
     }
 
     #[test]
