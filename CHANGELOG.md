@@ -9,7 +9,7 @@ Releases are signed. Every published release carries `SHA256SUMS` and
 compiled into the binary — which is what the self-updater verifies
 against before it installs anything.
 
-## [Unreleased]
+## [1.5.0] — 2026-09-02
 
 ### Added
 
@@ -63,6 +63,8 @@ against before it installs anything.
   digits, `.`, `-` and `_`, not starting with a dot. The three deployed
   source ids are unaffected, asserted by a test.
 
+## [1.4.0] — 2026-09-01
+
 ### Added
 
 - **`ALMANAC_STATE_DIR`** (K20) — one setting moves Almanac's whole
@@ -81,6 +83,8 @@ against before it installs anything.
   test asserting the live deployment's exact configuration resolves
   unchanged. Adopting this release changes nothing anywhere; moving is a
   separate, deliberate act.
+
+## [1.3.1] — 2026-08-31
 
 ### Fixed
 
@@ -101,6 +105,8 @@ against before it installs anything.
 
   Caught between publishing 1.3.0 and switching the deployment over,
   which is the only window in which it was findable.
+
+## [1.3.0] — 2026-08-30
 
 ### Added
 
@@ -307,7 +313,11 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
-[Unreleased]: https://github.com/kennypassenier/almanac/compare/v1.0.0...HEAD
+[1.5.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.5.0
+[1.4.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.4.0
+[1.3.1]: https://github.com/kennypassenier/almanac/releases/tag/v1.3.1
+[1.3.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.3.0
+[1.2.1]: https://github.com/kennypassenier/almanac/releases/tag/v1.2.1
 [1.0.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.0.0
 [0.1.4]: https://github.com/kennypassenier/almanac/releases/tag/v0.1.4
 [0.1.3]: https://github.com/kennypassenier/almanac/releases/tag/v0.1.3
