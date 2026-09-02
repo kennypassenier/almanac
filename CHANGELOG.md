@@ -9,7 +9,7 @@ Releases are signed. Every published release carries `SHA256SUMS` and
 compiled into the binary — which is what the self-updater verifies
 against before it installs anything.
 
-## [Unreleased]
+## [1.6.0] — 2026-09-03
 
 ### Changed
 
@@ -362,6 +362,7 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
+[1.6.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.6.0
 [1.5.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.5.0
 [1.4.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.4.0
 [1.3.1]: https://github.com/kennypassenier/almanac/releases/tag/v1.3.1
