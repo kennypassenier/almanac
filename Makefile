@@ -53,6 +53,7 @@ define bump
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 		echo "working tree is dirty — commit or stash before tagging" >&2; exit 1; \
 	fi
+	./scripts/check-ci.sh
 	sed -i '0,/^version = /s/^version = .*/version = "$(1)"/' Cargo.toml
 	cargo update --workspace --quiet
 	git add Cargo.toml Cargo.lock

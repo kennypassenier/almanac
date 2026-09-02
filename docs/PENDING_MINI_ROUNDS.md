@@ -43,3 +43,45 @@ for a project with a latch link and no such section.
 
 **Review of the norm itself:** at the retrospective of the third project
 to apply it.
+
+
+## Closed 2026-09-02: does the release guard actually block a red CI?
+
+**The fault.** CI was red on every commit from 2026-08-29 10:07 to
+2026-09-02, through releases 1.1.0 through 1.5.0. The `container` job
+could not start the image it had just built —
+`version 'GLIBC_2.39' not found` — because the `rust:1.97-slim` builder
+moved to a trixie base while the runtime stage was still bookworm. The
+`gates` job stayed green the whole time, and nobody read the rest. No
+published binary was affected: those are built natively, and v1.5.0
+needs GLIBC_2.39 while CT 112 has 2.41, measured before it was said.
+
+**The gates that let it through.** Branch protection on `main` requires
+the `gates` check but allows a bypass, and every push used it. And R1,
+the release procedure, never said "check CI first" — seven times.
+
+**Also present in:** `binary-puzzle-toolkit`, the only other repository
+with `enforce_admins: false`. Its CI is green, so nothing accumulated
+there, but the gap is the same and it gets the same guard.
+
+**The measure**, code-enforced: `scripts/check-ci.sh`, run as the first
+step of `make tag-*`, before the version bump.
+
+**Measured immediately, on the real thing** — which is why this entry
+opens closed rather than pending:
+
+    ./scripts/check-ci.sh d49cb69   CI is green on d49cb69.          exit 0
+    ./scripts/check-ci.sh 345d847   CI is RED — refusing to release. exit 1
+    ALMANAC_ALLOW_RED_CI=1 …        skipped, releasing anyway.       exit 0
+    ./scripts/check-ci.sh 88e6f83   no CI run found — has it been…   exit 2
+
+Tested by calling the guard with a commit rather than by running the
+release target, deliberately: the homelab put three fake tags on GitHub
+testing their equivalent, because their first attempt used `exit 0`
+inside a make recipe and each recipe line is its own shell, so make
+carried on to the tag and the push. `make -n tag-minor` confirms the
+guard is the second line and nothing mutates before it.
+
+**Fallback if it proves unusable:** `enforce_admins` on both
+repositories and changes go through a pull request. **Review:** at the
+first release where this guard blocks something it should not have.

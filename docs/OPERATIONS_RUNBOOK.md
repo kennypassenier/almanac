@@ -20,6 +20,20 @@ cargo build --release
 gh release create v<version> dist/v<version>/* --title v<version> --generate-notes
 ```
 
+**`make tag-*` refuses to tag a commit whose CI is not green.** It runs
+`scripts/check-ci.sh` before touching anything — before the version
+bump, before the commit, before the tag. Red exits 1 and stops there;
+"still running", "no run found" and "cannot reach GitHub" all exit 2 and
+say which, because a guard that treats every network hiccup as a failure
+gets deleted and then guards nothing. To release anyway, deliberately:
+`ALMANAC_ALLOW_RED_CI=1 make tag-minor`.
+
+That exists because CI was red from 2026-08-29 to 2026-09-02 — seven
+releases — and nobody read it. The `gates` job was green throughout,
+which is what made the red `container` job easy to keep not seeing.
+Branch protection on `main` allows a bypass and every push used it, so
+looking was the only thing that could have caught it.
+
 `make tag-*` bumps `Cargo.toml` and tags in one step deliberately: the
 version in the binary and the version in the tag have to agree, and
 `scripts/check-version.sh` fails the build if they ever do not. That is
