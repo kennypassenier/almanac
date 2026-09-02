@@ -609,3 +609,59 @@ riding along, the backup went from 217 files / 5 345 657 bytes to
 **7 files / 8 571 bytes** — the journal, the sealed tokens, and the
 mapping profiles. If a snapshot of this root is megabytes, something
 that is not almanac's state is in it.
+
+## R17 · The secrets live in an environment called `dev`
+
+Almanac has exactly one latch environment, and it is named `dev`:
+`almanac/dev/.env.enc`. There is no `prod`. That name is a leftover from
+latch's default, not a statement about what the file is — it holds the
+credentials the live service on CT 112 runs on, and losing it means
+minting a new Google service account.
+
+Read that name as **production**, whatever it says.
+
+This is not hypothetical. On 2026-09-02 a system upgrade emptied the
+workstation's keyring and a recovery survey across all latch projects
+listed almanac's single unreadable file as "a `dev` environment,
+nothing operational depends on it". That reading was reasonable from the
+outside and wrong.
+
+**Where the key actually is.** Two copies, and only one of them was ever
+in the keyring:
+
+| Copy | Where | Survives |
+|---|---|---|
+| the workstation's | the kernel keyring, slot `key:almanac` | a logout or a keyring wipe: **no** |
+| CT 112's | `LATCH_KEY_ALMANAC` in `/appdata/almanac/almanac-config/latch.env` | anything the restic backup survives |
+
+The container's copy is what made 2026-09-02 a non-event. It is a
+side effect of how the service is run, not a designed escrow, so it is
+not a substitute for `latch key backup`.
+
+**To restore the workstation's copy from the running service:**
+
+```bash
+# read the key out of the container and put it where latch looks;
+# it is 34 bytes (2-byte generation + 32-byte key), carried as hex
+PERS=$(keyctl get_persistent @s)
+ID=$(ssh proxmox "pct exec 112 -- grep '^LATCH_KEY_ALMANAC=' \
+       /appdata/almanac/almanac-config/latch.env | cut -d= -f2-" \
+     | tr -d '\r\n' | xxd -r -p \
+     | keyctl padd user "keyring-rs:key:almanac@latch" "$PERS")
+keyctl link "$ID" @s
+latch state    # expect: project almanac … key gen 1 (Keyring)
+latch verify   # expect: ok  almanac/dev/.env.enc
+```
+
+**The trap in that recipe:** the keyring holds the key as raw bytes, not
+as the hex text the environment variable carries. Store the hex string
+verbatim and latch reports the key as `MISSING` — not as corrupt — which
+looks exactly like having stored nothing at all. Hence `xxd -r -p`.
+
+**Do not re-mint while the service is running.** `latch commit` mints a
+new project key and re-encrypts everything with it; the key inside CT
+112 then no longer opens the archive. The running process keeps working,
+because it read its secrets at startup — and fails to start the next
+time anything restarts it. If a re-mint is ever genuinely needed, replace
+`latch.env` in the container and restart the service in the same
+sitting.
