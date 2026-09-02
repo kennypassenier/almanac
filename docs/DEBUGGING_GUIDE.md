@@ -187,6 +187,27 @@ recreated, while looking identical to the image it came from. The log
 says so on startup. LXC is not treated as an image, so the live
 deployment does update itself.
 
+**A setting looks unset when you check the unit.** Almanac's secrets and
+settings do not live in the unit's `EnvironmentFile`, and they are not
+in the environment of the process systemd started either — that process
+is `latch run`. They are injected into its **child**, which is where
+almanac actually runs. So:
+
+```bash
+# Both of these say the variable is missing, and both are wrong:
+grep ALMANAC_CALENDAR_OWNER /appdata/almanac/almanac-config/latch.env
+tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value almanac)/environ
+
+# Ask the child, or ask latch directly from a linked checkout:
+latch run --env dev -- sh -c 'echo $ALMANAC_CALENDAR_OWNER'
+```
+
+`latch.env` holds only `LATCH_KEY_ALMANAC` and `ALMANAC_SELF_UPDATE`;
+everything else arrives from Latch at startup. Measured from both sides
+on 2026-09-03 — this session via `latch run`, the homelab via the
+child's `/proc/<pid>/environ` — after the homelab's first two checks
+looked at the file and the MainPID and concluded the setting was gone.
+
 **A second process refuses to start.** The data directory takes an
 exclusive lock. Two processes sharing one journal is corruption; the
 refusal is the feature. Runbook R10.
