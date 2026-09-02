@@ -40,7 +40,18 @@ use crate::shell::token_store::TokenStore;
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
 
 pub struct AppState {
-    pub profiles: HashMap<String, Profile>,
+    /// The loaded mapping profiles, swappable as a whole.
+    ///
+    /// Behind a lock since K21: the dashboard can add a profile while
+    /// the service runs, and the alternative — telling Kenny to restart
+    /// almanac after every change — is the friction that made him ask
+    /// for the feature. Readers take the `Arc` and drop the guard
+    /// immediately (`profiles()`), so a reload never waits on a request
+    /// and no guard is ever held across an await.
+    profiles: std::sync::RwLock<Arc<HashMap<String, Profile>>>,
+    /// Where those profiles live, so a reload reads the same directory
+    /// startup did (K20's resolved path, not a second guess at it).
+    pub profiles_dir: std::path::PathBuf,
     pub journal: Journal,
     pub client: GoogleCalendarClient,
     pub locks: KeyLocks,
@@ -89,7 +100,8 @@ impl AppState {
         tokens: TokenStore,
     ) -> Self {
         Self {
-            profiles,
+            profiles: std::sync::RwLock::new(Arc::new(profiles)),
+            profiles_dir: std::path::PathBuf::from("profiles"),
             journal,
             client,
             tokens,
@@ -107,6 +119,33 @@ impl AppState {
             captures: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
             metrics: Arc::new(Metrics::default()),
         }
+    }
+
+    /// The current profile set. Cheap: an `Arc` clone under a read
+    /// lock held for the length of that clone.
+    pub fn profiles(&self) -> Arc<HashMap<String, Profile>> {
+        self.profiles
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Replaces the whole set (K21). Whole-set rather than per-entry
+    /// because `validate_unique_source_ids` is a property of the set —
+    /// inserting one profile at a time cannot check it.
+    pub fn set_profiles(&self, profiles: HashMap<String, Profile>) {
+        *self
+            .profiles
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::new(profiles);
+    }
+
+    /// Where profiles are read from and written to. A builder rather
+    /// than a constructor argument: only `main` knows the resolved
+    /// path, and every test would otherwise have to invent one.
+    pub fn with_profiles_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.profiles_dir = dir;
+        self
     }
 
     /// Shares one set of counters with the token manager, which is
@@ -182,11 +221,11 @@ fn error(status: StatusCode, message: &str, remedy: &str) -> Reply {
 /// An unknown source and a wrong token both answer 401 with the same
 /// body: distinguishing them would tell an unauthenticated caller
 /// which source ids exist.
-async fn authenticate<'a>(
-    state: &'a AppState,
+async fn authenticate(
+    state: &AppState,
     source_id: &str,
     headers: &HeaderMap,
-) -> Result<&'a Profile, Reply> {
+) -> Result<Profile, Reply> {
     let unauthorized = || {
         error(
             StatusCode::UNAUTHORIZED,
@@ -195,7 +234,8 @@ async fn authenticate<'a>(
         )
     };
 
-    let Some(profile) = state.profiles.get(source_id) else {
+    let profiles = state.profiles();
+    let Some(profile) = profiles.get(source_id) else {
         return Err(unauthorized());
     };
 
@@ -205,7 +245,7 @@ async fn authenticate<'a>(
         .and_then(parse_bearer);
 
     match presented {
-        Some(token) if state.tokens.verify(source_id, token).await => Ok(profile),
+        Some(token) if state.tokens.verify(source_id, token).await => Ok(profile.clone()),
         _ => Err(unauthorized()),
     }
 }
@@ -539,9 +579,9 @@ duration_minutes = 60
             .await
             .unwrap();
 
-        let mut profiles = state.profiles.clone();
+        let mut profiles = (*state.profiles()).clone();
         profiles.insert("uptime-kuma".to_string(), profile("uptime-kuma"));
-        let state = AppState { profiles, ..state };
+        state.set_profiles(profiles);
 
         assert!(
             authenticate(&state, "uptime-kuma", &headers_with_token("kuma-token"))
@@ -611,9 +651,9 @@ duration_minutes = 60
         // A profile existing is not permission; the token store is the
         // only authority since the AR17 amendment.
         let state = state_with("home-assistant", "correct-token").await;
-        let mut profiles = state.profiles.clone();
+        let mut profiles = (*state.profiles()).clone();
         profiles.insert("uptime-kuma".to_string(), profile("uptime-kuma"));
-        let state = AppState { profiles, ..state };
+        state.set_profiles(profiles);
 
         assert_eq!(
             authenticate(&state, "uptime-kuma", &headers_with_token("anything"))

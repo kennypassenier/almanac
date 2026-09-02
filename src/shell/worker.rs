@@ -127,8 +127,9 @@ pub async fn drain_once_tracking(
 
     let mut delivered = 0;
     let mut failed = 0;
+    let profiles = state.profiles();
     for entry in pending {
-        let Some(profile) = state.profiles.get(&entry.source_id) else {
+        let Some(profile) = profiles.get(&entry.source_id) else {
             // The profile that accepted this payload is gone. Leaving
             // it pending forever would silently wedge the journal, so
             // say so loudly on every pass rather than dropping it.

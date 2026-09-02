@@ -226,7 +226,8 @@ async fn status_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
         return Redirect::to("/login").into_response();
     }
 
-    let mut profiles: Vec<_> = state.profiles.values().collect();
+    let loaded = state.profiles();
+    let mut profiles: Vec<_> = loaded.values().collect();
     profiles.sort_by(|a, b| a.source_id.cmp(&b.source_id));
 
     let profile_rows: String = profiles
@@ -316,13 +317,39 @@ async fn status_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
     .into_response()
 }
 
+/// The starter profile the add-a-source box is pre-filled with.
+///
+/// A blank textarea is a worse question than a filled one: it asks
+/// Kenny to remember a format instead of edit an example. These are the
+/// four fields every profile needs plus the one that makes redelivery
+/// converge, with the rest documented rather than guessed at.
+const STARTER_PROFILE: &str = r#"schema_version = 1
+source_id = "my-new-source"
+target_calendar_id = "paste the calendar id here"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+duration_minutes = 60
+timezone = "Europe/Brussels"
+# external_id_field = "entity_id"   # makes a resend update instead of duplicate
+"#;
+
 async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if !is_logged_in(&state, &headers).await {
         return Redirect::to("/login").into_response();
     }
+    render_sources(&state, None, None).await
+}
 
+/// Renders the page, optionally with an error and the text that caused
+/// it. Keeping the draft is the whole point of re-rendering rather than
+/// redirecting: a rejected profile that vanishes on submit costs the
+/// typing as well as the mistake.
+async fn render_sources(state: &AppState, error: Option<&str>, draft: Option<&str>) -> Response {
     let issued: HashMap<String, String> = state.tokens.list().await.into_iter().collect();
-    let mut profiles: Vec<_> = state.profiles.values().collect();
+    let loaded = state.profiles();
+    let mut profiles: Vec<_> = loaded.values().collect();
     profiles.sort_by(|a, b| a.source_id.cmp(&b.source_id));
 
     let rows: String = profiles
@@ -437,21 +464,146 @@ async function copyCmd(id) {
 }
 </script>"#;
 
+    let alert = error
+        .map(|e| {
+            format!(
+                r#"<div class="alert alert-danger" role="alert"><pre class="mb-0 small">{}</pre></div>"#,
+                escape(e)
+            )
+        })
+        .unwrap_or_default();
+
+    let editor = escape(draft.unwrap_or(STARTER_PROFILE));
+    let profiles_dir = escape(&state.profiles_dir.display().to_string());
+
     page(
         "Sources",
         "sources",
         &format!(
             r#"<h1 class="h4 mb-1">Sources</h1>
-<p class="text-secondary">One bearer token per source. Revoking one leaves the others working.</p>
-<div class="card"><div class="card-body">
+<p class="text-secondary">
+  A source is two things: a <em>profile</em> saying which calendar its events land on and
+  which part of its payload means what, and a token it identifies itself with. Each token
+  opens only its own source, so revoking one leaves the others working.
+</p>
+
+{alert}
+
+<div class="card mb-4"><div class="card-body">
+  <h2 class="h6 card-title">Add a source</h2>
+  <p class="text-secondary small">
+    Edit the profile below and save it. Almanac checks it with exactly the same rules it
+    uses at startup — if something is wrong it says which field and why, and saves nothing.
+    A saved profile takes effect immediately; no restart.
+  </p>
+  <form method="post" action="/dashboard/sources">
+    <div class="mb-2">
+      <label class="form-label" for="profile">Mapping profile</label>
+      <textarea class="form-control font-monospace" id="profile" name="profile"
+                rows="12" spellcheck="false" required>{editor}</textarea>
+      <div class="form-text">
+        Saved as <code>{profiles_dir}/&lt;source_id&gt;.toml</code>. The full list of fields is in
+        the user guide; the four above plus a timezone are the minimum.
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Save profile</button>
+    <span class="text-secondary small ms-2">then issue it a token below</span>
+  </form>
+</div></div>
+
+<h2 class="h5">Registered</h2>
+<div class="card mb-4"><div class="card-body">
 <div class="table-responsive"><table class="table table-sm align-middle mb-0">
 <thead><tr><th>Source</th><th>Token issued</th><th class="text-end">Actions</th></tr></thead>
 <tbody>{rows}</tbody></table></div>
 </div></div>
+
+<form method="post" action="/dashboard/sources/reload" class="mb-4">
+  <button class="btn btn-sm btn-outline-secondary" type="submit">Reload profiles from disk</button>
+  <span class="text-secondary small ms-2">
+    for a profile placed on the machine by hand, rather than through the box above
+  </span>
+</form>
+
+<div class="alert alert-secondary" role="alert">
+  <h2 class="h6">Where these live, and what survives</h2>
+  <p class="mb-0">
+    Profiles are plain files in <code>{profiles_dir}</code>, which is the directory the
+    homelab declares as almanac's data and backs up nightly. An update replaces the binary
+    somewhere else entirely and never touches them. Adding a source here is the same act as
+    writing the file by hand — this page just saves you the trip and the restart.
+  </p>
+</div>
 {script}"#
         ),
     )
     .into_response()
+}
+
+/// The submitted profile text. One field, because the browser sends the
+/// profile as a whole rather than as fifteen inputs that would each need
+/// their own copy of the validation rules (K21).
+#[derive(Deserialize)]
+struct NewSource {
+    profile: String,
+}
+
+/// `POST /dashboard/sources` — validate, write, reload (K21).
+async fn create_source(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Form(form): Form<NewSource>,
+) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+
+    let profile = match crate::shell::profiles::save_new(&state.profiles_dir, &form.profile) {
+        Ok(profile) => profile,
+        Err(e) => {
+            // Re-render rather than redirect, so the error sits next to
+            // the text that caused it and the typing is not lost.
+            return render_sources(&state, Some(&e.to_string()), Some(&form.profile)).await;
+        }
+    };
+
+    // Reload from disk rather than inserting the parsed profile: the
+    // set is what has to stay valid, and reading it back is also the
+    // only proof that what was written can be read again.
+    match crate::shell::profiles::load_map(&state.profiles_dir) {
+        Ok(profiles) => {
+            state.set_profiles(profiles);
+            tracing::info!(source_id = %profile.source_id, "added a source from the dashboard");
+            Redirect::to("/dashboard/sources").into_response()
+        }
+        Err(e) => {
+            // The file is written and valid on its own, so this is the
+            // set being broken by something else on disk. Say so with
+            // the profile still on screen.
+            render_sources(&state, Some(&e.to_string()), Some(&form.profile)).await
+        }
+    }
+}
+
+/// `POST /dashboard/sources/reload` — re-read the profiles directory
+/// (K21). Free once profiles are swappable, and it is what makes a
+/// profile placed by hand usable without a restart.
+async fn reload_profiles(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+
+    match crate::shell::profiles::load_map(&state.profiles_dir) {
+        Ok(profiles) => {
+            tracing::info!(
+                count = profiles.len(),
+                "reloaded profiles from the dashboard"
+            );
+            state.set_profiles(profiles);
+            Redirect::to("/dashboard/sources").into_response()
+        }
+        Err(e) => render_sources(&state, Some(&e.to_string()), None).await,
+    }
 }
 
 async fn captures_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
@@ -533,7 +685,7 @@ async fn issue_token(
     if !is_logged_in(&state, &headers).await {
         return Redirect::to("/login").into_response();
     }
-    if !state.profiles.contains_key(&source_id) {
+    if !state.profiles().contains_key(&source_id) {
         return (StatusCode::NOT_FOUND, "no such source").into_response();
     }
 
@@ -608,7 +760,14 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/login", axum::routing::get(login_form).post(login_submit))
         .route("/logout", axum::routing::post(logout))
         .route("/dashboard", axum::routing::get(status_page))
-        .route("/dashboard/sources", axum::routing::get(sources_page))
+        .route(
+            "/dashboard/sources",
+            axum::routing::get(sources_page).post(create_source),
+        )
+        .route(
+            "/dashboard/sources/reload",
+            axum::routing::post(reload_profiles),
+        )
         .route("/dashboard/captures", axum::routing::get(captures_page))
         .route(
             "/dashboard/sources/{source_id}/issue",

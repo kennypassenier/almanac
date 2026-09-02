@@ -76,8 +76,17 @@ afternoon of reverse-engineering, not a log.
 
 ### 2.2 · Write the mapping profile (K5)
 
-One TOML file per source, in the profiles directory
-(`/opt/almanac/profiles/` on the deployment):
+One TOML file per source. The quickest way is the dashboard: on
+`/dashboard/sources` the **Add a source** box comes pre-filled with a
+starter profile — edit it, save it, and it is live immediately, with no
+restart (K21). The same rules that run at startup check it first, so a
+mistake names its field and saves nothing.
+
+The file itself lands in the profiles directory
+(`/appdata/almanac/almanac-config/profiles/` on the deployment) and can
+equally be written there by hand; **Reload profiles from disk** on the
+same page picks that up without a restart. Either way it looks like
+this:
 
 ```toml
 schema_version = 1
@@ -187,8 +196,9 @@ profile — not "mapping failed".
 
 ### 2.4 · Issue the source its token (K6, M12)
 
-From the dashboard at `/dashboard/sources`: register the source, get
-its token, paste it into the source's configuration. The token is shown
+From the dashboard at `/dashboard/sources`: the source appears in the
+list as soon as its profile is loaded (2.2), and *Issue token* gives it
+one. Paste that into the source's configuration. The token is shown
 once for copying and stored encrypted; the file on disk never contains
 the plaintext.
 

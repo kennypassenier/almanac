@@ -321,6 +321,7 @@ async fn main() {
             token_store,
         )
         .with_capture_token(capture_token_hash)
+        .with_profiles_dir(profiles_dir.clone())
         .with_metrics(metrics),
     );
 

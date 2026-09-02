@@ -34,6 +34,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 | K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
 | K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
+| K21 | Add a source from the dashboard — submit its mapping profile, validated by the same rules startup uses, written to the profiles directory and live without a restart; plus a reload for profiles placed by hand | Essential | Round trip: a profile saved through the surface is read back by `load_all`; an invalid one writes nothing; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -308,3 +309,40 @@ default root is `.`, which reproduces the previous relative defaults
 exactly, and there is a test asserting CT 112's four absolute settings
 resolve unchanged. The migration is the homelab's to perform when it
 chooses.
+## K21 amendment (mini-round, 2026-09-02)
+
+**Where it came from.** Kenny opened `/dashboard/sources` to add a
+source and could not find the button. He was not misreading the page:
+the dashboard listed the loaded profiles and offered *Issue*,
+*Re-issue* and *Revoke* per profile, and nothing else. Adding a source
+meant logging into CT 112, writing a `.toml` file by hand, and
+restarting the service — because profiles were read exactly once, at
+startup.
+
+The user guide meanwhile said the dashboard would "register the source",
+which is why he went looking. That sentence has been corrected in the
+same change.
+
+**What was decided.** A profile editor rather than a field-by-field
+wizard. The profile format has fourteen settings and several that
+exclude one another — `duration_minutes`, `duration_days` and
+`end_field` may never appear in pairs — and all of those rules already
+live in `Profile::parse`, which runs at startup. A wizard would need a
+second copy of them in the browser, and the copy that drifts is always
+the one that says "fine" to something the service then refuses. A
+textarea validated by the real loader has one set of rules by
+construction.
+
+**What it changed in what was already built.** Profiles moved behind a
+lock so the set can be swapped while the service runs; readers take an
+`Arc` and drop the guard immediately, so a reload never blocks a
+request. `source_id` gained a character rule — it was only ever checked
+for being non-empty, and it is now also a filename, so
+`"../../etc/cron.d/x"` had to stop being a legal value. The three
+deployed source ids are unaffected and a test says so.
+
+**Deliberately not built:** editing or deleting an existing profile from
+the dashboard. This page adds sources. Replacing a working profile
+because a `source_id` was retyped is the one mistake that could not be
+undone from the same page, so a save that would overwrite is refused
+outright.

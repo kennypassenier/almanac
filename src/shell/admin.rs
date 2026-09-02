@@ -184,8 +184,8 @@ async fn debug_status(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
         return reply;
     }
 
-    let mut profiles: Vec<_> = state
-        .profiles
+    let loaded = state.profiles();
+    let mut profiles: Vec<_> = loaded
         .values()
         .map(|p| {
             json!({
@@ -309,7 +309,8 @@ async fn dry_run(
         return reply;
     }
 
-    let Some(profile) = state.profiles.get(&source_id) else {
+    let profiles = state.profiles();
+    let Some(profile) = profiles.get(&source_id) else {
         return error(
             StatusCode::NOT_FOUND,
             &format!("no profile with source_id \"{source_id}\""),

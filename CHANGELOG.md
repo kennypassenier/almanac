@@ -13,6 +13,39 @@ against before it installs anything.
 
 ### Added
 
+- **Add a source from the dashboard** (K21). `/dashboard/sources` now
+  opens with an editable starter profile: save it and the source is
+  live, no restart. A profile placed on the machine by hand is picked up
+  by *Reload profiles from disk* on the same page.
+
+  Kenny went looking for that button and it was not there — while the
+  user guide said the dashboard would "register the source". Adding one
+  meant logging into the container, writing a file and restarting the
+  service, because profiles were read exactly once at startup. The
+  sentence in the guide is corrected in the same change.
+
+  The submitted text is checked by `Profile::parse` — the function
+  startup uses — rather than by a second copy of the rules in the
+  browser. Fourteen settings, several mutually exclusive; two lists of
+  the same constraints drift, and the half that drifts is the one that
+  says "fine" to what the service then refuses.
+
+  Nothing is overwritten: this page adds sources. A save whose
+  `source_id` matches an existing profile is refused, and so is one
+  whose file already exists, because replacing a working profile over a
+  retyped id is the mistake that could not be undone from the same page.
+
+### Security
+
+- **`source_id` is now checked for the characters it contains**, not
+  only for being non-empty. It has always been a URL segment; with K21
+  it also names the file the profile is written to, so
+  `"../../etc/cron.d/x"` had to stop being a legal value. Letters,
+  digits, `.`, `-` and `_`, not starting with a dot. The three deployed
+  source ids are unaffected, asserted by a test.
+
+### Added
+
 - **`ALMANAC_STATE_DIR`** (K20) — one setting moves Almanac's whole
   state tree. `profiles/` and `data/` derive from it, and the journal
   and token store from the resolved data directory. Unset, the root is

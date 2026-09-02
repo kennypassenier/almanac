@@ -734,3 +734,268 @@ async fn the_copy_control_works_without_a_secure_context() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// K21: the same seeded state, but with a real profiles directory on
+/// disk holding the profile the in-memory map starts with. A reload
+/// reads that directory, so a test whose directory is empty would
+/// assert that reloading deletes every source — true, and not the
+/// behaviour under test.
+fn state_with_profiles_dir(dir: &std::path::Path) -> Arc<AppState> {
+    let profiles_dir = dir.join("profiles");
+    std::fs::create_dir_all(&profiles_dir).unwrap();
+    std::fs::write(
+        profiles_dir.join("home-assistant.toml"),
+        profile_toml("home-assistant"),
+    )
+    .unwrap();
+
+    let state = Arc::try_unwrap(state(dir)).unwrap_or_else(|_| unreachable!());
+    Arc::new(state.with_profiles_dir(profiles_dir))
+}
+
+fn profile_toml(source_id: &str) -> String {
+    format!(
+        r#"
+schema_version = 1
+source_id = "{source_id}"
+target_calendar_id = "primary"
+
+[mapping]
+title_field = "title"
+start_field = "start"
+duration_minutes = 60
+"#
+    )
+}
+
+#[tokio::test]
+async fn k21_the_sources_page_offers_a_way_to_add_one() {
+    // The bug this feature exists for: Kenny opened this page to add a
+    // source and there was nothing to click.
+    let dir = scratch_dir("k21-offers");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    assert!(
+        body.contains(r#"action="/dashboard/sources""#),
+        "no add form"
+    );
+    assert!(body.contains("name=\"profile\""), "no profile field");
+    assert!(
+        body.contains("schema_version = 1"),
+        "the box should arrive pre-filled with a starter profile"
+    );
+    assert!(
+        body.contains("/dashboard/sources/reload"),
+        "no reload control for a profile placed by hand"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_a_saved_profile_becomes_a_source_that_can_be_issued_a_token() {
+    // End to end: the thing Kenny wanted to do in one sitting.
+    let dir = scratch_dir("k21-save");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER, "should redirect");
+
+    assert!(
+        dir.join("profiles/kobo.toml").exists(),
+        "the profile should be on disk"
+    );
+
+    // Live without a restart — the point of the whole feature.
+    let issued = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/kobo/issue",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        issued.status(),
+        StatusCode::SEE_OTHER,
+        "issuing a token for the new source should work without restarting"
+    );
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(body.contains("kobo"), "the new source should be listed");
+    assert!(
+        body.contains("home-assistant"),
+        "the profiles already loaded must survive the reload"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_a_rejected_profile_keeps_the_text_that_was_typed() {
+    // Losing the typing as well as the mistake is what makes a form
+    // feel hostile; and the error has to name the field, not just fail.
+    let dir = scratch_dir("k21-reject");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    let broken = profile_toml("kobo").replace("target_calendar_id = \"primary\"", "");
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &format!("profile={}", urlencode(&broken)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "re-render, not redirect");
+
+    let body = text(response).await;
+    assert!(
+        body.contains("target_calendar_id"),
+        "the error should name the field"
+    );
+    assert!(
+        body.contains("source_id = &quot;kobo&quot;") || body.contains("source_id = \"kobo\""),
+        "the submitted text should still be in the box"
+    );
+    assert!(
+        !dir.join("profiles/kobo.toml").exists(),
+        "nothing may be written for a rejected profile"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_reload_picks_up_a_profile_written_by_hand() {
+    let dir = scratch_dir("k21-reload");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    std::fs::write(dir.join("profiles/grafana.toml"), profile_toml("grafana")).unwrap();
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form("/dashboard/sources/reload", Some(&cookie), ""))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        body.contains("grafana"),
+        "a profile placed by hand should appear after a reload, without a restart"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k21_writing_a_profile_needs_a_session() {
+    // This endpoint writes configuration that decides which calendar
+    // gets written to. It may never be reachable without logging in.
+    let dir = scratch_dir("k21-auth");
+    let st = state_with_profiles_dir(&dir);
+
+    for (uri, body) in [
+        (
+            "/dashboard/sources",
+            format!("profile={}", urlencode(&profile_toml("kobo"))),
+        ),
+        ("/dashboard/sources/reload", String::new()),
+    ] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(post_form(uri, None, &body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SEE_OTHER,
+            "{uri} should send an anonymous caller to the login page"
+        );
+    }
+
+    assert!(
+        !dir.join("profiles/kobo.toml").exists(),
+        "an anonymous POST must not write a profile"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Not an assertion — a way to look at the page.
+///
+/// `ALMANAC_DUMP_SOURCES_PAGE=<path> cargo test --test dashboard_http
+/// k21_dump` writes the rendered page there with the stylesheet
+/// resolved, so the layout can be reviewed in a browser without
+/// deploying. Ignored by default; it proves nothing on its own.
+#[tokio::test]
+#[ignore]
+async fn k21_dump_the_sources_page_for_review() {
+    let Ok(target) = std::env::var("ALMANAC_DUMP_SOURCES_PAGE") else {
+        return;
+    };
+    let dir = scratch_dir("k21-dump");
+    let st = state_with_profiles_dir(&dir);
+    let cookie = login(&st).await;
+
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &format!("profile={}", urlencode(&profile_toml("kobo"))),
+        ))
+        .await
+        .unwrap();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources/kobo/issue",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    let css = concat!(env!("CARGO_MANIFEST_DIR"), "/static/bootstrap.min.css");
+    let body = body.replace("/static/bootstrap.min.css", &format!("file://{css}"));
+    std::fs::write(&target, body).unwrap();
+
+    std::fs::remove_dir_all(&dir).ok();
+}

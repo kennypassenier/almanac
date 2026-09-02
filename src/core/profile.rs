@@ -158,6 +158,18 @@ impl Profile {
             });
         }
 
+        if !source_id_is_safe(&profile.source_id) {
+            return Err(AlmanacError::ProfileValidation {
+                message: format!(
+                    "{origin}: source_id \"{}\" contains characters that are not allowed",
+                    profile.source_id
+                ),
+                remedy: format!(
+                    "use only letters, digits, '.', '-' and '_' in the source_id in {origin}, and do not start it with a dot — it is both a URL segment and the name of this profile's file on disk"
+                ),
+            });
+        }
+
         if profile.target_calendar_id.trim().is_empty() {
             return Err(AlmanacError::ProfileValidation {
                 message: format!("{origin}: target_calendar_id is empty"),
@@ -368,6 +380,25 @@ impl Profile {
     }
 }
 
+/// Whether a `source_id` may be used as-is in a URL path and as a file
+/// name.
+///
+/// It was only ever checked for being non-empty, which was enough while
+/// every profile arrived as a file someone had placed by hand. K21 lets
+/// the dashboard write a profile, and the file it writes is named after
+/// this value — so `"../../etc/cron.d/evil"` would have escaped the
+/// profiles directory entirely. The rule is deliberately narrower than
+/// "no path separators": anything outside this set has no business in a
+/// URL segment either, and a stricter rule cannot be widened by
+/// accident.
+pub fn source_id_is_safe(source_id: &str) -> bool {
+    !source_id.is_empty()
+        && !source_id.starts_with('.')
+        && source_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
 /// Validates that no two profiles share a `source_id` (AR15) — loading
 /// two profiles with the same identity would make upsert lookups
 /// ambiguous. Takes the whole loaded set because this is inherently a
@@ -433,6 +464,31 @@ duration_minutes = 60
         assert!(err.to_string().contains("source_id"));
     }
 
+    #[test]
+    fn a_source_id_that_would_escape_the_profiles_directory_is_rejected() {
+        // K21 writes a profile to <profiles_dir>/<source_id>.toml, so a
+        // traversal here is a write anywhere the process can reach.
+        for hostile in ["../../etc/cron.d/evil", "..", ".hidden", "a/b", "a b"] {
+            let toml = valid_profile_toml().replace(
+                "source_id = \"home-assistant\"",
+                &format!("source_id = \"{hostile}\""),
+            );
+            let err = Profile::parse(&toml, "test").unwrap_err();
+            assert!(
+                err.to_string().contains("source_id"),
+                "{hostile} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_source_ids_actually_in_use_stay_valid() {
+        // The rule arrived after these three were already deployed;
+        // tightening validation must not refuse a running profile.
+        for real in ["home-assistant", "uptime-kuma", "grafana"] {
+            assert!(source_id_is_safe(real), "{real} must remain valid");
+        }
+    }
     #[test]
     fn a_zero_duration_is_rejected() {
         let toml = valid_profile_toml().replace("duration_minutes = 60", "duration_minutes = 0");
