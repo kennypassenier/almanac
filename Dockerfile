@@ -17,7 +17,14 @@ COPY . .
 RUN cargo build --release --locked
 
 
-FROM debian:bookworm-slim AS runtime
+# trixie, not bookworm: the rust builder image moved to a trixie base,
+# so the binary it produces links against GLIBC_2.39 and a bookworm
+# runtime (2.36) cannot start it — `version 'GLIBC_2.39' not found`.
+# Trixie is also what the fleet actually runs; CT 112 is on 2.41.
+# Pinning the pair matters more than which of the two moves: a builder
+# and a runtime from different Debian releases is a broken image that
+# builds successfully.
+FROM debian:trixie-slim AS runtime
 
 # ca-certificates only: reqwest uses rustls (AR5/AR6), so no OpenSSL
 # runtime library is needed. wget is for the compose healthcheck.
