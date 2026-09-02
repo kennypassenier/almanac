@@ -271,6 +271,22 @@ State lives in four places, and only one of them is on the LXC:
 | Journal (transient) | `/opt/almanac/data` | nothing to do — it is empty in steady state |
 | Calendar data | Google | nothing to do |
 
+**A restore can bring a retired source back to life.** Since 1.5.0 the
+dashboard can retire a source, which renames its profile to
+`<source_id>.toml.retired` and keeps the file (K21). Restoring the
+profiles directory to a moment before that retirement restores the file
+under its original `.toml` name, and almanac loads it again on the next
+start — token and all, once one is issued. That is a restore doing
+exactly its job, not a bug, but it means the source list after a restore
+is the list as it was *then*, not as it was left. Check
+`/dashboard/sources` after any restore that reaches back past a
+retirement.
+
+Recorded on the homelab's side as F250 in the same measurement that
+confirmed nothing in their deploy path ever deletes from `/appdata` —
+so both the live profiles and the `.toml.retired` records survive a
+deploy and ride along in the nightly snapshot.
+
 Since 2026-08-29 the homelab also takes a nightly restic snapshot of
 `/opt/almanac` and `/etc/almanac` to Drive. Worth knowing exactly what
 that contains, because it is both halves of the same lock: `/etc/almanac`
