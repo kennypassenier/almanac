@@ -62,7 +62,18 @@ the release procedure, never said "check CI first" — seven times.
 
 **Also present in:** `binary-puzzle-toolkit`, the only other repository
 with `enforce_admins: false`. Its CI is green, so nothing accumulated
-there, but the gap is the same and it gets the same guard.
+there, but the gap is the same.
+
+*Corrected while carrying this out:* the approved measure said the same
+guard would go into that repository's Makefile. It has no Makefile —
+it releases from a tag-triggered workflow — so there is no equivalent
+place to put it, and standing rule 19 keeps work on a project inside a
+session opened in that project. It is therefore **still open there**,
+and the shape of the fix has to be decided in its own session: either
+`enforce_admins` on, or a guard in whatever it does use to tag. Written
+down here rather than quietly dropped, because a measure that covered
+two repositories and silently covers one is how a correction stops
+being one.
 
 **The measure**, code-enforced: `scripts/check-ci.sh`, run as the first
 step of `make tag-*`, before the version bump.
