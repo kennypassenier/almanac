@@ -40,10 +40,22 @@ describing what a payload means; the call carries the event.
   energy-prices (4) and job-tracker (2). Their profiles and fixtures
   went with the layer they existed to prove.
 
-- **`schema_version` is 2.** A v1 profile is refused at load with a
-  message saying what changed and what to reduce it to — not read as if
-  its `[mapping]` block were noise, which would have silently ignored
-  everything every deployed profile says.
+- **`schema_version` is 2, and a v1 profile is skipped rather than
+  fatal.** It cannot be honoured — its `[mapping]` block describes a
+  translation that no longer happens — but taking every other source
+  down over one outdated file is the wrong blast radius (Kenny,
+  2026-09-03). Almanac loads what it understands, logs one error per
+  skipped file naming it and its version, and reports the count on the
+  startup line.
+
+  A **malformed** profile still stops startup. That distinction is the
+  point: an old format is a known state with a known fix; a broken file
+  is a mistake, and running with a source missing because somebody
+  fat-fingered a TOML key is worse than not running.
+
+  A skipped source answers 401 to its own posts — the same as an unknown
+  source, which for this build it is — so its sender sees it at once
+  rather than as silence.
 
 - **A profile is now routing only:** `source_id`,
   `target_calendar_id`, and optional `timezone` and
@@ -83,10 +95,12 @@ describing what a payload means; the call carries the event.
 
 ### Migration
 
-A v1 profile becomes a v2 profile by deleting everything except
-`source_id` and `target_calendar_id`, setting `schema_version = 2`, and
-having the source send Almanac's event shape — or putting
-HTTPSwitchboard in front of it. See `docs/USER_GUIDE.md` §2.2.
+Nothing has to happen at upgrade time: an old profile is skipped, the
+rest keep serving. To bring one back, reduce it to `schema_version = 2`,
+`source_id` and `target_calendar_id`, and press *Reload profiles from
+disk* — no restart. The source must also send Almanac's event shape; if
+it cannot, HTTPSwitchboard goes in front of it. See
+`docs/USER_GUIDE.md` §2.2 and runbook R18.
 
 ## [1.7.0] — 2026-09-03
 

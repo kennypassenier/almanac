@@ -57,6 +57,20 @@ fn default_timezone() -> String {
     "Europe/Brussels".to_string()
 }
 
+/// The `schema_version` a file declares, when it declares one this
+/// build does not read.
+///
+/// Separated from parsing so a loader can tell an OLD profile from a
+/// BROKEN one. They deserve different answers: a malformed profile is
+/// a mistake and stops startup, an outdated one is a known state with a
+/// known fix and is skipped (Kenny, 2026-09-03 — "hij mag wel niet
+/// weigeren om op te starten met profielen van een oude versie").
+pub fn outdated_version(toml_str: &str) -> Option<u32> {
+    let table = toml_str.parse::<toml::Table>().ok()?;
+    let version = table.get("schema_version")?.as_integer()?;
+    (version != i64::from(SUPPORTED_SCHEMA_VERSION)).then_some(version.max(0) as u32)
+}
+
 impl Profile {
     /// Parses and validates a profile from its TOML source. `origin`
     /// (typically the file path) is used only to make error messages

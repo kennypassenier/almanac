@@ -696,43 +696,42 @@ time anything restarts it. If a re-mint is ever genuinely needed, replace
 `latch.env` in the container and restart the service in the same
 sitting.
 
-## R18 · Upgrading to 2.0.0 — convert the profiles in the same window
 
-2.0.0 **refuses to start on a v1 profile.** That is deliberate: a v1
-profile's `[mapping]` block describes a translation that no longer
-exists, and reading the file as if that block were noise would silently
-ignore everything it says. But it means the upgrade and the conversion
-are one operation, not two.
+## R18 · Upgrading to 2.0.0 — an old profile is skipped, not fatal
 
-Left to itself, a supervised update installs 2.0.0, almanac fails to
-start, the health check fails and the supervisor rolls back to the
-previous version. Safe, and pointless. Do this instead:
+2.0.0 reads `schema_version = 2`. A profile still on version 1 describes
+a translation the service no longer performs, so it **cannot** be
+honoured — but it does not stop the service either.
 
-```bash
-systemctl stop almanac
-./scripts/migrate-profiles-v2.sh /appdata/almanac/almanac-config/profiles
-# install 2.0.0
-systemctl start almanac
+Almanac loads every profile it understands, skips the ones it does not,
+and says so at error level, once per file, naming the file and its
+version:
+
+```
+ERROR almanac: skipping a profile written for an older format
+      path=/appdata/almanac/almanac-config/profiles/uptime-kuma.toml
+      schema_version=1
+      remedy=reduce it to schema_version 2 … see docs/USER_GUIDE.md
 ```
 
-`migrate-profiles-v2.sh` keeps every original as `<name>.toml.v1`, so
-going back is a rename plus a restart. It converts what a v2 profile
-still needs — `source_id`, `target_calendar_id`, `timezone` — and drops
-the rest, because the rest is now what the caller sends.
+The count also appears on the startup line and on `/v1/debug/status`, so
+"how many sources am I actually serving" has an answer that is not the
+number of files.
 
-**Read its NOTE lines.** A profile that mapped field names other than
-almanac's own (`title_field = "monitor.name"`) described a source
-speaking someone else's shape. The conversion still runs, but that
-source will now get a 422 naming the field it did not send. Either it
-learns almanac's shape or it goes through HTTPSwitchboard. The script
-prints exactly which profiles this applies to.
+**What a skipped source experiences:** its posts answer 401, the same as
+an unknown source. That is the honest outcome — the source is not
+registered as far as this build is concerned — and it is visible from
+the sender's side immediately rather than as silence.
 
-**Sources must also send `external_id`** (or an `Idempotency-Key`
-header). 2.0.0 refuses a call with neither, because without one almanac
-writes no marker and can never find, update or delete that event again.
-A source that used to rely on a profile's `external_id_field` is
-sending the value already — under whatever name that field had, so
-rename it to `external_id` on the sender's side.
+**Why skip rather than refuse.** A malformed profile still stops
+startup: that is a mistake, and running with a source missing because
+somebody fat-fingered a TOML key is worse than not running. An old
+format is not a mistake, it is a known state with a known fix, and
+taking down every other source over it is the wrong blast radius
+(Kenny, 2026-09-03).
 
-Proven before it was written: a directory converted by this script
-passes `almanac --check` against the real service account.
+**Fixing one:** reduce it to `schema_version = 2`, `source_id` and
+`target_calendar_id`, then press *Reload profiles from disk* on the
+dashboard. No restart. The source must also send Almanac's event shape
+— if it cannot, put HTTPSwitchboard in front of it, which is what that
+tool is for.

@@ -9,12 +9,39 @@ use std::path::{Path, PathBuf};
 use crate::core::error::AlmanacError;
 use crate::core::profile::{Profile, validate_unique_source_ids};
 
-/// Loads and validates every `*.toml` profile in `dir`. Fails on the
-/// first unreadable or invalid file, and on any duplicate `source_id`
-/// across the whole set (AR15) — a broken profile must stop startup
-/// with a message naming the file, not silently skip it (standing
-/// rule 12: no silent fallbacks).
-pub fn load_all(dir: &Path) -> Result<Vec<Profile>, AlmanacError> {
+/// A profile file this build cannot read because it was written for an
+/// older format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Skipped {
+    pub path: PathBuf,
+    pub schema_version: u32,
+}
+
+/// What a profiles directory yielded: what loaded, and what was passed
+/// over because it is written for an older format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Loaded {
+    pub profiles: Vec<Profile>,
+    pub skipped: Vec<Skipped>,
+}
+
+/// Loads every `*.toml` profile in `dir`.
+///
+/// Fails on the first unreadable or **malformed** file, and on any
+/// duplicate `source_id` across the set (AR15) — a broken profile must
+/// stop startup with a message naming the file, not be silently skipped
+/// (standing rule 12).
+///
+/// A profile written for an **older schema version** is different, and
+/// is skipped rather than fatal (Kenny, 2026-09-03). It is not a
+/// mistake; it is a known state with a known fix, and taking every
+/// other source down over one outdated file is the wrong blast radius.
+/// Skipping is loud: the caller gets the list and reports each one.
+///
+/// A skipped source answers 401 to its own posts, the same as an
+/// unknown source — which it effectively is for this build, and which
+/// the sender sees immediately rather than as silence.
+pub fn load_all(dir: &Path) -> Result<Loaded, AlmanacError> {
     let entries = std::fs::read_dir(dir).map_err(|e| AlmanacError::Config {
         message: format!("failed to read profiles directory {}: {e}", dir.display()),
         remedy: format!(
@@ -33,18 +60,28 @@ pub fn load_all(dir: &Path) -> Result<Vec<Profile>, AlmanacError> {
     paths.sort();
 
     let mut profiles = Vec::with_capacity(paths.len());
+    let mut skipped = Vec::new();
     for path in paths {
         let origin = path.display().to_string();
         let contents = std::fs::read_to_string(&path).map_err(|e| AlmanacError::Config {
             message: format!("failed to read {origin}: {e}"),
             remedy: format!("check {origin} exists and is readable"),
         })?;
+
+        if let Some(schema_version) = crate::core::profile::outdated_version(&contents) {
+            skipped.push(Skipped {
+                path: path.clone(),
+                schema_version,
+            });
+            continue;
+        }
+
         profiles.push(Profile::parse(&contents, &origin)?);
     }
 
     validate_unique_source_ids(&profiles)?;
 
-    Ok(profiles)
+    Ok(Loaded { profiles, skipped })
 }
 
 /// The same set, keyed by `source_id` — the shape the running service
@@ -52,6 +89,7 @@ pub fn load_all(dir: &Path) -> Result<Vec<Profile>, AlmanacError> {
 /// startup and a K21 reload cannot key the map differently.
 pub fn load_map(dir: &Path) -> Result<HashMap<String, Profile>, AlmanacError> {
     Ok(load_all(dir)?
+        .profiles
         .into_iter()
         .map(|p| (p.source_id.clone(), p))
         .collect())
@@ -76,7 +114,11 @@ pub fn save_new(dir: &Path, contents: &str) -> Result<Profile, AlmanacError> {
     // yet in memory, and two profiles sharing a source_id stop the
     // service from starting at all (AR15).
     let existing = load_all(dir)?;
-    if existing.iter().any(|p| p.source_id == profile.source_id) {
+    if existing
+        .profiles
+        .iter()
+        .any(|p| p.source_id == profile.source_id)
+    {
         return Err(AlmanacError::Config {
             message: format!(
                 "a profile with source_id \"{}\" already exists",
@@ -198,8 +240,54 @@ target_calendar_id = "primary"
         write_profile(&dir, "b.toml", "uptime-kuma");
         std::fs::write(dir.join("not-a-profile.txt"), "ignored").unwrap();
 
-        let profiles = load_all(&dir).unwrap();
-        assert_eq!(profiles.len(), 2);
+        let loaded = load_all(&dir).unwrap();
+        assert_eq!(loaded.profiles.len(), 2);
+        assert!(loaded.skipped.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn k23_a_profile_from_an_older_format_is_skipped_and_the_rest_still_load() {
+        // Kenny, 2026-09-03: "hij mag wel niet weigeren om op te
+        // starten met profielen van een oude versie". Taking every
+        // other source down over one outdated file is the wrong blast
+        // radius — it is not a mistake, it is a known state.
+        let dir = temp_dir("outdated");
+        write_profile(&dir, "new.toml", "home-assistant");
+        std::fs::write(
+            dir.join("old.toml"),
+            "schema_version = 1\nsource_id = \"uptime-kuma\"\n             target_calendar_id = \"infra\"\n\n[mapping]\ntitle_field = \"monitor.name\"\n             start_field = \"time\"\nduration_minutes = 15\n",
+        )
+        .unwrap();
+
+        let loaded = load_all(&dir).expect("one outdated file must not fail the whole load");
+
+        assert_eq!(loaded.profiles.len(), 1, "the usable profile must load");
+        assert_eq!(loaded.profiles[0].source_id, "home-assistant");
+        assert_eq!(loaded.skipped.len(), 1, "and the old one must be reported");
+        assert_eq!(loaded.skipped[0].schema_version, 1);
+        assert!(loaded.skipped[0].path.ends_with("old.toml"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn k23_a_malformed_profile_still_stops_everything() {
+        // The distinction that makes skipping safe: an OLD profile is a
+        // known state, a BROKEN one is a mistake. Running with a source
+        // missing because somebody fat-fingered a TOML key is worse
+        // than not running.
+        let dir = temp_dir("malformed");
+        write_profile(&dir, "good.toml", "home-assistant");
+        std::fs::write(
+            dir.join("bad.toml"),
+            "schema_version = 2\nthis is not toml\n",
+        )
+        .unwrap();
+
+        let err = load_all(&dir).unwrap_err();
+        assert!(err.to_string().contains("bad.toml"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -394,7 +482,9 @@ target_calendar_id = "primary"
         // got wrong — and the first thing to notice would be a
         // half-provisioned LXC refusing to start.
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/profiles");
-        let profiles = load_all(&dir).expect("the shipped profiles must parse");
+        let profiles = load_all(&dir)
+            .expect("the shipped profiles must parse")
+            .profiles;
 
         assert!(
             profiles.len() >= 2,

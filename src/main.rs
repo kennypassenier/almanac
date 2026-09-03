@@ -205,20 +205,38 @@ async fn main() {
     // Profiles first: a typo in a profile should stop the process
     // before it has authenticated against anything (M4).
     let profiles_dir = profiles_dir();
-    let profiles = match shell::profiles::load_all(&profiles_dir) {
-        Ok(profiles) => profiles,
+    let loaded = match shell::profiles::load_all(&profiles_dir) {
+        Ok(loaded) => loaded,
         Err(e) => die(e),
     };
+
+    // Reported one line per file, at error level, before anything else
+    // is said about profiles: an outdated profile is a source that is
+    // NOT being served, and the quietest possible failure would be a
+    // count that simply came out lower than expected.
+    for skipped in &loaded.skipped {
+        tracing::error!(
+            path = %skipped.path.display(),
+            schema_version = skipped.schema_version,
+            remedy = "reduce it to schema_version 2 with source_id and target_calendar_id,                       and have the source send almanac's event shape (or put HTTPSwitchboard                       in front of it) — see docs/USER_GUIDE.md",
+            "skipping a profile written for an older format; this source is not being served"
+        );
+    }
+
+    let profiles = loaded.profiles;
     if profiles.is_empty() {
         die(format!(
-            "no mapping profiles found in {} — create at least one *.toml profile there, or \
-             point ALMANAC_STATE_DIR at the directory holding profiles/ and data/ (or \
-             ALMANAC_PROFILES_DIR at the profiles alone)",
-            profiles_dir.display()
+            "no usable mapping profiles in {} ({} skipped for an older schema_version) — \
+             create at least one *.toml profile there, or point ALMANAC_STATE_DIR at the \
+             directory holding profiles/ and data/ (or ALMANAC_PROFILES_DIR at the profiles \
+             alone)",
+            profiles_dir.display(),
+            loaded.skipped.len()
         ));
     }
     tracing::info!(
         count = profiles.len(),
+        skipped = loaded.skipped.len(),
         sources = ?profiles.iter().map(|p| p.source_id.as_str()).collect::<Vec<_>>(),
         "loaded mapping profiles"
     );
