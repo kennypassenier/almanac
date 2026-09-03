@@ -285,6 +285,19 @@ State lives in four places, and only one of them is on the LXC:
 | Journal (transient) | `/opt/almanac/data` | nothing to do — it is empty in steady state |
 | Calendar data | Google | nothing to do |
 
+**`restic ls` cannot show you a profile.** The homelab's nightly
+snapshot of this state root is a single `almanac-data.tar`, so listing
+the snapshot shows exactly one path and no files inside it. To confirm
+that something is really in the backup — a profile, the token store —
+restore the snapshot and run `tar tf` on the archive. Measured on
+2026-09-03 by the homelab before deleting three profiles: the directory
+name in the snapshot said nothing, and only the extracted listing showed
+all four files.
+
+Worth the extra minute whenever "it is in the backup" is the reason
+something is about to be deleted. Trusting the path is how that sentence
+becomes true-sounding and unverified.
+
 **A restore can bring a retired source back to life.** Since 1.5.0 the
 dashboard can retire a source, which renames its profile to
 `<source_id>.toml.retired` and keeps the file (K21). Restoring the
