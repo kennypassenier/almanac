@@ -1,16 +1,15 @@
-# AR15 regression fixture — pinned mapping-profile format. Changing
-# this file's shape is a breaking change to every deployed profile;
-# tests/mapping_regression.rs fails loudly if the resulting event
-# stops matching fixtures/expected/home-assistant_sample_event.json.
+# AR15 regression fixture — the pinned profile format.
+#
+# Since 2.0.0 a profile says only where a source's events land. What
+# each event IS comes from the call (core::request), so there is no
+# field mapping here and no per-event setting to pin. What this fixture
+# still guards is that the FILE format keeps loading:
+# tests/mapping_regression.rs fails loudly if the event produced from
+# the sample payload stops matching
+# fixtures/expected/home-assistant_sample_event.json.
 
-schema_version = 1
+schema_version = 2
 source_id = "home-assistant"
 target_calendar_id = "primary"
-
-[mapping]
-title_field = "title"
-description_field = "description"
-external_id_field = "entity_id"
-start_field = "start"
-duration_minutes = 60
-timezone = "UTC"
+timezone = "Europe/Brussels"
+default_duration_minutes = 60

@@ -1,0 +1,12 @@
+# AR15 regression fixture — every per-event option a source can send.
+#
+# The profile is deliberately bare: since 2.0.0 all of the below comes
+# from the call, and this fixture is what proves it. Its pinned output
+# is the one most likely to break silently — Google accepts exactly one
+# of `date` and `dateTime`, and colour, free/busy and reminders each
+# have their own wire shape.
+
+schema_version = 2
+source_id = "everything"
+target_calendar_id = "primary"
+timezone = "Europe/Brussels"

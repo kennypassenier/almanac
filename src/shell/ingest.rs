@@ -263,6 +263,43 @@ async fn authenticate(
     }
 }
 
+/// Refuses a call Almanac would not be able to find again.
+///
+/// Every event Almanac creates carries a marker built from the source's
+/// own id, and that marker is the only handle the upsert and the delete
+/// endpoint have. A call with neither an `external_id` in the payload
+/// nor an `Idempotency-Key` header produces an event Almanac can never
+/// update or remove — it duplicates on every resend and answers 404 on
+/// every delete.
+///
+/// Refused at the door rather than left to a profile default. The
+/// JobTracker session hit exactly this on 2026-09-03 against the live
+/// service, hours after the dashboard started writing profiles: two
+/// identical posts, two events, and a delete answering 404. A default
+/// in a template fixes the next source; a refusal here fixes all of
+/// them.
+fn requires_an_id(payload: &Value, headers: &HeaderMap) -> Result<(), Reply> {
+    let has_external_id = payload
+        .get("external_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| !id.trim().is_empty());
+    let has_header = headers
+        .get(IDEMPOTENCY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| !s.trim().is_empty());
+
+    if has_external_id || has_header {
+        return Ok(());
+    }
+    Err(error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "the payload has no \"external_id\" and no Idempotency-Key header",
+        "send \"external_id\" with the source's own id for this thing, or an \
+         Idempotency-Key header — without one of the two, almanac cannot find the event \
+         again to update or delete it, and every resend creates another",
+    ))
+}
+
 fn build_entry(state: &AppState, source_id: &str, headers: &HeaderMap, payload: Value) -> Entry {
     let idempotency_key = headers
         .get(IDEMPOTENCY_HEADER)
@@ -291,6 +328,10 @@ async fn ingest(
         Err(reply) => return reply,
     };
     let source_id = profile.source_id.clone();
+
+    if let Err(reply) = requires_an_id(&payload, &headers) {
+        return reply;
+    }
 
     let entry = build_entry(&state, &source_id, &headers, payload);
 
@@ -325,6 +366,10 @@ async fn ingest_sync(
         Err(reply) => return reply,
     };
     let profile = profile.clone();
+
+    if let Err(reply) = requires_an_id(&payload, &headers) {
+        return reply;
+    }
 
     let entry = build_entry(&state, &profile.source_id, &headers, payload);
 
@@ -483,14 +528,10 @@ mod tests {
     fn profile(source_id: &str) -> Profile {
         let toml = format!(
             r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#
         );
         Profile::parse(&toml, "test.toml").unwrap()
@@ -816,7 +857,7 @@ duration_minutes = 60
         serde_json::json!({
             "title": "meeting",
             "start": "2026-08-28T09:00:00+00:00",
-            "entity_id": "claude-session-1"
+            "external_id": "claude-session-1"
         })
     }
 

@@ -1,0 +1,20 @@
+{
+  "summary": "Week weg",
+  "description": "Alles wat een bron per event kan zeggen",
+  "location": "Ardennen",
+  "start": { "date": "2026-09-07" },
+  "end": { "date": "2026-09-12" },
+  "colorId": "11",
+  "transparency": "transparent",
+  "status": "tentative",
+  "reminders": {
+    "useDefault": false,
+    "overrides": [
+      { "method": "popup", "minutes": 30 },
+      { "method": "email", "minutes": 1440 }
+    ]
+  },
+  "extendedProperties": {
+    "private": { "almanac_source_id": "everything:kobo/chapter/2026-09-03" }
+  }
+}

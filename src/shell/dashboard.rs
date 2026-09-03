@@ -360,8 +360,8 @@ async fn render_sources(
   <form method="post" action="/dashboard/sources/{id}/revoke" class="d-inline">
     <button class="btn btn-sm btn-outline-secondary" type="submit">Revoke token</button>
   </form>
-  <form method="post" action="/dashboard/sources/{id}/retire" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Retire</button>
+  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
   </form>
 </td></tr>
 <tr id="out-{id}" class="d-none"><td colspan="3"><pre class="mb-0 small" id="pre-{id}"></pre></td></tr>"#,
@@ -375,33 +375,14 @@ async fn render_sources(
   <form method="post" action="/dashboard/sources/{id}/issue" class="d-inline">
     <button class="btn btn-sm btn-primary" type="submit">Issue token</button>
   </form>
-  <form method="post" action="/dashboard/sources/{id}/retire" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Retire</button>
+  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
   </form>
 </td></tr>"#
                 ),
             }
         })
         .collect();
-
-    // Retired sources keep their row, the way kyu keeps a revoked
-    // app's: a source that vanished without trace is indistinguishable
-    // from one that was never there, and the question three months
-    // later is always "did we have one of these?".
-    let retired_rows: String = crate::shell::profiles::retired(&state.profiles_dir)
-        .into_iter()
-        .map(|id| {
-            let id = escape(&id);
-            format!(
-                r#"<tr class="text-secondary">
-<td><code>{id}</code></td>
-<td><span class="badge text-bg-secondary">retired</span></td>
-<td class="text-end"><span class="small">profile kept on disk</span></td>
-</tr>"#
-            )
-        })
-        .collect();
-    let rows = format!("{rows}{retired_rows}");
 
     // The reveal and copy controls fetch the token only when clicked,
     // so a token never sits in the page source waiting to be read over
@@ -628,9 +609,9 @@ async function copyCmd(id) {
   <h2 class="h6">Where these live, and what survives</h2>
   <p class="mb-0">
     <b>Revoke token</b> takes a source's key away and leaves everything else; issue it a new
-    one and it works again. <b>Retire</b> ends the source: its token is revoked and its profile
-    is renamed out of the loaded set, keeping the file — and the row above — as the record that
-    it existed. Neither touches events already on the calendar; those are the calendar's now.
+    one and it works again. <b>Delete</b> removes the source altogether — token and profile
+    both gone, immediately. Neither touches events already on the calendar: those are the
+    calendar's now, and removing them is a separate, deliberate act.
   </p>
   <p class="mb-0">
     Profiles are plain files in <code>{profiles_dir}</code>, which is the directory the
@@ -751,12 +732,14 @@ async fn create_source(
     }
 }
 
-/// `POST /dashboard/sources/{source_id}/retire` — end a source (K21).
+/// `POST /dashboard/sources/{source_id}/delete` — remove a source
+/// entirely (K21): its token and its profile, both gone.
 ///
-/// Revokes its token and renames its profile out of the loaded set,
-/// keeping the file. Modelled on kyu's app revocation, which keeps the
-/// row rather than erasing it.
-async fn retire_source(
+/// The events it already put on the calendar are left alone (Kenny,
+/// 2026-09-03). Deleting a source says something about the source, not
+/// about what already happened; sweeping up months of calendar entries
+/// is a second, deliberate act.
+async fn delete_source(
     State(state): State<Arc<AppState>>,
     Path(source_id): Path<String>,
     headers: HeaderMap,
@@ -786,8 +769,8 @@ async fn retire_source(
     if waiting > 0 {
         let message = format!(
             "{source_id} still has {waiting} event(s) waiting to be delivered. \
-             Retiring it now would leave them in the journal with no profile to deliver them by. \
-             Wait for the queue to drain, or fix whatever is blocking delivery, and retire it then."
+             Deleting it now would leave them in the journal with no profile to deliver them by. \
+             Wait for the queue to drain, or fix whatever is blocking delivery, and delete it then."
         );
         return render_sources(&state, Some(&message), None).await;
     }
@@ -796,7 +779,7 @@ async fn retire_source(
         return render_sources(&state, Some(&e.to_string()), None).await;
     }
 
-    let kept = match crate::shell::profiles::retire(&state.profiles_dir, &source_id) {
+    let removed = match crate::shell::profiles::delete(&state.profiles_dir, &source_id) {
         Ok(path) => path,
         Err(e) => return render_sources(&state, Some(&e.to_string()), None).await,
     };
@@ -806,8 +789,8 @@ async fn retire_source(
             state.set_profiles(profiles);
             tracing::info!(
                 source_id = %source_id,
-                kept = %kept.display(),
-                "retired a source from the dashboard"
+                removed = %removed.display(),
+                "deleted a source from the dashboard"
             );
             Redirect::to("/dashboard/sources").into_response()
         }
@@ -1008,8 +991,8 @@ pub fn routes() -> Router<Arc<AppState>> {
             axum::routing::post(revoke_token),
         )
         .route(
-            "/dashboard/sources/{source_id}/retire",
-            axum::routing::post(retire_source),
+            "/dashboard/sources/{source_id}/delete",
+            axum::routing::post(delete_source),
         )
         .route(
             "/dashboard/sources/{source_id}/token",

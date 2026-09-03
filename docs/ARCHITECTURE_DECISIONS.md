@@ -167,3 +167,29 @@ rename, so a real power cut can lose the rename. All are fixed in L5,
 and a genuine reboot drill on the throwaway LXC is added — the
 existing power-loss drill simulates the crash in userspace and no real
 power cut has ever been exercised.
+
+
+## AR15 amendment (2026-09-03) — the profile stops describing the event
+
+AR15 froze `source_id` as a source's immutable identity and the upsert
+key's shape (`<source_id>:<external-id>`). Both stand unchanged.
+
+What changes around them: a profile no longer says *what a payload
+means*. Per-event choices — all-day, colour, free/busy, status,
+reminders, length, timezone — travel in the call, because they are
+things the source knows per event and the profile could only fix once
+for all of them (K23). The profile keeps exactly what belongs to the
+source rather than to the event: its identity, its calendar, and two
+defaults.
+
+The upsert key is unaffected in shape and stronger in practice. It used
+to be absent whenever a profile named no external id field, and an event
+without it can never be found again — no update, no delete. Ingest now
+refuses a call carrying neither an `external_id` nor an
+`Idempotency-Key` header, so the key exists for every event Almanac
+creates rather than merely usually.
+
+`schema_version` goes to 2. A v1 profile is refused with a message
+saying what changed and what to do, rather than being read as if its
+`[mapping]` block were noise — which is what a silent upgrade would have
+done to every deployed profile at once.

@@ -28,14 +28,10 @@ fn scratch(name: &str) -> std::path::PathBuf {
     let mut file = std::fs::File::create(dir.join("test.toml")).unwrap();
     file.write_all(
         br#"
-schema_version = 1
+schema_version = 2
 source_id = "test-source"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#,
     )
     .unwrap();

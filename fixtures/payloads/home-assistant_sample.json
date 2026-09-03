@@ -1,5 +1,5 @@
 {
-  "entity_id": "switch.wasmachine",
+  "external_id": "switch.wasmachine",
   "title": "Wasmachine klaar",
   "description": "Cyclus voltooid",
   "start": "2026-08-28T09:00:00+00:00"

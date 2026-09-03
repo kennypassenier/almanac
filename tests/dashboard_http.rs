@@ -36,14 +36,10 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
 fn profile(source_id: &str) -> Profile {
     let toml = format!(
         r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#
     );
     Profile::parse(&toml, "test.toml").unwrap()
@@ -297,7 +293,7 @@ async fn issuing_a_token_from_the_dashboard_produces_a_working_one() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::from(
-                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00"}"#,
+                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00","external_id":"t"}"#,
                 ))
                 .unwrap(),
         )
@@ -330,7 +326,7 @@ async fn a_revoked_token_stops_working_on_the_very_next_request() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, "Bearer tok")
                 .body(Body::from(
-                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00"}"#,
+                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00","external_id":"t"}"#,
                 ))
                 .unwrap(),
         )
@@ -355,7 +351,7 @@ async fn a_revoked_token_stops_working_on_the_very_next_request() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, "Bearer tok")
                 .body(Body::from(
-                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00"}"#,
+                    r#"{"title":"t","start":"2026-08-28T09:00:00+00:00","external_id":"t"}"#,
                 ))
                 .unwrap(),
         )
@@ -788,14 +784,10 @@ async fn state_with_calendar(
 fn profile_toml(source_id: &str) -> String {
     format!(
         r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#
     )
 }
@@ -885,8 +877,12 @@ async fn k21_adding_a_source_creates_its_calendar_and_makes_it_issuable() {
     let written = std::fs::read_to_string(dir.join("profiles/kobo.toml"))
         .expect("the profile should be on disk");
     assert!(
-        written.contains(r#"title_field = "title""#),
-        "the plain shape should be filled in for the person"
+        written.contains("schema_version = 2") && written.contains(r#"source_id = "kobo""#),
+        "the profile should be the v2 routing shape, got:\n{written}"
+    );
+    assert!(
+        !written.contains("[mapping]"),
+        "since 2.0.0 a profile carries no field mapping — the call does"
     );
     assert!(
         !written.contains("Almanac · Test"),
@@ -1082,9 +1078,11 @@ async fn k21_reload_picks_up_a_profile_written_by_hand() {
 }
 
 #[tokio::test]
-async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
-    // Kyu's model, which Kenny asked for by name: the row stays with a
-    // badge rather than the source vanishing without trace.
+async fn k21_deleting_a_source_removes_it_entirely() {
+    // Kenny asked for the whole source to go: token and profile both,
+    // immediately. The events it already made stay on the calendar —
+    // deleting a source says something about the source, not about
+    // what already happened.
     let dir = scratch_dir("k21-retire");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
@@ -1108,7 +1106,7 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
 
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
-            "/dashboard/sources/kobo/retire",
+            "/dashboard/sources/kobo/delete",
             Some(&cookie),
             "",
         ))
@@ -1116,10 +1114,14 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
-    assert!(!dir.join("profiles/kobo.toml").exists());
     assert!(
-        dir.join("profiles/kobo.toml.retired").exists(),
-        "the profile should still be on disk as the record"
+        !dir.join("profiles/kobo.toml").exists(),
+        "the profile must be gone"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir.join("profiles")).unwrap().count(),
+        1,
+        "only the seeded profile may remain — no renamed copy left behind"
     );
 
     let body = text(
@@ -1129,21 +1131,13 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
             .unwrap(),
     )
     .await;
-    assert!(body.contains("kobo"), "the row must survive retirement");
+    // Asserting an absence rather than a presence: "kobo is missing"
+    // cannot pass on a page where deleting silently did nothing, which
+    // is what an assertion about existence would have allowed (homelab
+    // F263, 2026-09-03).
     assert!(
-        body.contains(r#"<span class="badge text-bg-secondary">retired</span>"#),
-        "and say that it is retired"
-    );
-    // The pair above asserts that two strings EXIST, and both would
-    // still be there if retiring had quietly done nothing — "kobo" from
-    // a live row, the badge from some other retired source. So also
-    // assert what must be GONE: the retire control is rendered only for
-    // a source that is still loaded (homelab F263, 2026-09-03 — an
-    // assertion about existence passes on the wrong value as happily as
-    // on the right one).
-    assert!(
-        !body.contains("/dashboard/sources/kobo/retire"),
-        "a retired source must no longer offer the controls of a live one"
+        !body.contains("/dashboard/sources/kobo/delete"),
+        "a deleted source must be off the page entirely"
     );
 
     let posted = almanac::shell::build_router(Arc::clone(&st))
@@ -1154,7 +1148,7 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, "Bearer whatever")
                 .body(Body::from(
-                    r#"{"title":"x","start":"2026-01-01T09:00:00+00:00"}"#,
+                    r#"{"title":"x","start":"2026-01-01T09:00:00+00:00","external_id":"x"}"#,
                 ))
                 .unwrap(),
         )
@@ -1166,9 +1160,9 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
 }
 
 #[tokio::test]
-async fn k21_a_source_with_undelivered_events_is_not_retired() {
+async fn k21_a_source_with_undelivered_events_is_not_deleted() {
     // The worker resolves an entry's calendar through its profile, and
-    // the journal never drops an entry, so retiring first would strand
+    // the journal never drops an entry, so deleting first would strand
     // them: unreachable, erroring on every pass, forever.
     let dir = scratch_dir("k21-retire-pending");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
@@ -1187,7 +1181,7 @@ async fn k21_a_source_with_undelivered_events_is_not_retired() {
 
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
-            "/dashboard/sources/home-assistant/retire",
+            "/dashboard/sources/home-assistant/delete",
             Some(&cookie),
             "",
         ))
@@ -1212,14 +1206,15 @@ async fn k21_a_source_with_undelivered_events_is_not_retired() {
 #[tokio::test]
 async fn k21_changing_sources_needs_a_session() {
     // These endpoints write configuration that decides which calendar
-    // gets written to, and can create a calendar at Google.
+    // gets written to, can create a calendar at Google, and can delete
+    // a source outright.
     let dir = scratch_dir("k21-auth");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
     for (uri, body) in [
         ("/dashboard/sources", new_calendar_body("kobo", "Anything")),
         ("/dashboard/sources/reload", String::new()),
-        ("/dashboard/sources/home-assistant/retire", String::new()),
+        ("/dashboard/sources/home-assistant/delete", String::new()),
     ] {
         let response = almanac::shell::build_router(Arc::clone(&st))
             .oneshot(post_form(uri, None, &body))

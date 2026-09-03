@@ -1,7 +1,0 @@
-{
-  "title": "Vuilnis buitenzetten",
-  "note": "Restafval en PMD",
-  "entity_id": "sensor.waste_collection",
-  "where": "Voortuin",
-  "date": "2026-09-01"
-}

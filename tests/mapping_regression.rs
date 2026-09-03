@@ -2,8 +2,12 @@
 //! pinned as separate files (not just inline test data) so a change
 //! to the mapping-profile format or the JSON wire shape shows up as a
 //! diff against a real fixture, not just a passing/failing assertion
-//! buried in a unit test. Two sources (home-assistant, uptime-kuma)
-//! prove K5's engine is source-independent, not tuned to one shape.
+//! buried in a unit test.
+//!
+//! Since 2.0.0 there are two: the plain shape a dashboard-added source
+//! sends, and one carrying every option a source can set per event. The
+//! grafana and uptime-kuma fixtures went with the translation layer
+//! they existed to prove — neither had ever delivered an event.
 
 use almanac::core::mapping::map_payload;
 use almanac::core::profile::Profile;
@@ -35,27 +39,18 @@ fn run_fixture(name: &str) {
     );
 }
 
-/// K14-K17. The one fixture whose JSON shape is most likely to break
-/// silently: Google accepts exactly one of `date` and `dateTime`, and
-/// the first build of all-day support sent the wrong field names
-/// altogether. Pinning it means a change to the boundary shape, the
-/// reminder block or the free/busy marker shows up as a file diff.
+/// Every per-event option in one payload. Since 2.0.0 these come from
+/// the call rather than the profile, so this is the fixture that proves
+/// the new contract — and the one whose JSON shape is most likely to
+/// break silently: Google accepts exactly one of `date` and
+/// `dateTime`, and the first build of all-day support sent the wrong
+/// field names altogether.
 #[test]
-fn household_all_day_fixture_matches_pinned_output() {
-    run_fixture("household-all-day");
+fn the_everything_fixture_matches_pinned_output() {
+    run_fixture("everything");
 }
 
 #[test]
 fn home_assistant_fixture_matches_pinned_output() {
     run_fixture("home-assistant");
-}
-
-#[test]
-fn uptime_kuma_fixture_matches_pinned_output() {
-    run_fixture("uptime-kuma");
-}
-
-#[test]
-fn grafana_fixture_matches_pinned_output() {
-    run_fixture("grafana");
 }

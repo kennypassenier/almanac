@@ -16,7 +16,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K2 | Upsert via external ID — find an event by a private extended property so a repeated source update modifies the existing event instead of duplicating it | Essential | Automated test sending the same source event twice; asserts exactly one Google event exists. |
 | K3 | Multiple calendars — create/list/target several calendars (e.g. "infra", "hobbies"); each mapping profile picks its own target calendar | Essential | Test with two profiles writing to two different calendars; asserts no cross-contamination. |
 | K4 | Automatic OAuth2 token refresh — fixes the current one-shot-token defect (dies after ~1h uptime) | Essential | Test with an expired/near-expired token asserting refresh happens before the next Google call; plus a test for initial-token-fetch failure. |
-| K5 | Generic mapping-profile engine — declarative per-source field mapping (title/time window/color, upsert key, target calendar) replacing hardcoded Vikunja-specific Rust | Essential | Test loading a profile from a sample file and correctly translating a sample payload into a `GoogleEvent`, independent of source. |
+| K5 | Generic mapping-profile engine — declarative per-source field mapping (title/time window/color, upsert key, target calendar) replacing hardcoded Vikunja-specific Rust | Essential | Test loading a profile from a sample file and correctly translating a sample payload into a `GoogleEvent`, independent of source. **Superseded 2026-09-03 by K23:** the field mapping is gone; a source sends Almanac's own event shape and the profile is routing only. What K5 replaced — a hardcoded per-source translation in Rust — stays replaced; what took its place is now the payload contract rather than a per-source table. |
 | K6 | Per-source bearer tokens on every inbound endpoint (Latch-issued, independently revocable) | Essential | Test asserting requests without/with a wrong token fail (401/403) and a valid token succeeds; assertion that tokens never appear in logs. |
 | K7 | Source: Home Assistant (`rest_command`-compatible ingest endpoint) | Essential | E2E test with a sample HA payload producing an event on the correct calendar. |
 | K8 | Source: Kenny's Claude sessions via a token-scoped REST API (Almanac is the only thing that ever holds the Google service account credentials) | Essential | Test creating/updating/deleting an event via the REST API using a session token. |
@@ -34,7 +34,8 @@ from here on. Changes after the freeze go through a mini-round only
 | K18 | Event length from the payload — a profile may name the field holding the end time instead of a fixed duration | Essential | A profile with `end_field` produces an event ending where the payload says; setting it alongside `duration_minutes` or `duration_days` is refused at startup. *(Added 2026-08-29 via mini-round.)* |
 | K19 | `almanac update` — one supervised update, no restart, for a manager that owns the restart and the rollback | Essential | Installing under supervision leaves no probation state, while the ordinary path still writes one; both asserted. *(Added 2026-08-30 at Kenny's instruction — see amendment.)* |
 | K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
-| K21 | Manage sources from the dashboard — add one with a name and a calendar chosen from a dropdown of what exists (or a new one, created and shared on the spot), writing the profile itself and loading it without a restart; retire one, which revokes its token and renames its profile out of the loaded set while keeping the file; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; retiring keeps the file and the row, refuses while that source still has undelivered events, and revokes its token. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
+| K21 | Manage sources from the dashboard — add one with a name and a calendar chosen from a dropdown of what exists (or a new one, created and shared on the spot), writing the profile itself and loading it without a restart; delete one, which revokes its token and removes its profile; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; deleting removes the file, refuses while that source still has undelivered events, revokes its token, and leaves calendar events alone. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
+| K23 | A source speaks Almanac's own event shape — every per-event option (all-day, colour, free/busy, status, reminders, length, timezone) travels in the call rather than sitting fixed in a profile; the profile becomes routing only, and translating other shapes moves to HTTPSwitchboard | Essential | A pinned fixture using every option; a call with an unknown field refused by name; a call with neither `external_id` nor an `Idempotency-Key` header refused at ingest; a v1 profile refused with a message saying what changed. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -403,3 +404,50 @@ undone from the same page, so a save that would overwrite is refused.
 Neither adding nor retiring touches events already on the calendar —
 those belong to the calendar now, and a button that silently swept up
 months of entries would be the most expensive click on the page.
+
+
+## K23 amendment (mini-round, 2026-09-03)
+
+**The question that started it.** Kenny read the dashboard's own help
+text — "a colour per severity, an all-day event — is a line in that
+file" — and asked why. *"Die moeten natuurlijk gewoon in de api call die
+we vanuit onze sources krijgen zitten."*
+
+**He was right, and the measurement said how right.** In the v1 format
+`all_day`, `busy`, `duration_minutes`, `duration_days` and the reminders
+were *static*: one value for every event that source would ever send.
+Colour and status were half payload-driven — the profile named a field
+and carried a value→colour table. So a source could not say "this one
+event is all-day" or "this one is red". Only the profile could, for all
+of them at once.
+
+**Why it had been built that way**, which is the part worth keeping: the
+first three profiles matched webhooks nobody here controls. Grafana
+sends `commonLabels.alertname`; Uptime Kuma sends `monitor.name`. They
+do not change for us, so Almanac changed for them.
+
+**What settled it.** Offered the choice between adding a direct mode
+beside the translation and removing the translation entirely, Kenny
+chose to remove it: *"voor aanpassingen hadden we HTTPSwitchboard! dus
+doe het volgens mijn model!"* — his own message-shape translator, built
+and drilled, exists for exactly that job.
+
+The measurement that made this cheap: **Grafana and Uptime Kuma had
+never delivered a single event.** The whole journal history on CT 112
+was home-assistant (5), the since-deleted energy-prices (4) and
+job-tracker (2). The objection "but those webhooks cannot change" was
+real in theory and empty in fact — there was nothing to break. Their
+profiles and fixtures were removed with the layer they existed to prove.
+
+**Two things came out of the rewrite that were not asked for.** The
+`grafana` profile asked Google for colour `"tomato"`, and Google's API
+takes `colorId` — the string `"1"` to `"11"`. It would have been refused
+or ignored, and nobody would have known, because that profile never sent
+an event. Colours are now named and translated, and an unknown one is
+refused rather than silently producing an event in the default colour.
+And a call carrying neither `external_id` nor an `Idempotency-Key` is
+now refused at the door rather than becoming an event Almanac can never
+find again — the fault the JobTracker session measured hours earlier.
+
+**What a profile is now:** `source_id`, `target_calendar_id`, and two
+defaults a call may leave out. Nothing that describes an event.

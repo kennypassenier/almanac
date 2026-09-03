@@ -492,15 +492,10 @@ pub(crate) mod tests {
         let tokens = crate::shell::testing::TokenStub::start(3600).await;
 
         let toml = r#"
-schema_version = 1
+schema_version = 2
 source_id = "home-assistant"
 target_calendar_id = "household"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 30
-timezone = "Europe/Brussels"
 "#;
         let mut profiles = HashMap::new();
         profiles.insert(

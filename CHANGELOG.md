@@ -9,6 +9,85 @@ Releases are signed. Every published release carries `SHA256SUMS` and
 compiled into the binary — which is what the self-updater verifies
 against before it installs anything.
 
+## [2.0.0] — 2026-09-03
+
+**A source now speaks Almanac's language.** The mapping profile stops
+describing what a payload means; the call carries the event.
+
+### Changed — breaking
+
+- **Every per-event option travels in the call** (K23). `all_day`,
+  `color`, `busy`, `status`, `reminders`, `end`, `duration_minutes`,
+  `duration_days` and `timezone` are payload fields. In the v1 format
+  they were profile settings — one value for every event that source
+  would ever send — so a source could not say "this one event is
+  all-day" or "this one is red". Only the profile could, for all of
+  them at once.
+
+  Kenny, reading the dashboard's own help text: *"Die moeten natuurlijk
+  gewoon in de api call die we vanuit onze sources krijgen zitten."*
+
+- **The translation layer is gone.** A profile no longer names which
+  payload field means the title. Offered the choice between adding a
+  direct mode beside the old behaviour and removing it, Kenny chose
+  removal: *"voor aanpassingen hadden we HTTPSwitchboard! dus doe het
+  volgens mijn model!"* A webhook that cannot change what it sends goes
+  through HTTPSwitchboard, which exists to translate message shapes.
+
+  What made this cheap, measured before it was done: **Grafana and
+  Uptime Kuma had never delivered a single event.** The entire journal
+  history on CT 112 was home-assistant (5), the since-deleted
+  energy-prices (4) and job-tracker (2). Their profiles and fixtures
+  went with the layer they existed to prove.
+
+- **`schema_version` is 2.** A v1 profile is refused at load with a
+  message saying what changed and what to reduce it to — not read as if
+  its `[mapping]` block were noise, which would have silently ignored
+  everything every deployed profile says.
+
+- **A profile is now routing only:** `source_id`,
+  `target_calendar_id`, and optional `timezone` and
+  `default_duration_minutes`.
+
+- **Unknown payload fields are refused by name.** A call sending
+  `allDay` instead of `all_day` gets a message rather than a timed event
+  and no explanation.
+
+- **Delete replaces retire on the dashboard** (K21). Kenny: *"De optie
+  retire die we nu hebben moet de hele source wissen."* Token and
+  profile both go, immediately. The kyu model borrowed a day earlier
+  kept the row because message history hangs off a kyu app; nothing
+  hangs off a source here. Events already on the calendar are left
+  alone — deleting a source says something about the source, not about
+  what already happened.
+
+### Fixed
+
+- **A call Almanac could never find again is now refused at the door.**
+  Without an `external_id` in the payload or an `Idempotency-Key`
+  header, no marker is written on the Google event: every resend
+  duplicates and delete answers 404. Measured against the live service
+  by the JobTracker session on 2026-09-03 — two identical posts, two
+  events, a 404 — hours after the dashboard started writing profiles.
+  A default in a template fixes the next source; a refusal at ingest
+  fixes all of them.
+
+- **Colours are named, and an unknown one is refused.** Google's API
+  takes a `colorId` — `"1"` to `"11"` — while its UI shows names. The
+  `grafana` profile asked for `"tomato"`, which Google would have
+  refused or ignored, and nobody would have known because that profile
+  never sent an event. A source now writes `"tomato"` and Almanac
+  translates it; anything unrecognised is refused rather than silently
+  producing an event in the calendar's default colour, which is
+  indistinguishable from having asked for nothing.
+
+### Migration
+
+A v1 profile becomes a v2 profile by deleting everything except
+`source_id` and `target_calendar_id`, setting `schema_version = 2`, and
+having the source send Almanac's event shape — or putting
+HTTPSwitchboard in front of it. See `docs/USER_GUIDE.md` §2.2.
+
 ## [1.7.0] — 2026-09-03
 
 ### Fixed
@@ -420,6 +499,7 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
+[2.0.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.0.0
 [1.7.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.7.0
 [1.6.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.6.0
 [1.5.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.5.0

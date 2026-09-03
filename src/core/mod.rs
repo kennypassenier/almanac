@@ -10,6 +10,7 @@
 //!
 pub mod auth;
 pub mod calendar;
+pub mod colors;
 pub mod error;
 pub mod html;
 pub mod journal;
@@ -19,6 +20,7 @@ pub mod observability;
 pub mod pacing;
 pub mod paths;
 pub mod profile;
+pub mod request;
 pub mod retry;
 pub mod secrets;
 pub mod token;

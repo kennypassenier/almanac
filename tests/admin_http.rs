@@ -38,15 +38,10 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
 fn state(dir: &std::path::Path, admin: Option<&str>) -> Arc<AppState> {
     let journal_path = dir.join("journal.jsonl");
     let toml = r#"
-schema_version = 1
+schema_version = 2
 source_id = "home-assistant"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-external_id_field = "entity_id"
-start_field = "start"
-duration_minutes = 60
 "#;
     let mut profiles = HashMap::new();
     profiles.insert(
@@ -288,7 +283,7 @@ async fn dry_run_shows_the_event_without_writing_it() {
         .oneshot(post(
             "/v1/debug/dry-run/home-assistant",
             Some(ADMIN_TOKEN),
-            r#"{"entity_id":"switch.wasmachine","title":"Wasmachine klaar","start":"2026-08-28T09:00:00+00:00"}"#,
+            r#"{"external_id":"switch.wasmachine","title":"Wasmachine klaar","start":"2026-08-28T09:00:00+00:00"}"#,
         ))
         .await
         .unwrap();
@@ -592,7 +587,7 @@ async fn a_scrape_never_carries_a_token_a_calendar_id_or_payload_content() {
         .oneshot(post(
             "/v1/ingest/home-assistant",
             Some(token),
-            r#"{"title":"Sarah's dentist appointment","entity_id":"binary_sensor.hallway",
+            r#"{"title":"Sarah's dentist appointment","external_id":"binary_sensor.hallway",
                 "start":"2026-08-29T10:00:00Z"}"#,
         ))
         .await

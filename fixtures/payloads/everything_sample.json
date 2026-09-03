@@ -1,0 +1,13 @@
+{
+  "external_id": "kobo/chapter/2026-09-03",
+  "title": "Week weg",
+  "description": "Alles wat een bron per event kan zeggen",
+  "location": "Ardennen",
+  "start": "2026-09-07",
+  "all_day": true,
+  "duration_days": 5,
+  "busy": false,
+  "color": "tomato",
+  "status": "tentative",
+  "reminders": { "popup_minutes_before": [30], "email_minutes_before": [1440] }
+}

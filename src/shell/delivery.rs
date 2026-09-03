@@ -242,7 +242,10 @@ mod tests {
         let client = stubbed_client(&calendar).await;
         let locks = KeyLocks::new();
 
+        // No external_id in the payload: this is M7's path, where the
+        // header supplies the key instead.
         let mut entry = payload_entry("home-assistant", "bin day");
+        entry.payload = json!({"title": "bin day", "start": "2026-08-28T09:00:00+00:00"});
         entry.idempotency_key = Some("bin-day-2026-09-01".to_string());
 
         let delivered = deliver(
@@ -261,9 +264,16 @@ mod tests {
         );
 
         // And a delivery with nothing to deduplicate against still
-        // reports honestly, rather than inventing a key.
+        // reports honestly, rather than inventing a key. Since 2.0.0
+        // the ingest layer refuses such a call outright, so this can
+        // only arise from an entry journalled by an older build and
+        // replayed after the upgrade — which is exactly why the
+        // delivery layer must still handle it rather than assume.
+        let mut anonymous_entry = payload_entry("uptime-kuma", "jellyfin down");
+        anonymous_entry.payload =
+            json!({"title": "jellyfin down", "start": "2026-08-28T09:00:00+00:00"});
         let anonymous = deliver(
-            &payload_entry("uptime-kuma", "jellyfin down"),
+            &anonymous_entry,
             &profile_for("uptime-kuma", "infra@group.calendar.google.com"),
             &client,
             &locks,
@@ -291,15 +301,10 @@ mod tests {
     fn profile_for(source_id: &str, calendar: &str) -> Profile {
         let toml = format!(
             r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "{calendar}"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 30
-timezone = "Europe/Brussels"
 "#
         );
         Profile::parse(&toml, "test.toml").unwrap()
@@ -310,7 +315,11 @@ timezone = "Europe/Brussels"
             id: format!("j-{title}"),
             source_id: source_id.to_string(),
             received_at: "2026-08-28T09:00:00+00:00".to_string(),
-            payload: json!({"title": title, "start": "2026-08-28T09:00:00+00:00"}),
+            payload: json!({
+                "title": title,
+                "start": "2026-08-28T09:00:00+00:00",
+                "external_id": title
+            }),
             idempotency_key: None,
         }
     }

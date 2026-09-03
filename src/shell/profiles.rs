@@ -99,25 +99,23 @@ pub fn save_new(dir: &Path, contents: &str) -> Result<Profile, AlmanacError> {
     Ok(profile)
 }
 
-/// What a retired profile's file is renamed to.
+/// Deletes a source's profile (K21).
 ///
-/// Deliberately not a deletion, and deliberately not `.toml`: the
-/// loader only reads `*.toml`, so a retired source disappears from the
-/// running set while the file — and therefore the record that this
-/// source ever existed, and everything it was configured to do — stays
-/// where it was. Copied from kyu, where revoking an app keeps its row
-/// rather than erasing it (Kenny, 2026-09-02: "kopieer het kyu model").
-const RETIRED_SUFFIX: &str = ".toml.retired";
-
-/// Retires a source's profile (K21): renames it out of the loaded set
-/// and returns where it went.
+/// Really deletes it. The first version renamed the file aside and kept
+/// the row on the page with a badge, copied from kyu at Kenny's
+/// request; he then asked for the other thing — *"De optie retire die
+/// we nu hebben moet de hele source wissen"* — and he is right that the
+/// borrowed model did not fit. Kyu keeps a revoked app's row because
+/// message history hangs off it. Here nothing hangs off a source: the
+/// events it made belong to the calendar and stay there either way.
 ///
-/// Reversible by hand — rename the file back and reload — which is the
-/// property that makes a button safe to press. Deleting outright would
-/// need a confirmation dialog to be honest about itself; this does not.
-pub fn retire(dir: &Path, source_id: &str) -> Result<PathBuf, AlmanacError> {
+/// The events are deliberately left alone (Kenny, 2026-09-03): deleting
+/// a source is a statement about the source, not about what already
+/// happened. Removing months of calendar entries in one click is a
+/// second, deliberate act, and not this one.
+pub fn delete(dir: &Path, source_id: &str) -> Result<PathBuf, AlmanacError> {
     // Defence in depth: this argument arrives as a URL path segment,
-    // and the profiles it can reach are named after it.
+    // and the file it names is about to be removed.
     if !crate::core::profile::source_id_is_safe(source_id) {
         return Err(AlmanacError::Config {
             message: format!("\"{source_id}\" is not a valid source_id"),
@@ -125,53 +123,22 @@ pub fn retire(dir: &Path, source_id: &str) -> Result<PathBuf, AlmanacError> {
         });
     }
 
-    let from = profile_path(dir, source_id);
-    if !from.exists() {
+    let path = profile_path(dir, source_id);
+    if !path.exists() {
         return Err(AlmanacError::Config {
-            message: format!("{} does not exist", from.display()),
-            remedy: "this source has no profile file to retire — reload the page".to_string(),
+            message: format!("{} does not exist", path.display()),
+            remedy: "this source has no profile file — reload the page".to_string(),
         });
     }
 
-    // A source_id can be retired, recreated and retired again. Each
-    // retirement keeps its own file rather than overwriting the last,
-    // because the older one is the record of a different configuration.
-    let mut to = dir.join(format!("{source_id}{RETIRED_SUFFIX}"));
-    let mut n = 2;
-    while to.exists() {
-        to = dir.join(format!("{source_id}{RETIRED_SUFFIX}-{n}"));
-        n += 1;
-    }
-
-    std::fs::rename(&from, &to).map_err(|e| AlmanacError::Config {
-        message: format!("failed to retire {}: {e}", from.display()),
+    std::fs::remove_file(&path).map_err(|e| AlmanacError::Config {
+        message: format!("failed to delete {}: {e}", path.display()),
         remedy: format!(
             "check the profiles directory {} is writable by the almanac user",
             dir.display()
         ),
     })?;
-    Ok(to)
-}
-
-/// The source ids whose profiles have been retired, sorted.
-///
-/// Read from the directory rather than remembered in memory: the
-/// record has to survive a restart, and the file is the record.
-pub fn retired(dir: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut ids: Vec<String> = entries
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let id = name.split_once(RETIRED_SUFFIX)?.0.to_string();
-            (!id.is_empty()).then_some(id)
-        })
-        .collect();
-    ids.sort();
-    ids.dedup();
-    ids
+    Ok(path)
 }
 
 /// `<dir>/<source_id>.toml`. Safe because `Profile::parse` has already
@@ -212,14 +179,10 @@ mod tests {
     fn write_profile(dir: &Path, filename: &str, source_id: &str) {
         let toml = format!(
             r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#
         );
         let mut file = std::fs::File::create(dir.join(filename)).unwrap();
@@ -276,14 +239,10 @@ duration_minutes = 60
     }
 
     const SUBMITTED: &str = r#"
-schema_version = 1
+schema_version = 2
 source_id = "kobo"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-start_field = "start"
-duration_minutes = 60
 "#;
 
     #[test]
@@ -383,59 +342,44 @@ duration_minutes = 60
     }
 
     #[test]
-    fn k21_a_retired_profile_leaves_the_loaded_set_but_not_the_disk() {
-        // The kyu model: ending a source keeps the record that it
-        // existed. A file that is gone answers no questions later.
-        let dir = temp_dir("retire");
+    fn k21_a_deleted_profile_is_gone_from_the_disk_and_the_loaded_set() {
+        // Kenny asked for the whole source to go, not to be set aside:
+        // "De optie retire die we nu hebben moet de hele source wissen".
+        let dir = temp_dir("delete");
         save_new(&dir, SUBMITTED).unwrap();
 
-        let kept = retire(&dir, "kobo").unwrap();
+        let removed = delete(&dir, "kobo").unwrap();
 
-        assert!(kept.exists(), "the profile must survive as a file");
-        assert!(!dir.join("kobo.toml").exists());
+        assert!(!removed.exists(), "the profile file must be gone");
         assert!(
             !load_map(&dir).unwrap().contains_key("kobo"),
-            "a retired source must not be loaded"
+            "a deleted source must not be loaded"
         );
-        assert_eq!(retired(&dir), vec!["kobo".to_string()]);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            0,
+            "nothing may be left behind, not even a renamed copy"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn k21_retiring_the_same_source_twice_keeps_both_records() {
-        // A source_id can be retired, recreated with different settings
-        // and retired again; the first file is the record of the first
-        // configuration and overwriting it would lose exactly the
-        // history this feature exists to keep.
-        let dir = temp_dir("retire-twice");
-        save_new(&dir, SUBMITTED).unwrap();
-        let first = retire(&dir, "kobo").unwrap();
-        save_new(&dir, SUBMITTED).unwrap();
-        let second = retire(&dir, "kobo").unwrap();
-
-        assert_ne!(first, second);
-        assert!(first.exists() && second.exists());
-        assert_eq!(retired(&dir), vec!["kobo".to_string()]);
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn k21_retiring_something_that_is_not_there_says_so() {
-        let dir = temp_dir("retire-missing");
-        let err = retire(&dir, "kobo").unwrap_err();
+    fn k21_deleting_something_that_is_not_there_says_so() {
+        let dir = temp_dir("delete-missing");
+        let err = delete(&dir, "kobo").unwrap_err();
         assert!(err.to_string().contains("kobo.toml"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn k21_a_hostile_source_id_cannot_rename_a_file_outside_the_directory() {
+    fn k21_a_hostile_source_id_cannot_delete_a_file_outside_the_directory() {
         // Unlike save_new, this one takes its id straight from a URL
-        // path segment — nothing has parsed a profile on the way in.
-        let dir = temp_dir("retire-escape");
-        let err = retire(&dir, "../../etc/passwd").unwrap_err();
+        // path segment — nothing has parsed a profile on the way in,
+        // and the file it names is about to be removed.
+        let dir = temp_dir("delete-escape");
+        let err = delete(&dir, "../../etc/passwd").unwrap_err();
         assert!(err.to_string().contains("source_id"));
 
         std::fs::remove_dir_all(&dir).ok();
@@ -453,11 +397,11 @@ duration_minutes = 60
         let profiles = load_all(&dir).expect("the shipped profiles must parse");
 
         assert!(
-            profiles.len() >= 3,
-            "expected the home-assistant, grafana and uptime-kuma profiles, got {}",
+            profiles.len() >= 2,
+            "expected the home-assistant and everything profiles, got {}",
             profiles.len()
         );
-        for expected in ["home-assistant", "grafana", "uptime-kuma"] {
+        for expected in ["home-assistant", "everything"] {
             assert!(
                 profiles.iter().any(|p| p.source_id == expected),
                 "the {expected} profile is missing from the shipped set"

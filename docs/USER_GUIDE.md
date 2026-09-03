@@ -15,10 +15,9 @@ to [FEATURES.md](FEATURES.md) and to the test that keeps it true.
 
 ## 1 · The shape of the thing
 
-Something posts a JSON payload to Almanac. Almanac looks up that
-source's **mapping profile**, which says which calendar to write to and
-which fields of the payload mean what, and turns the payload into a
-Google Calendar event.
+Something posts a JSON payload to Almanac — Almanac's own event shape.
+Almanac looks up that source's **profile**, which says which calendar to
+write to, and puts the event there.
 
 ```
 Home Assistant ─┐
@@ -74,148 +73,95 @@ end up somewhere it should not, so it is the one that can do least.
 Captures live in memory, are capped, and expire. They are for an
 afternoon of reverse-engineering, not a log.
 
-### 2.2 · Write the mapping profile (K5)
+### 2.2 · Add the source, and send it events
 
-**The short way: two fields on the dashboard.** On
-`/dashboard/sources`, **Add a source** asks for a name and a calendar
-(K21). The calendar is a dropdown of the ones that exist; choose
-*+ New calendar…* and a box appears for its name. Submitting writes the
-profile, creates the calendar if it is a new one and shares it with you,
-and lists the source ready for a token. Live immediately, no restart.
+**Adding it takes two fields.** On `/dashboard/sources`, **Add a
+source** asks for a name and a calendar (K21). The calendar is a
+dropdown of the ones that exist; choose *+ New calendar…* and a box
+appears for its name. Submitting writes the profile, creates the
+calendar if it is a new one and shares it with you, and lists the source
+ready for a token. Live immediately, no restart.
 
-What that profile says is the plain shape, one hour long,
-Europe/Brussels:
-
-| Field | | |
-|---|---|---|
-| `title` | required | becomes the event title |
-| `start` | required | RFC 3339, e.g. `2026-09-03T21:00:00+02:00` |
-| `external_id` | required | the source's own id for this thing |
-| `description` | optional | becomes the body |
-| `location` | optional | becomes the event's location |
-
-```json
-POST /v1/ingest/kobo
-{"title": "Finished a chapter", "start": "2026-09-03T21:00:00+02:00",
- "external_id": "kobo/chapter/2026-09-03"}
-```
-
-Required means what it says: a payload missing one is refused with a
-message naming the field. The optional two are simply left out of the
-event when absent, so a source can send them or not.
-
-**`external_id` is not optional, and that is deliberate.** It is the
-marker Almanac stores on the Google event, so it is what makes a resend
-update instead of duplicate (3.1) and the only handle the delete
-endpoint has (3.3). A payload without it is refused with a message
-naming it. That refusal is the point: a profile without this field
-produces events that duplicate on every resend and that Almanac can
-never remove again — which happened once, on 2026-09-03, before this
-was the default.
-
-That is the trade, and it is worth understanding: the three profiles
-written by hand each match a webhook nobody here controls — Grafana
-sends `commonLabels.alertname`, Uptime Kuma sends `monitor.name` — so
-they say so field by field. A source you write yourself is cheaper to
-point at Almanac's shape than to describe.
-
-**The long way, for everything else.** The file lands in the profiles
-directory (`/appdata/almanac/almanac-config/profiles/` on the
-deployment) and is an ordinary TOML file: edit it for a nested field
-path, a colour rule, an all-day event or a different length, then press
-**Reload profiles from disk** on the same page — again no restart. A
-profile written there by hand is picked up the same way. It looks like
-this:
+**The profile it writes says only where events land.** Since 2.0.0 that
+is all a profile is:
 
 ```toml
-schema_version = 1
-source_id = "home-assistant"
+schema_version = 2
+source_id = "kobo"
 target_calendar_id = "2774a1…@group.calendar.google.com"
-
-[mapping]
-title_field = "title"
-description_field = "description"
-external_id_field = "entity_id"
-start_field = "start"
-duration_minutes = 60
 timezone = "Europe/Brussels"
+default_duration_minutes = 60
 ```
 
 | Key | Required | What it does |
 |---|---|---|
-| `schema_version` | yes | Always `1`. A future format bump refuses old files loudly rather than misreading them. |
-| `source_id` | yes | The URL segment this source posts to, and the name of its token. Must be unique across all profiles. |
+| `schema_version` | yes | Always `2`. A v1 profile is refused with a message saying what changed, not misread. |
+| `source_id` | yes | The URL segment this source posts to, and the name of its token. Unique across all profiles (AR15). |
 | `target_calendar_id` | yes | Which calendar this source's events land on (K3). |
-| `title_field` | yes | Which payload field becomes the event title. |
-| `description_field` | no | Which field becomes the body. Omit for a title-only event. |
-| `external_id_field` | no | The field holding the source's own id for this thing. This is what makes updates converge instead of duplicating — see 3.1. |
-| `start_field` | yes | The field holding the start time, as RFC 3339. |
-| `duration_minutes` | for a timed event | How long the event is. Must be greater than zero. Leave it out on an all-day profile — setting both is refused at startup rather than silently resolved. |
-| `end_field` | for an event whose length varies | Which payload field holds the end time, as RFC 3339 (K18). Use instead of `duration_minutes` when the source reports a period rather than a moment — a cheap-power window, a wash cycle, a week away. |
-| `location_field` | no | Which payload field becomes the event's location (K15). |
-| `all_day` | no | `true` makes a day marker instead of a timed block (K14). The start field may then be either `2026-09-01` or a full timestamp on that day. |
-| `duration_days` | no | How many days an all-day event covers; defaults to 1. Only on an all-day profile. |
-| `busy` | no | `false` shows the event without consuming your availability (K17) — what an infra incident should do. Absent leaves Google's default, which is busy. |
-| `timezone` | yes | An IANA name, e.g. `Europe/Brussels`. Checked at startup (M4) — a typo is caught when the service starts, not by Google days later. |
+| `timezone` | no | The zone timestamps are read in when a call does not say. Defaults to `Europe/Brussels`; checked when the profile loads (M4). |
+| `default_duration_minutes` | no | How long events last when a call gives neither an end nor a duration. Defaults to 60. |
 
-**Exactly one of `duration_minutes`, `duration_days` and `end_field`**
-applies, and setting two is refused when the profile loads rather than
-resolved in whatever order the code happens to read them. An end at or
-before the start is refused too: Google accepts it, and the result is an
-event that appears on no calendar at all.
+**Everything else is in the call.** What an event *is* — its title,
+length, colour, whether it is all-day — is something the source knows
+per event, so the source says it per event:
 
-**Nested fields work** with dots: `title_field = "data.alert.name"`
-reads `{"data": {"alert": {"name": "…"}}}`.
+| Field | | |
+|---|---|---|
+| `title` | required | the event title |
+| `start` | required | RFC 3339, or `2026-09-07` when `all_day` |
+| `external_id` | required¹ | this source's own id for the thing |
+| `description` | optional | the body |
+| `location` | optional | where it is |
+| `end` | optional | RFC 3339. Wins over `duration_minutes` |
+| `duration_minutes` | optional | how long, when there is no end |
+| `all_day` | optional | `true` makes a day marker instead of a block |
+| `duration_days` | optional | how many days an all-day event covers; 1 |
+| `busy` | optional | `false` shows it without consuming availability |
+| `color` | optional | a Google colour by name (`tomato`) or id (`11`) |
+| `status` | optional | `confirmed`, `tentative` or `cancelled` |
+| `reminders` | optional | see below |
+| `timezone` | optional | overrides the profile's, for this event |
 
-**Numbers and booleans are coerced to strings**, so a payload with
-`"severity": 3` can feed a title without special handling.
+¹ `external_id` may be left out **only** if the call carries an
+`Idempotency-Key` header instead (M7). A call with neither is refused
+with a 422: without one of the two, Almanac writes no marker on the
+event and can never find it again — every resend makes another, and
+delete answers 404. That is not a hypothetical; it happened on
+2026-09-03, before this was refused at the door.
 
-**Reminders** (optional, K16). Three distinct outcomes, and the
-difference between the last two matters:
-
-```toml
-# ask for reminders
-[mapping.reminders]
-popup_minutes_before = [30]
-email_minutes_before = [1440]
+```json
+POST /v1/ingest/kobo
+{"title": "Week weg", "start": "2026-09-07", "all_day": true,
+ "duration_days": 5, "color": "tomato", "busy": false,
+ "external_id": "kobo/holiday/2026-09"}
 ```
 
-```toml
-# deliberate silence, overriding whatever the calendar defaults to
-[mapping.reminders]
-silent = true
+**Unknown fields are refused, not ignored.** A call sending `allDay`
+instead of `all_day` gets a message naming it, rather than a timed event
+and no explanation.
+
+**Reminders**, when you want them:
+
+```json
+"reminders": {"popup_minutes_before": [30], "email_minutes_before": [1440]}
 ```
 
-Omit the block entirely and the calendar's own default applies. That is
-*not* the same as `silent = true`, which says "no reminders" out loud.
-Google allows at most five reminders, none further out than four weeks;
-both limits are checked when the profile loads rather than on every
-event forever.
-
-**Status by value** (optional, K17) — the same shape as colours, mapping
-a payload field onto Google's three statuses:
-
-```toml
-[mapping.status_by]
-field = "status"
-default = "confirmed"
-values = { resolved = "cancelled" }
+```json
+"reminders": {"silent": true}
 ```
 
-Only `confirmed`, `tentative` and `cancelled` are accepted; anything
-else is refused at startup.
+Omitting the block inherits the calendar's own default, which is a third
+and different outcome from silence. Google allows at most five
+reminders, none further out than four weeks; both are checked before the
+event is sent.
 
-**Colours by value** (optional):
-
-```toml
-[mapping.color_by]
-field = "severity"
-default = "8"
-values = { critical = "11", warning = "5", ok = "10" }
-```
-
-Those are Google's colour ids. An unrecognised value falls back to
-`default` rather than failing the mapping.
+**A source that speaks a different shape.** Almanac used to translate:
+a profile named which payload field meant the title, and Grafana's
+`commonLabels.alertname` became one. That translation is gone as of
+2.0.0 — Kenny's decision, and his reason: *"voor aanpassingen hadden we
+HTTPSwitchboard!"* A webhook that cannot change what it sends goes
+through HTTPSwitchboard, which exists to translate message shapes, and
+Almanac stays one thing.
 
 ### 2.3 · Check the profile before connecting anything (M9)
 
@@ -299,25 +245,21 @@ Idempotency-Key: shopping-run-2026-09-01
 
 The profile's own `external_id_field` wins when both are present.
 
-### 3.2 · Retiring a source (K21)
+### 3.2 · Deleting a source (K21)
 
-*Retire* on `/dashboard/sources` ends a source: its token is revoked and
-its profile is renamed to `<source_id>.toml.retired`, which the loader
-does not read. It stops posting immediately, no restart.
+*Delete* on `/dashboard/sources` removes a source entirely: its token is
+revoked and its profile file is deleted. It stops posting immediately,
+no restart, and it is off the page.
 
-The file stays, and so does its row on the page, marked `retired` — a
-source that vanished without trace is indistinguishable from one that
-was never there, and the question months later is always "did we have
-one of these?". To undo it: rename the file back to `.toml` and press
-*Reload profiles from disk*.
-
-Retiring is refused while that source still has events waiting in the
-journal, and says how many. Deliveries resolve their calendar through
-the profile, so retiring first would strand them.
+Refused while that source still has events waiting in the journal, with
+the count in the message: deliveries resolve their calendar through the
+profile, so deleting first would strand them.
 
 **Events already on the calendar are not touched.** They belong to the
-calendar now. To remove them, delete them by external id (3.3) *before*
-retiring the source, while its token still works.
+calendar now (Kenny's decision, 2026-09-03: deleting a source says
+something about the source, not about what already happened). To remove
+them, delete them by external id (3.3) *before* deleting the source,
+while its token still works.
 
 ### 3.3 · Deleting an event (K8)
 
@@ -410,6 +352,10 @@ authenticate reports a healthy service as down. Everything else does.
 - **It does not rate-limit inbound requests** (M5, deliberately Later).
   Every source is on the LAN and trusted; this would matter the day one
   is not.
+- **It does not translate payload shapes** (2.0.0, Kenny's decision). A
+  source speaks Almanac's event shape. Anything that cannot — a webhook
+  from a system nobody here controls — goes through HTTPSwitchboard,
+  which exists for exactly that.
 - **It does not do repeating events** (declined 2026-08-29). Not for
   lack of value — a recurring event is one Google event with instances
   beneath it, and Almanac's whole model is one payload, one event. An

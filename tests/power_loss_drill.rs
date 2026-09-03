@@ -45,15 +45,10 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
 fn profile_for(calendar_id: &str) -> Profile {
     let toml = format!(
         r#"
-schema_version = 1
+schema_version = 2
 source_id = "drill-source"
 target_calendar_id = "{calendar_id}"
 
-[mapping]
-title_field = "title"
-external_id_field = "entity_id"
-start_field = "start"
-duration_minutes = 60
 "#
     );
     Profile::parse(&toml, "drill.toml").unwrap()
@@ -104,7 +99,7 @@ async fn a_crash_between_delivery_and_bookkeeping_loses_nothing_and_duplicates_n
         source_id: "drill-source".to_string(),
         received_at: "2026-08-28T09:00:00+00:00".to_string(),
         payload: json!({
-            "entity_id": entity_id,
+            "external_id": entity_id,
             "title": "power-loss drill",
             "start": "2026-08-28T09:00:00+00:00",
         }),
@@ -209,7 +204,7 @@ async fn an_entry_accepted_but_never_delivered_goes_out_on_the_next_start() {
                 source_id: "drill-source".to_string(),
                 received_at: "2026-08-28T09:00:00+00:00".to_string(),
                 payload: json!({
-                    "entity_id": entity_id,
+                    "external_id": entity_id,
                     "title": "accepted but never delivered",
                     "start": "2026-08-28T09:00:00+00:00",
                 }),

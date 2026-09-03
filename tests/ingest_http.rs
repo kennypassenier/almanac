@@ -45,15 +45,10 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
 fn profile(source_id: &str) -> Profile {
     let toml = format!(
         r#"
-schema_version = 1
+schema_version = 2
 source_id = "{source_id}"
 target_calendar_id = "primary"
 
-[mapping]
-title_field = "title"
-external_id_field = "entity_id"
-start_field = "start"
-duration_minutes = 60
 "#
     );
     Profile::parse(&toml, "test.toml").unwrap()
@@ -96,7 +91,7 @@ async fn state(dir: &std::path::Path) -> Arc<AppState> {
 }
 
 fn ha_payload() -> &'static str {
-    r#"{"entity_id":"switch.wasmachine","title":"Wasmachine klaar","start":"2026-08-28T09:00:00+00:00"}"#
+    r#"{"external_id":"switch.wasmachine","title":"Wasmachine klaar","start":"2026-08-28T09:00:00+00:00"}"#
 }
 
 fn post(uri: &str, token: Option<&str>, body: &str) -> Request<Body> {
@@ -349,42 +344,41 @@ async fn a_journal_that_cannot_be_written_answers_500_so_the_sender_retries() {
 }
 
 #[tokio::test]
-async fn both_alert_sources_are_accepted_at_the_http_layer() {
-    // K9's criterion says "an E2E test per system". The two alert
-    // sources were only ever exercised as pure mapping fixtures; their
-    // payloads never passed through authentication, the router, or the
-    // journal. A content type or auth shape the ingest layer rejects
-    // would only surface when a real outage alert failed to appear.
-    let dir = scratch_dir("alert-sources");
+async fn a_payload_using_every_option_is_accepted_at_the_http_layer() {
+    // K9's criterion said "an E2E test per alert system", and until
+    // 2.0.0 this ran the grafana and uptime-kuma fixtures through auth,
+    // the router and the journal — the only place those payloads ever
+    // met anything but the mapping engine.
+    //
+    // Those fixtures went with the translation layer they existed to
+    // prove. What still matters is the same claim about the shape that
+    // replaced them: a call using every per-event option must survive
+    // the whole HTTP path, not just the mapper. A content type or a
+    // field the ingest layer refuses would otherwise surface only when
+    // a real event failed to appear.
+    let dir = scratch_dir("every-option");
     let state = state(&dir).await;
 
-    let grafana = std::fs::read_to_string(concat!(
+    let payload = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/fixtures/payloads/grafana_sample.json"
-    ))
-    .unwrap();
-    let kuma = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/fixtures/payloads/uptime-kuma_sample.json"
+        "/fixtures/payloads/everything_sample.json"
     ))
     .unwrap();
 
-    for payload in [&grafana, &kuma] {
-        let response = almanac::shell::build_router(Arc::clone(&state))
-            .oneshot(post("/v1/ingest/uptime-kuma", Some(KUMA_TOKEN), payload))
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::ACCEPTED,
-            "a real alert payload must be accepted as it is actually sent"
-        );
-    }
+    let response = almanac::shell::build_router(Arc::clone(&state))
+        .oneshot(post("/v1/ingest/uptime-kuma", Some(KUMA_TOKEN), &payload))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::ACCEPTED,
+        "a payload using every option must be accepted as it is actually sent"
+    );
 
     assert_eq!(
         state.journal.pending().unwrap().len(),
-        2,
-        "and both must be durably journalled"
+        1,
+        "and it must be durably journalled"
     );
 
     std::fs::remove_dir_all(&dir).ok();
