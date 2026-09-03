@@ -1,6 +1,6 @@
 [package]
 name = "almanac"
-version = "2.2.0"
+version = "2.3.0"
 edition = "2024"
 
 # AR11: dependency list stays minimal to what each milestone actually
