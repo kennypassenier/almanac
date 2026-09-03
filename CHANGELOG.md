@@ -110,6 +110,15 @@ describing what a payload means; the call carries the event.
 
 ### Migration
 
+**A source whose profile is still v1 gets a `401` on every post** — not
+a 422, and nothing that mentions a schema version. That is deliberate:
+an unserved source is indistinguishable from an unknown one, so probing
+cannot map which sources exist. But it does mean the sender sees
+"unauthorized" for a reason that has nothing to do with its token, and
+the JobTracker session spent time working that out. The explanation is
+on `/dashboard/sources` under *Not being served*, and in the log at
+startup.
+
 Nothing has to happen at upgrade time: an old profile is left unserved
 and listed on the dashboard, the rest keep serving. To bring one back, reduce it to `schema_version = 2`,
 `source_id` and `target_calendar_id`, and press *Reload profiles from

@@ -742,6 +742,13 @@ directory if it has to. That is what a fresh machine looks like.
 an unknown source. It is not registered as far as this build is
 concerned, and the sender sees that immediately rather than as silence.
 
+That is the right answer — an unserved source must be indistinguishable
+from an unknown one, or probing maps which sources exist — but it is
+also a confusing one from the other end: the sender reads
+"unauthorized" and checks its token, which is fine. So when someone
+reports a 401 they cannot explain, look here first. The dashboard and
+the startup log both name the real reason.
+
 **Fixing a v1 profile:** reduce it to `schema_version = 2`, `source_id`
 and `target_calendar_id`, then press *Reload profiles from disk*. No
 restart. The source must also send Almanac's event shape — if it
