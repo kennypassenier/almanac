@@ -414,8 +414,26 @@ impl Profile {
 ///
 /// A loud refusal naming the missing field beats silent duplicates that
 /// nothing can remove. So the shape a dashboard-added source speaks
-/// includes `external_id`, alongside `title`, `description` and
-/// `start`.
+/// includes `external_id`, alongside `title`, `description`,
+/// `location` and `start`.
+///
+/// Which fields belong here at all was then measured rather than
+/// guessed, because "what else is quietly missing" is the same question
+/// that produced the omission above. Naming a field in a profile makes
+/// it one of two things:
+///
+/// - **Required in every payload** — `title_field`, `start_field`,
+///   `external_id_field`, `end_field`. A payload without it is refused
+///   with a message naming it.
+/// - **Optional** — `description_field`, `location_field`. A payload
+///   without it simply produces an event without that part.
+///
+/// So the two optional ones cost nothing to name and are named: a
+/// source that sends a `location` gets it on the event instead of
+/// having it silently dropped. Everything else a profile can do —
+/// `all_day`, `busy`, `duration_days`, `end_field`, colours, statuses,
+/// reminders — changes behaviour rather than carrying a value, and has
+/// no safe default. Those stay lines to add by hand.
 pub fn default_profile_toml(source_id: &str, calendar_id: &str) -> String {
     format!(
         r#"# Written from the dashboard. The plain shape: a payload carrying
@@ -429,6 +447,7 @@ target_calendar_id = "{calendar_id}"
 [mapping]
 title_field = "title"
 description_field = "description"
+location_field = "location"
 start_field = "start"
 external_id_field = "external_id"
 duration_minutes = 60
@@ -558,7 +577,7 @@ duration_minutes = 60
     }
 
     #[test]
-    fn k21_the_default_matches_the_shape_the_regression_fixture_pins() {
+    fn k21_the_default_names_every_field_that_costs_nothing_to_name() {
         // The template is not a new invention: it is the deployed
         // home-assistant profile minus the parts a new source cannot
         // promise. If that shape ever changes, this fails next to it.
@@ -568,6 +587,7 @@ duration_minutes = 60
             r#"description_field = "description""#,
             r#"start_field = "start""#,
             r#"external_id_field = "external_id""#,
+            r#"location_field = "location""#,
         ] {
             assert!(toml.contains(field), "{field} missing from the default");
         }

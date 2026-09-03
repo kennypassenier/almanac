@@ -83,15 +83,26 @@ afternoon of reverse-engineering, not a log.
 profile, creates the calendar if it is a new one and shares it with you,
 and lists the source ready for a token. Live immediately, no restart.
 
-What that profile says is the plain shape — a payload carrying `title`,
-`description`, `start` and `external_id`, one hour long,
+What that profile says is the plain shape, one hour long,
 Europe/Brussels:
+
+| Field | | |
+|---|---|---|
+| `title` | required | becomes the event title |
+| `start` | required | RFC 3339, e.g. `2026-09-03T21:00:00+02:00` |
+| `external_id` | required | the source's own id for this thing |
+| `description` | optional | becomes the body |
+| `location` | optional | becomes the event's location |
 
 ```json
 POST /v1/ingest/kobo
 {"title": "Finished a chapter", "start": "2026-09-03T21:00:00+02:00",
  "external_id": "kobo/chapter/2026-09-03"}
 ```
+
+Required means what it says: a payload missing one is refused with a
+message naming the field. The optional two are simply left out of the
+event when absent, so a source can send them or not.
 
 **`external_id` is not optional, and that is deliberate.** It is the
 marker Almanac stores on the Google event, so it is what makes a resend
