@@ -146,11 +146,17 @@ dies with it, which is correct: after a restart Google has long caught
 up. It buys nothing against a calendar created outside almanac in the
 same second — theoretical here.
 
-**PENDING — how we measure that it works, and when.** At the next time
-Kenny creates and deletes a calendar on the live service. The list must
-be right immediately in both directions: the new one there, the deleted
-one gone. That is one half-minute action and it proves both repairs
-where the stub cannot speak.
+**CLOSED — measured on the live service, 2026-09-04.** Kenny created a
+calendar and deleted one on the dashboard and reported the list correct
+in both directions immediately: "getest en goedgekeurd". Checked which
+version that was rather than assuming, because the create side only
+exists in 2.3.0 and the homelab's deploy is a step of its own:
+
+    curl http://10.10.10.12:8080/healthz
+    {"status":"ok","version":"2.3.0"}
+
+So both repairs were proven on the machine, in the place where the stub
+cannot speak. The loop this entry existed to keep open is done.
 
 **Fallback if that measurement fails:** stop reading Google's list to
 render the page at all. Almanac knows on disk which calendars it made
