@@ -50,6 +50,140 @@ async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
         .await
 }
 
+/// The seven kp-themes palettes, once (K25).
+///
+/// Mirrors `THEME_META` in `@kp-soft/themes` v0.1.1: name, the Dutch
+/// label the package ships, whether it is a dark theme, and the two
+/// swatch colours. It lives here and nowhere else — `theme.js`
+/// deliberately carries no list and reads `data-theme` / `data-dark`
+/// off the markup this renders, because a copy of the list in
+/// JavaScript would be a second source of truth and the stale one is
+/// always the one nobody is looking at.
+///
+/// `(name, label, dark, background, primary)`.
+const THEMES: [(&str, &str, bool, &str, &str); 7] = [
+    (
+        "formal",
+        "Formeel",
+        false,
+        "hsl(40,25%,97%)",
+        "hsl(218,45%,24%)",
+    ),
+    (
+        "light",
+        "Licht",
+        false,
+        "hsl(0,0%,100%)",
+        "hsl(243,60%,45%)",
+    ),
+    (
+        "dark",
+        "Donker",
+        true,
+        "hsl(226,22%,8%)",
+        "hsl(255,85%,74%)",
+    ),
+    (
+        "cyberpunk",
+        "Cyberpunk",
+        true,
+        "hsl(258,40%,6%)",
+        "hsl(315,95%,64%)",
+    ),
+    (
+        "pastel",
+        "Pastel",
+        false,
+        "hsl(285,45%,97%)",
+        "hsl(330,55%,42%)",
+    ),
+    (
+        "terminal",
+        "Terminal",
+        true,
+        "hsl(120,10%,5%)",
+        "hsl(120,90%,50%)",
+    ),
+    (
+        "topo",
+        "Topografisch",
+        false,
+        "hsl(42,32%,95%)",
+        "hsl(158,42%,24%)",
+    ),
+];
+
+/// Everything the browser needs before the first paint, and the three
+/// stylesheets in the order they must load: Bootstrap first, then the
+/// theme tokens, then the bridge that points Bootstrap at them.
+fn head_assets() -> String {
+    String::from(
+        r#"<script>
+/* Before the first paint: the visitor's last theme, or the default.
+   Without this the page renders in `formal` and jumps to the chosen
+   theme — the flash the package's initializeTheme() exists to prevent.
+   Deliberately tiny: it does not know which themes exist or which are
+   dark. theme.js settles both once the picker is in the DOM. */
+(function () {
+  try {
+    var t = localStorage.getItem('theme');
+    if (t) document.documentElement.dataset.theme = t;
+  } catch (e) { /* blocked storage: the default stands */ }
+})();
+</script>
+<link rel="preconnect" href="https://fonts.bunny.net">
+<!-- Three themes carry their own face — formal wants Fraunces, cyberpunk
+     Chakra Petch, terminal Share Tech Mono, which also becomes that
+     theme's body font. Without this they fall back and cyberpunk in
+     particular reads as half-applied. -->
+<link rel="stylesheet"
+      href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600|fraunces:600,700|share-tech-mono:400|chakra-petch:500,600,700">
+<link rel="stylesheet" href="/static/bootstrap.min.css">
+<link rel="stylesheet" href="/static/themes.css">
+<link rel="stylesheet" href="/static/theme-bridge.css">"#,
+    )
+}
+
+/// The picker itself, rendered from `THEMES` so the list exists once.
+fn theme_picker() -> String {
+    let options: String = THEMES
+        .iter()
+        .map(|(name, label, dark, bg, primary)| {
+            format!(
+                r#"<li class="theme-picker__option" role="option" tabindex="0"
+              data-theme="{name}" data-dark="{dark}" aria-selected="false">
+            <span class="theme-picker__swatch"
+                  style="background: linear-gradient(135deg, {bg} 50%, {primary} 50%)"></span>
+            <span class="theme-picker__label">{label}</span>
+            <svg class="theme-picker__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5"/>
+            </svg>
+          </li>"#
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="theme-picker" data-theme-picker>
+        <button type="button" class="theme-picker__trigger" data-theme-trigger
+                aria-label="Thema kiezen" aria-haspopup="listbox" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/>
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/>
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.6-10-8.6z"/>
+          </svg>
+        </button>
+        <ul class="theme-picker__list" data-theme-list role="listbox" aria-label="Thema kiezen" hidden>
+          {options}
+        </ul>
+      </div>"#
+    )
+}
+
 fn page(title: &str, active: &str, body: &str) -> Html<String> {
     let nav_item = |href: &str, label: &str, key: &str| {
         let class = if key == active {
@@ -62,12 +196,13 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
 
     Html(format!(
         r#"<!doctype html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" data-theme="formal" data-bs-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Almanac</title>
-<link rel="stylesheet" href="/static/bootstrap.min.css">
+{assets}
+<script src="/static/theme.js" defer></script>
 </head>
 <body class="bg-body">
 <nav class="navbar navbar-expand bg-body-tertiary border-bottom mb-4">
@@ -78,7 +213,8 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
       {sources}
       {captures}
     </div>
-    <form method="post" action="/logout" class="m-0">
+    {picker}
+    <form method="post" action="/logout" class="m-0 ms-2">
       <button class="btn btn-sm btn-outline-secondary" type="submit">Log out</button>
     </form>
   </div>
@@ -89,6 +225,8 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
 </body>
 </html>"#,
         title = escape(title),
+        assets = head_assets(),
+        picker = theme_picker(),
         status = nav_item("/dashboard", "Status", "status"),
         sources = nav_item("/dashboard/sources", "Sources", "sources"),
         captures = nav_item("/dashboard/captures", "Captures", "captures"),
@@ -103,12 +241,13 @@ fn login_page(error: Option<&str>) -> Html<String> {
 
     Html(format!(
         r#"<!doctype html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" data-theme="formal" data-bs-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in — Almanac</title>
-<link rel="stylesheet" href="/static/bootstrap.min.css">
+{assets}
+<script src="/static/theme.js" defer></script>
 </head>
 <body class="bg-body">
 <main class="container" style="max-width: 26rem; margin-top: 6rem;">
@@ -125,7 +264,8 @@ fn login_page(error: Option<&str>) -> Html<String> {
   </form>
 </main>
 </body>
-</html>"#
+</html>"#,
+        assets = head_assets()
     ))
 }
 
@@ -1196,6 +1336,34 @@ async fn token_json(
 /// LAN-only service never needs the internet to render its own pages
 /// (Kenny's choice, 2026-08-28) and the file cannot go missing from a
 /// deployment.
+/// The kp-themes token file, vendored (K25). See its own header for
+/// which version, and why a copy rather than a dependency.
+async fn themes_css() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../static/themes.css"),
+    )
+        .into_response()
+}
+
+/// The mapping from those tokens onto Bootstrap's own variables (K25).
+async fn theme_bridge_css() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../static/theme-bridge.css"),
+    )
+        .into_response()
+}
+
+/// The picker's behaviour — shared verbatim with kyu (K25).
+async fn theme_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/theme.js"),
+    )
+        .into_response()
+}
+
 async fn bootstrap_css() -> Response {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
@@ -1248,4 +1416,10 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/static/bootstrap.min.css",
             axum::routing::get(bootstrap_css),
         )
+        .route("/static/themes.css", axum::routing::get(themes_css))
+        .route(
+            "/static/theme-bridge.css",
+            axum::routing::get(theme_bridge_css),
+        )
+        .route("/static/theme.js", axum::routing::get(theme_js))
 }

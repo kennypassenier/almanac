@@ -35,6 +35,33 @@ against before it installs anything.
   The source form's calendar field is now a plain dropdown of what
   exists.
 
+- **The kp-themes palettes, with the shared picker** (K25). Seven
+  themes — formal, light, dark, cyberpunk, pastel, terminal, topo — with
+  a picker in the navbar, stored in `localStorage` under `theme` and
+  applied as `data-theme` plus `.dark` on `<html>`: exactly the contract
+  `@kp-soft/themes` defines, so a choice made here means the same thing
+  in every other project of Kenny's.
+
+  **Taken from kyu rather than written twice.** Two sessions were
+  building the same behaviour-only port of the package's React switcher
+  at the same moment — almanac has no npm, no build step and no React,
+  and neither does kyu. `theme.js` and `theme-bridge.css` are kyu's
+  files verbatim; `themes.css` is the package's own, vendored with its
+  version in the header. A second implementation of a stored contract is
+  how three projects end up disagreeing about what "theme" means.
+
+  The seven themes live once, in Rust, and the script carries no list at
+  all: it reads `data-theme` and `data-dark` off the rendered options.
+  A test pins the contract — the key, the default, and the `.dark`
+  toggle — because that is the cheapest guard against the drift the
+  shared package exists to prevent.
+
+  Two additions to the shared bridge, found here and going back to kyu:
+  Bootstrap's `.bg-*` utilities read `--bs-body-bg-rgb`, a
+  comma-separated triple an `hsl()` token cannot produce, so they keep
+  Bootstrap's own colour unless pointed at the tokens directly; and the
+  navbar's link colours are hardcoded rather than read from variables.
+
 ### Changed
 
 - **"Token issued" reads like a date.** It showed

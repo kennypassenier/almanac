@@ -1268,6 +1268,125 @@ async fn k24_making_a_calendar_needs_a_session() {
 }
 
 #[tokio::test]
+async fn k25_the_picker_offers_every_theme_with_its_swatch_and_darkness() {
+    // The seven themes live once, in Rust, and the script reads them off
+    // this markup. If that list and the markup ever disagree, the picker
+    // silently offers fewer themes than exist.
+    let dir = scratch_dir("k25-picker");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    for theme in [
+        "formal",
+        "light",
+        "dark",
+        "cyberpunk",
+        "pastel",
+        "terminal",
+        "topo",
+    ] {
+        assert!(
+            body.contains(&format!(r#"data-theme="{theme}""#)),
+            "the picker must offer {theme}"
+        );
+    }
+    // Three are dark, four are not — asserted as counts rather than by
+    // name, so the script's derivation has something to derive from.
+    assert_eq!(
+        body.matches(r#"data-dark="true""#).count(),
+        3,
+        "dark, cyberpunk and terminal"
+    );
+    assert_eq!(body.matches(r#"data-dark="false""#).count(), 4);
+    assert!(
+        body.contains("linear-gradient(135deg"),
+        "each option shows its two-colour swatch"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k25_the_stored_contract_is_the_one_the_shared_package_defines() {
+    // The cheapest guard against the thing kp-themes exists to prevent:
+    // three projects drifting apart on what "theme" means in
+    // localStorage. kyu ships the same assertion against the same file.
+    let dir = scratch_dir("k25-contract");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+
+    let script = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/static/theme.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    assert!(
+        script.contains("'theme'"),
+        "the localStorage key must stay 'theme'"
+    );
+    assert!(
+        script.contains("'formal'"),
+        "the default must stay 'formal'"
+    );
+    assert!(
+        script.contains("classList.toggle('dark'"),
+        "a dark theme must still set the .dark class the package's CSS expects"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
+    let dir = scratch_dir("k25-assets");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    for (path, marker) in [
+        ("/static/themes.css", "[data-theme='cyberpunk']"),
+        ("/static/theme-bridge.css", "--bs-body-bg"),
+        ("/static/theme.js", "data-theme-picker"),
+    ] {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get(path, None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path} must be served");
+        assert!(
+            text(response).await.contains(marker),
+            "{path} should contain {marker}"
+        );
+    }
+
+    // And nothing renders before the stored theme is applied: the
+    // no-flash script has to be in the head, not after the body.
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let head = &body[..body.find("</head>").expect("a head")];
+    assert!(
+        head.contains("localStorage.getItem('theme')"),
+        "the no-flash script must run before the page paints"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k21_reload_picks_up_a_profile_written_by_hand() {
     let dir = scratch_dir("k21-reload");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;

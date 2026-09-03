@@ -37,6 +37,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K21 | Manage sources from the dashboard — add one with a name and a calendar chosen from a dropdown of what exists (or a new one, created and shared on the spot), writing the profile itself and loading it without a restart; delete one, which revokes its token and removes its profile; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; deleting removes the file, refuses while that source still has undelivered events, revokes its token, and leaves calendar events alone. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 | K23 | A source speaks Almanac's own event shape — every per-event option (all-day, colour, free/busy, status, reminders, length, timezone) travels in the call rather than sitting fixed in a profile; the profile becomes routing only, and translating other shapes moves to HTTPSwitchboard | Essential | A pinned fixture using every option; a call with an unknown field refused by name; a call with neither `external_id` nor an `Idempotency-Key` header refused at ingest; a v1 profile refused with a message saying what changed. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 | K24 | A calendars panel on the dashboard — make one by name, and see every calendar with the sources that write to it; delete is offered only for a calendar no source uses | Essential | A calendar in use renders no delete control and the endpoint refuses it by name; one nothing writes to is deletable and gone at Google; making the same name twice makes one calendar; making one needs a session. *(Added 2026-09-03 via mini-round — see amendment below.)* |
+| K25 | The kp-themes palettes on the dashboard — seven themes with the shared picker, stored and applied exactly as `@kp-soft/themes` defines | Essential | Every theme rendered as an option with its swatch and its darkness; the three dark ones counted rather than named; the stored contract (key `theme`, default `formal`, the `.dark` toggle) asserted against the shipped script; the assets served and the no-flash script proven to sit in the head. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -490,3 +491,46 @@ them until it is removed here.
 retyped name must not produce a second calendar. A duplicate is close to
 invisible — events land, nothing errors, and half of them are on a
 calendar nobody has open.
+
+
+## K25 amendment (mini-round, 2026-09-03)
+
+**What Kenny asked for:** the kp-themes themes, "dezelfde theme picker
+in de interface en dezelfde manier om die themakeuze op te slaan in de
+browser".
+
+**Why this is mostly not almanac's code.** The package ships a React
+hook and a JSX switcher; this dashboard is server-rendered HTML out of a
+Rust binary with no npm and no build step, so neither can be used. What
+transfers is the CSS and the *contract* — `localStorage` key `theme`,
+`data-theme` plus `.dark` on `<html>`, default `formal`.
+
+While this session was working, the kyu session was porting exactly the
+same thing for exactly the same reason. Two behaviour-only ports of one
+stored contract is the duplication kp-themes exists to prevent, one
+level up, so almanac takes kyu's files verbatim rather than writing a
+second version. `themes.css` is the package's own file, vendored with
+its version in its header; a copy goes stale silently, and saying so in
+the file is the only thing keeping that honest.
+
+**The seven themes live once, in Rust.** `theme.js` deliberately carries
+no list: it reads `data-theme` and `data-dark` off the options the
+server rendered. JobTracker's session made that point first — derive the
+dark set from the metadata rather than copying today's answer, because
+an eighth dark theme would leave a hardcoded list of three quietly
+wrong.
+
+**Two real findings that went back to the shared bridge.** Bootstrap's
+`.bg-*` utilities read `--bs-body-bg-rgb` — a comma-separated triple no
+`hsl()` token can produce — with `!important`, so a themed page keeps
+Bootstrap's own background unless those utilities are pointed at the
+tokens directly. And the navbar's link colours are hardcoded per
+Bootstrap theme rather than read from variables.
+
+**A correction worth recording.** The first version of both comments in
+that file cited measurements taken through `getComputedStyle` in a
+preview pane, which turned out to report a stale value — a literal
+colour set inline read back as the previous theme's. The claims were
+rewritten to cite what could be read out of the loaded stylesheet
+itself, which is checkable. An explanation that sounds measured and is
+not is worse than none: the next person believes it.
