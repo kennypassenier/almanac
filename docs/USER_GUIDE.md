@@ -307,6 +307,24 @@ unreachable, this answers 502 **and keeps the payload** — it is still
 journalled and still goes out later. A 502 here means "not yet", never
 "lost".
 
+**502 and 422 mean opposite things, and that is the whole point.**
+
+| Answer | What happened | What to do |
+|---|---|---|
+| `502` | Google hiccuped. The payload is journalled and the worker keeps trying. | Nothing. Waiting is the fix. |
+| `422` | Almanac cannot turn this body into an event, and never will. Nothing was stored. | Send something else. `remedy` says what. |
+
+They used to be the same code, which meant a caller could not tell
+"almanac is retrying" from "retrying will never help" — and the second
+sentence was being shown to people as the first. Both codes carry
+`message` and `remedy`, so neither field distinguishes them; the status
+code does.
+
+The 422 is checked before anything is journalled, on the asynchronous
+endpoint too. A misspelled field (`allDay` for `all_day`) is named
+straight away rather than accepted with a 202 and failing much later in
+the dead letter.
+
 ---
 
 ## 4 · Several calendars (K3)
