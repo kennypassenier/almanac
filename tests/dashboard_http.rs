@@ -1274,6 +1274,116 @@ async fn k24_a_new_calendar_is_shared_in_the_same_breath_as_making_it() {
 }
 
 #[tokio::test]
+async fn k24_a_deleted_calendar_leaves_the_list_at_once() {
+    // Google's calendar list is eventually consistent: a calendar
+    // deleted a second ago still comes back in the next list call, so
+    // the page rendered straight after the delete showed the thing that
+    // had just been removed. Almanac knows what it deleted and says so.
+    let dir = scratch_dir("k24-gone");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Weg").await;
+
+    // The stub is instantly consistent, so to reproduce Google's lag the
+    // delete is recorded while the calendar is still listed.
+    st.remember_deleted_calendar(&calendar_id);
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        !body.contains("Almanac · Weg") && !body.contains("Almanac &#183; Weg"),
+        "a calendar almanac knows it deleted must not still be listed"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_the_memory_of_a_deleted_calendar_clears_itself() {
+    // Otherwise a long-running process would carry every id it ever
+    // deleted, and — worse — a calendar someone later recreates under
+    // the same id would stay invisible.
+    let dir = scratch_dir("k24-forget");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+
+    st.remember_deleted_calendar("gone@group.calendar.google.com");
+
+    // Google no longer lists it: almanac has nothing left to hide.
+    let listed = st.without_deleted_calendars(vec![(
+        "other@group.calendar.google.com".to_string(),
+        "Other".to_string(),
+    )]);
+    assert_eq!(listed.len(), 1);
+    assert!(
+        st.deleted_calendars.lock().unwrap().is_empty(),
+        "an id Google has caught up on must be forgotten"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_every_destructive_button_asks_first_and_shows_it_is_working() {
+    // Kenny, 2026-09-03: these sit in table rows next to each other and
+    // a mis-click costs anything from a token to a calendar and every
+    // event on it.
+    let dir = scratch_dir("k24-confirm");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &pick_calendar_body("kobo", &calendar_id),
+        ))
+        .await
+        .unwrap();
+    std::fs::write(dir.join("profiles/wrecked.toml"), "not toml\n").unwrap();
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    // Every form that deletes something asks first.
+    for action in [
+        "/dashboard/sources/kobo/delete",
+        "/dashboard/profiles/wrecked.toml/delete",
+    ] {
+        let form = body
+            .split("<form")
+            .find(|chunk| chunk.contains(action))
+            .unwrap_or_else(|| panic!("no form for {action}"));
+        assert!(
+            form.contains("data-confirm="),
+            "{action} asks nothing first"
+        );
+        assert!(form.contains("data-busy="), "{action} shows no busy state");
+        assert!(form.contains("spinner-border"), "{action} has no spinner");
+    }
+
+    // And making a calendar, which is the slow one.
+    let make = body
+        .split("<form")
+        .find(|chunk| chunk.contains(r#"action="/dashboard/calendars""#))
+        .expect("the make-a-calendar form");
+    assert!(make.contains("data-busy="));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k24_making_a_calendar_needs_a_session() {
     let dir = scratch_dir("k24-auth");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;

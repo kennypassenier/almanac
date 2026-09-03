@@ -11,6 +11,35 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A deleted calendar stayed on the page** (K24). Google's calendar
+  list is eventually consistent: one deleted a second ago still comes
+  back in the very next list call, so the page rendered straight after
+  the delete showed the thing that had just been removed. Measured —
+  Kenny deleted one and it stayed; asking Google minutes later showed it
+  genuinely gone.
+
+  Almanac knows what it deleted, so it says so rather than re-asking a
+  source that has not caught up. The memory clears itself: an id is
+  forgotten as soon as Google's own list stops carrying it, so it never
+  grows and never outlives the truth.
+
+### Added
+
+- **Every destructive button asks first, and every slow one says it is
+  working** (standing rule 31, added from this). Delete a source, a
+  calendar or an unusable profile and a confirmation names what will
+  happen — these sit in table rows beside each other, where the distance
+  between "issue a token" and "delete the calendar and every event on
+  it" is a few pixels. While the action runs the button disables itself,
+  spins and says so.
+
+  Driven by `data-confirm` and `data-busy` attributes rather than
+  per-button code, so a new button gets both by declaring them instead
+  of by somebody remembering to wire it up. A test asserts that every
+  destructive form carries both.
+
 ### Changed
 
 - **The "calendar created" log line now names the sharing** (K24):

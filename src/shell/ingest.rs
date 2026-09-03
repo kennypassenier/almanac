@@ -52,6 +52,21 @@ pub struct AppState {
     /// Where those profiles live, so a reload reads the same directory
     /// startup did (K20's resolved path, not a second guess at it).
     pub profiles_dir: std::path::PathBuf,
+    /// Calendars deleted from the dashboard, until Google stops
+    /// listing them (K24).
+    ///
+    /// Google's calendar list is eventually consistent: a calendar
+    /// deleted a second ago can still come back in the very next list
+    /// call, so the page that renders straight after the delete shows
+    /// the thing that was just removed. Measured on 2026-09-03 —
+    /// Kenny deleted one, it stayed on the page, and asking Google
+    /// minutes later showed it genuinely gone.
+    ///
+    /// Almanac knows what it deleted, so it can say so rather than
+    /// re-asking a source that has not caught up. Self-clearing: an id
+    /// is dropped from here as soon as Google's own list no longer
+    /// carries it, so this never grows and never outlives the truth.
+    pub deleted_calendars: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Who a calendar created from the dashboard is shared with (K21).
     /// `None` disables creating calendars rather than creating one
     /// nobody can see: a calendar the service account makes is owned by
@@ -109,6 +124,7 @@ impl AppState {
             profiles: std::sync::RwLock::new(Arc::new(profiles)),
             profiles_dir: std::path::PathBuf::from("profiles"),
             calendar_owner: None,
+            deleted_calendars: std::sync::Mutex::new(std::collections::HashSet::new()),
             journal,
             client,
             tokens,
@@ -153,6 +169,39 @@ impl AppState {
     pub fn with_profiles_dir(mut self, dir: std::path::PathBuf) -> Self {
         self.profiles_dir = dir;
         self
+    }
+
+    /// Remembers that a calendar was deleted, so the page rendered
+    /// straight afterwards does not show it (K24).
+    pub fn remember_deleted_calendar(&self, calendar_id: &str) {
+        self.deleted_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(calendar_id.to_string());
+    }
+
+    /// Filters Google's list through what almanac knows it deleted, and
+    /// forgets the ids Google has caught up on.
+    pub fn without_deleted_calendars(
+        &self,
+        calendars: Vec<(String, String)>,
+    ) -> Vec<(String, String)> {
+        let mut deleted = self
+            .deleted_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if deleted.is_empty() {
+            return calendars;
+        }
+        let listed: std::collections::HashSet<&str> =
+            calendars.iter().map(|(id, _)| id.as_str()).collect();
+        // Anything Google no longer lists has caught up; drop it here
+        // so this set stays as small as the disagreement is.
+        deleted.retain(|id| listed.contains(id.as_str()));
+        calendars
+            .into_iter()
+            .filter(|(id, _)| !deleted.contains(id))
+            .collect()
     }
 
     /// Sets who a dashboard-created calendar is shared with (K21).

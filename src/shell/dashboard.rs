@@ -518,8 +518,13 @@ async fn render_sources(
   <form method="post" action="/dashboard/sources/{id}/revoke" class="d-inline">
     <button class="btn btn-sm btn-outline-secondary" type="submit">Revoke token</button>
   </form>
-  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline"
+        data-confirm="Delete the source &quot;{id}&quot;? Its token and its profile both go. Events it already put on the calendar stay."
+        data-busy="Deleting…">
+    <button class="btn btn-sm btn-outline-danger" type="submit">
+      <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+      <span class="label">Delete</span>
+    </button>
   </form>
 </td></tr>
 <tr id="out-{id}" class="d-none"><td colspan="3"><pre class="mb-0 small" id="pre-{id}"></pre></td></tr>"#,
@@ -533,8 +538,13 @@ async fn render_sources(
   <form method="post" action="/dashboard/sources/{id}/issue" class="d-inline">
     <button class="btn btn-sm btn-primary" type="submit">Issue token</button>
   </form>
-  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+  <form method="post" action="/dashboard/sources/{id}/delete" class="d-inline"
+        data-confirm="Delete the source &quot;{id}&quot;? Its token and its profile both go. Events it already put on the calendar stay."
+        data-busy="Deleting…">
+    <button class="btn btn-sm btn-outline-danger" type="submit">
+      <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+      <span class="label">Delete</span>
+    </button>
   </form>
 </td></tr>"#
                 ),
@@ -560,8 +570,13 @@ async fn render_sources(
 <td><code>{name}</code></td>
 <td class="small text-secondary">{reason}</td>
 <td class="text-end">
-  <form method="post" action="/dashboard/profiles/{name}/delete" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+  <form method="post" action="/dashboard/profiles/{name}/delete" class="d-inline"
+        data-confirm="Delete the file {name}? It is not being served, and this removes it from disk."
+        data-busy="Deleting…">
+    <button class="btn btn-sm btn-outline-danger" type="submit">
+      <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+      <span class="label">Delete</span>
+    </button>
   </form>
 </td></tr>"#,
                     reason = escape(&u.reason)
@@ -602,20 +617,42 @@ async function reveal(id) {
     setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 10000);
   } catch (e) { pre.textContent = e.message; row.classList.remove('d-none'); }
 }
-// Making a calendar is a round trip to Google, and a button that looks
-// idle while that happens invites a second click — which would make a
-// second calendar. So the button says what it is doing and stops
-// accepting presses until the page comes back.
-function startCreating(form) {
-  const button = form.querySelector('button[type=submit]');
-  if (!button) { return true; }
-  button.disabled = true;
-  const spinner = button.querySelector('.spinner-border');
-  const label = button.querySelector('.label');
-  if (spinner) { spinner.classList.remove('d-none'); }
-  if (label) { label.textContent = ' Asking Google…'; }
-  return true;
+// Two things every form that acts on the world gets, from one place.
+//
+// A confirmation when it destroys something: these buttons sit in table
+// rows next to each other, and the cost of a mis-click ranges from
+// re-issuing a token to losing a calendar and every event on it.
+//
+// And a busy state while it runs: several of these are a round trip to
+// Google, and a button that looks idle invites a second click. That is
+// not merely untidy — a second click on "Make calendar" used to make a
+// second calendar.
+//
+// Driven by attributes so a new button gets both by declaring them,
+// rather than by remembering to wire up JavaScript:
+//   data-confirm="…"   ask this before submitting
+//   data-busy="…"      say this while waiting
+function armForms() {
+  document.querySelectorAll('form[data-confirm], form[data-busy]').forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+      const question = form.dataset.confirm;
+      if (question && !window.confirm(question)) {
+        event.preventDefault();
+        return;
+      }
+      const button = form.querySelector('button[type=submit]');
+      if (!button) { return; }
+      // Disabled AFTER the browser has read the button, so the form
+      // still submits: a disabled submit button is not sent.
+      window.setTimeout(function () { button.disabled = true; }, 0);
+      const spinner = button.querySelector('.spinner-border');
+      const label = button.querySelector('.label');
+      if (spinner) { spinner.classList.remove('d-none'); }
+      if (label && form.dataset.busy) { label.textContent = ' ' + form.dataset.busy; }
+    });
+  });
 }
+document.addEventListener('DOMContentLoaded', armForms);
 function selectAll(node) {
   const range = document.createRange();
   range.selectNodeContents(node);
@@ -699,7 +736,7 @@ async function copyCmd(id) {
     // controls below are what someone came for when Google is
     // unreachable.
     let (calendars, calendar_error) = match state.client.list_calendars().await {
-        Ok(calendars) => (calendars, None),
+        Ok(calendars) => (state.without_deleted_calendars(calendars), None),
         Err(e) => (Vec::new(), Some(e.to_string())),
     };
 
@@ -764,10 +801,16 @@ async function copyCmd(id) {
             // not.
             let action = if sources.is_empty() {
                 format!(
-                    r#"<form method="post" action="/dashboard/calendars/{id}/delete" class="d-inline">
-    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    r#"<form method="post" action="/dashboard/calendars/{id}/delete" class="d-inline"
+        data-confirm="Delete the calendar &quot;{name}&quot;? This removes it and every event on it, for everyone it is shared with. It cannot be undone."
+        data-busy="Deleting…">
+    <button class="btn btn-sm btn-outline-danger" type="submit">
+      <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+      <span class="label">Delete</span>
+    </button>
   </form>"#,
-                    id = escape(id)
+                    id = escape(id),
+                    name = escape(name)
                 )
             } else {
                 format!(
@@ -796,7 +839,7 @@ async function copyCmd(id) {
     without sharing would be visible to nobody, which is why {owner_note}
   </p>
   <form method="post" action="/dashboard/calendars" class="row g-2 align-items-start"
-        onsubmit="return startCreating(this)">
+        data-busy="Asking Google…">
     <div class="col-sm-6">
       <label class="form-label" for="calendar_name">Name</label>
       <input type="text" class="form-control" id="calendar_name" name="name"
@@ -1150,6 +1193,9 @@ async fn delete_calendar(
 
     match state.client.delete_calendar(&calendar_id).await {
         Ok(()) => {
+            // Google's list lags a delete by seconds, so the page that
+            // renders next would otherwise still show it.
+            state.remember_deleted_calendar(&calendar_id);
             tracing::info!(calendar_id = %calendar_id, "deleted a calendar from the dashboard");
             Redirect::to("/dashboard/sources").into_response()
         }
