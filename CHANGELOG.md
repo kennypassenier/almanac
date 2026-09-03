@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-09-03
+
 ### Changed
 
 - **A payload almanac can never map is refused at the door, with 422.**
@@ -748,6 +750,7 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
+[2.3.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.3.0
 [2.2.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.2.0
 [2.1.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.1.0
 [2.0.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.0.0
