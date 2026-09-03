@@ -84,12 +84,23 @@ profile, creates the calendar if it is a new one and shares it with you,
 and lists the source ready for a token. Live immediately, no restart.
 
 What that profile says is the plain shape — a payload carrying `title`,
-`description` and `start`, one hour long, Europe/Brussels:
+`description`, `start` and `external_id`, one hour long,
+Europe/Brussels:
 
 ```json
 POST /v1/ingest/kobo
-{"title": "Finished a chapter", "start": "2026-09-03T21:00:00+02:00"}
+{"title": "Finished a chapter", "start": "2026-09-03T21:00:00+02:00",
+ "external_id": "kobo/chapter/2026-09-03"}
 ```
+
+**`external_id` is not optional, and that is deliberate.** It is the
+marker Almanac stores on the Google event, so it is what makes a resend
+update instead of duplicate (3.1) and the only handle the delete
+endpoint has (3.3). A payload without it is refused with a message
+naming it. That refusal is the point: a profile without this field
+produces events that duplicate on every resend and that Almanac can
+never remove again — which happened once, on 2026-09-03, before this
+was the default.
 
 That is the trade, and it is worth understanding: the three profiles
 written by hand each match a webhook nobody here controls — Grafana

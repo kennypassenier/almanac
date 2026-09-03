@@ -338,10 +338,17 @@ fourth.
 
 So the form is two fields, and the profile it writes is the plain shape
 — field for field the deployed `home-assistant` profile that
-`tests/mapping_regression.rs` already pins, minus `external_id_field`.
-That omission is deliberate: naming that field makes it *required* in
-every payload, so defaulting it would meet a new source with a 422 on
-its first post. The template carries it as a commented line instead.
+`tests/mapping_regression.rs` already pins, with `external_id` as the
+id field.
+
+*Amended 2026-09-03, same day:* that field was first left out, reasoning
+that naming it makes it required in every payload and so would refuse a
+new source's first post. The JobTracker session measured what the
+omission actually cost against the live service — two identical posts
+produced two events, and the delete endpoint answered 404, because
+without the field Almanac writes no marker and can never find its own
+event again. A refusal that names a missing field is recoverable in
+seconds; duplicates nothing can remove are not.
 
 Anything the plain shape cannot express is still a file, edited by hand
 and picked up by the reload — which is what the three existing profiles

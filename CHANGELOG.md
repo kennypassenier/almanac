@@ -51,11 +51,15 @@ against before it installs anything.
   service account and visible to no human — a mistake this project has
   made twice already.
 
-  `external_id_field` is deliberately absent from the written profile:
-  naming it makes the field *required* in every payload, so a default
-  would meet a new source with a 422 on its first post. It is a
-  commented line in the file, to be turned on once the source has a
-  stable id.
+  `external_id_field` is part of the written profile. It was left out
+  for one day, on the reasoning that naming it makes the field
+  *required* in every payload — true, and the wrong trade. Without it
+  there is no marker on the Google event, so every resend creates a
+  duplicate **and** `DELETE /v1/ingest/{source}/events/{id}` can never
+  find it again: Almanac cannot clean up what it made. Measured against
+  the live service on 2026-09-03 by the JobTracker session — two
+  identical posts, two events, a delete answering 404. A loud refusal
+  naming a missing field beats silent duplicates nothing can remove.
 
   Anything the plain shape cannot express is still a file, edited by
   hand and picked up by *Reload profiles from disk*.

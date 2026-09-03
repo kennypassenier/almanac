@@ -1130,7 +1130,21 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
     )
     .await;
     assert!(body.contains("kobo"), "the row must survive retirement");
-    assert!(body.contains("retired"), "and say that it is retired");
+    assert!(
+        body.contains(r#"<span class="badge text-bg-secondary">retired</span>"#),
+        "and say that it is retired"
+    );
+    // The pair above asserts that two strings EXIST, and both would
+    // still be there if retiring had quietly done nothing — "kobo" from
+    // a live row, the badge from some other retired source. So also
+    // assert what must be GONE: the retire control is rendered only for
+    // a source that is still loaded (homelab F263, 2026-09-03 — an
+    // assertion about existence passes on the wrong value as happily as
+    // on the right one).
+    assert!(
+        !body.contains("/dashboard/sources/kobo/retire"),
+        "a retired source must no longer offer the controls of a live one"
+    );
 
     let posted = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(

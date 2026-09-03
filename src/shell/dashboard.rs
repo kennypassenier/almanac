@@ -574,8 +574,10 @@ async function copyCmd(id) {
   <p class="text-secondary small">
     Two things: what the source is called, and which calendar its events land on.
     Everything else gets Almanac's plain shape — a payload carrying
-    <code>title</code>, <code>description</code> and <code>start</code>. It takes effect
-    immediately; no restart.
+    <code>title</code>, <code>description</code>, <code>start</code> and
+    <code>external_id</code>. That last one is what makes resending update an event
+    instead of adding a second, and it is the only handle the delete endpoint has.
+    It takes effect immediately; no restart.
   </p>
   <form method="post" action="/dashboard/sources" class="row g-2 align-items-end">
     <div class="col-sm-4">

@@ -399,13 +399,23 @@ impl Profile {
 /// Anything that genuinely cannot is still a file, edited by hand and
 /// picked up by the reload.
 ///
-/// `external_id_field` is deliberately absent. Setting it makes the
-/// field REQUIRED in every payload — a mapping that names it and does
-/// not find it is refused — so defaulting it would meet a new source
-/// with a 422 on its first post. Redelivery therefore creates a second
-/// event unless the sender supplies an `Idempotency-Key` header (M7);
-/// the dashboard says so, and the line can be added to the file once
-/// the source has a stable id.
+/// `external_id_field` is part of the shape, and leaving it out was a
+/// mistake this template made for exactly one day.
+///
+/// The reasoning for omitting it: naming the field makes it REQUIRED in
+/// every payload, so a source that does not send it is refused with a
+/// 422 on its first post. True, and the wrong trade. Without the field
+/// there is no `almanac_source_id` marker on the Google event, so every
+/// resend creates a duplicate AND `DELETE /v1/ingest/{source}/events/
+/// {id}` can never find it again — almanac cannot clean up what it
+/// made. Measured on 2026-09-03 by the JobTracker session against the
+/// live service: two identical posts, two events, and a delete that
+/// answered 404.
+///
+/// A loud refusal naming the missing field beats silent duplicates that
+/// nothing can remove. So the shape a dashboard-added source speaks
+/// includes `external_id`, alongside `title`, `description` and
+/// `start`.
 pub fn default_profile_toml(source_id: &str, calendar_id: &str) -> String {
     format!(
         r#"# Written from the dashboard. The plain shape: a payload carrying
@@ -420,12 +430,15 @@ target_calendar_id = "{calendar_id}"
 title_field = "title"
 description_field = "description"
 start_field = "start"
+external_id_field = "external_id"
 duration_minutes = 60
 timezone = "Europe/Brussels"
 
-# Uncomment once this source sends a stable id of its own, so that
-# resending the same thing updates its event instead of adding one:
-# external_id_field = "id"
+# external_id_field is what makes resending the same thing update its
+# event instead of adding a second one, and it is the only handle the
+# delete endpoint has. A payload without "external_id" is refused with
+# a message naming it — which is the point: silent duplicates that
+# nothing can remove are worse than a clear refusal.
 "#
     )
 }
@@ -529,18 +542,18 @@ duration_minutes = 60
     }
 
     #[test]
-    fn k21_the_default_profile_does_not_demand_an_external_id() {
-        // Naming the field makes it REQUIRED in every payload, so a
-        // default would meet a new source with a 422 on its first post.
+    fn k21_the_default_profile_carries_an_external_id_field() {
+        // Without it there is no marker on the Google event, so every
+        // resend duplicates and delete-by-id can never find it again.
+        // Measured live on 2026-09-03: two identical posts, two events,
+        // and a 404 on the delete. A loud refusal naming a missing
+        // field beats silent duplicates nothing can remove.
         let toml = default_profile_toml("kobo", "cal");
         let profile = Profile::parse(&toml, "the default template").unwrap();
-        assert!(
-            profile.mapping.external_id_field.is_none(),
-            "the default must not force a field the source may not send"
-        );
-        assert!(
-            toml.contains("# external_id_field"),
-            "but it must show how to turn it on"
+        assert_eq!(
+            profile.mapping.external_id_field.as_deref(),
+            Some("external_id"),
+            "a dashboard-added source must be deletable and de-duplicating"
         );
     }
 
@@ -554,6 +567,7 @@ duration_minutes = 60
             r#"title_field = "title""#,
             r#"description_field = "description""#,
             r#"start_field = "start""#,
+            r#"external_id_field = "external_id""#,
         ] {
             assert!(toml.contains(field), "{field} missing from the default");
         }
