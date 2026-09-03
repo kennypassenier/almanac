@@ -11,6 +11,22 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **The "calendar created" log line now names the sharing** (K24):
+  `shared_with` and `role=owner`, and it says "and shared it". Without
+  that, "created and shared" and "created and visible to nobody" read
+  identically from outside — and the second is the outcome that has gone
+  wrong here twice. Observed by the homelab session while verifying the
+  button on the live service: they could confirm the calendar was made
+  and had no way to confirm it was shared without a person opening
+  Google Calendar.
+
+  A test asserts the grant against what the Google stub actually
+  received, rather than against the sentence describing it.
+
+## [2.1.0] — 2026-09-03
+
 ### Added
 
 - **A heartbeat line** (M14). One INFO line per interval — the
@@ -649,6 +665,7 @@ was there and the 19 defects that shaped the rewrite.
 - Secrets from Latch, injected into the process and never written to
   disk — asserted by tests that run the real binary and grep its output.
 
+[2.1.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.1.0
 [2.0.0]: https://github.com/kennypassenier/almanac/releases/tag/v2.0.0
 [1.7.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.7.0
 [1.6.0]: https://github.com/kennypassenier/almanac/releases/tag/v1.6.0
