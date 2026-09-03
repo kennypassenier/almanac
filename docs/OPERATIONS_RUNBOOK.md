@@ -695,3 +695,44 @@ because it read its secrets at startup — and fails to start the next
 time anything restarts it. If a re-mint is ever genuinely needed, replace
 `latch.env` in the container and restart the service in the same
 sitting.
+
+## R18 · Upgrading to 2.0.0 — convert the profiles in the same window
+
+2.0.0 **refuses to start on a v1 profile.** That is deliberate: a v1
+profile's `[mapping]` block describes a translation that no longer
+exists, and reading the file as if that block were noise would silently
+ignore everything it says. But it means the upgrade and the conversion
+are one operation, not two.
+
+Left to itself, a supervised update installs 2.0.0, almanac fails to
+start, the health check fails and the supervisor rolls back to the
+previous version. Safe, and pointless. Do this instead:
+
+```bash
+systemctl stop almanac
+./scripts/migrate-profiles-v2.sh /appdata/almanac/almanac-config/profiles
+# install 2.0.0
+systemctl start almanac
+```
+
+`migrate-profiles-v2.sh` keeps every original as `<name>.toml.v1`, so
+going back is a rename plus a restart. It converts what a v2 profile
+still needs — `source_id`, `target_calendar_id`, `timezone` — and drops
+the rest, because the rest is now what the caller sends.
+
+**Read its NOTE lines.** A profile that mapped field names other than
+almanac's own (`title_field = "monitor.name"`) described a source
+speaking someone else's shape. The conversion still runs, but that
+source will now get a 422 naming the field it did not send. Either it
+learns almanac's shape or it goes through HTTPSwitchboard. The script
+prints exactly which profiles this applies to.
+
+**Sources must also send `external_id`** (or an `Idempotency-Key`
+header). 2.0.0 refuses a call with neither, because without one almanac
+writes no marker and can never find, update or delete that event again.
+A source that used to rely on a profile's `external_id_field` is
+sending the value already — under whatever name that field had, so
+rename it to `external_id` on the sender's side.
+
+Proven before it was written: a directory converted by this script
+passes `almanac --check` against the real service account.
