@@ -13,6 +13,31 @@ against before it installs anything.
 
 ### Added
 
+- **A heartbeat line** (M14). One INFO line per interval — the
+  counters, the journal depth, how many sources are served and how long
+  the process has been up — whether or not anything happened.
+
+  Kenny saw "no data" on the Grafana dashboard. Almanac had written
+  nothing for 48 hours and looked exactly like a dead service; it was
+  simply idle, which no log could distinguish. It used to have a
+  heartbeat by accident: the self-updater logged a line every six hours
+  on purpose, and switching updates over to the homelab took that with
+  it — correct on its own terms, and it removed the only recurring sign
+  of life.
+
+  `/metrics` answers "how many" and `/healthz` answers "does it
+  respond"; neither answers "is the background work still turning",
+  which is the failure almanac has actually had. Standing rule 23 asks
+  for exactly this line.
+
+  `ALMANAC_HEARTBEAT_INTERVAL_SECS` sets the interval, default 3600.
+  `0` switches it off; anything unparseable falls back to the default
+  rather than to silence, because a typo must not quietly disable the
+  thing whose job is to report silence. The first line lands after one
+  interval rather than at startup, with its own test — the same shape
+  as the updater bug, where an unconsumed first tick both duplicated the
+  startup lines and drifted by a whole period.
+
 - **A calendars panel on the dashboard** (K24). Make a calendar by name,
   and see every calendar with the sources that write to it. Kenny, after
   using the add-a-source form against the live service and getting the

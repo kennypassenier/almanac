@@ -377,6 +377,24 @@ async fn main() {
         notifier.clone(),
     ));
 
+    // M14: one line per interval, so a silent almanac and a wedged one
+    // are distinguishable. Started before the listener so the first
+    // interval is measured from the same moment the rest of the process
+    // begins, not from whenever binding happened to finish.
+    match shell::heartbeat::interval_from(|key| std::env::var(key).ok()) {
+        Some(every) => {
+            tokio::spawn(shell::heartbeat::run(
+                Arc::clone(&state),
+                shutdown_rx.clone(),
+                every,
+            ));
+        }
+        None => tracing::info!(
+            "{} is 0 — no heartbeat line will be written",
+            shell::heartbeat::INTERVAL_ENV
+        ),
+    }
+
     let bind_address = bind_address();
     let listener = match tokio::net::TcpListener::bind(&bind_address).await {
         Ok(listener) => listener,

@@ -175,6 +175,23 @@ out a Google outage via the journal is Almanac working correctly.
 Reporting itself unhealthy would make Uptime Kuma page you for
 something that needs no action.
 
+**Almanac is quiet.** Since 2.1.0 it writes one `alive` line per hour
+even when nothing is happening:
+
+```
+INFO almanac::shell::heartbeat: alive accepted=3 delivered=3 failed=0
+     dead=0 pending=0 sources=1 uptime_secs=7204
+```
+
+No `alive` line for more than an hour means the process is not turning,
+which is different from "no events" — `accepted=0` on a line that keeps
+arriving is an idle hub working correctly. `pending=-1` means the
+journal could not be read at all, reported as its own value rather than
+as a zero.
+
+`ALMANAC_HEARTBEAT_INTERVAL_SECS=0` switches the line off; if it is
+absent when you expect it, check that first.
+
 **The version number has not moved in six hours.** That is the check
 interval. Look for `checked for a new release` in the log — it appears
 either way, so a silent updater and a working one are distinguishable.

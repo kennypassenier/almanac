@@ -14,6 +14,7 @@ pub mod dashboard;
 pub mod datadir;
 pub mod delivery;
 pub mod durability;
+pub mod heartbeat;
 pub mod ingest;
 pub mod journal;
 pub mod notify;

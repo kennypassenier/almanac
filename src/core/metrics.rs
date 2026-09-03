@@ -133,6 +133,36 @@ impl Metrics {
     }
 }
 
+/// The counters at one moment, for something that wants to report them
+/// rather than serve them (M14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Counts {
+    pub accepted: u64,
+    pub delivered: u64,
+    pub failed: u64,
+    pub dead: u64,
+    pub token_refreshes: u64,
+}
+
+impl Metrics {
+    /// Reads all five counters at once.
+    ///
+    /// Not atomic across the five — they are separate counters and an
+    /// event can land between two reads. That is right for a heartbeat,
+    /// which answers "alive, and roughly how busy"; paying for a lock
+    /// to make a log line consistent to the microsecond would be the
+    /// wrong trade.
+    pub fn snapshot(&self) -> Counts {
+        Counts {
+            accepted: self.accepted.load(Ordering::Relaxed),
+            delivered: self.delivered.load(Ordering::Relaxed),
+            failed: self.failed.load(Ordering::Relaxed),
+            dead: self.dead.load(Ordering::Relaxed),
+            token_refreshes: self.token_refreshes.load(Ordering::Relaxed),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

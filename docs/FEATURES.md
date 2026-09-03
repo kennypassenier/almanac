@@ -54,6 +54,7 @@ from here on. Changes after the freeze go through a mini-round only
 | M9 | Dry-run/validation tool for a mapping profile — shows the `GoogleEvent` a profile+sample payload would produce, without writing to Google | Desired | Test feeding a profile + sample payload, asserting the expected (unsent) `GoogleEvent` structure comes back. |
 | M12 | Management dashboard — login (remember-me cookie + logout, not browser basic auth), register a source and generate/revoke its token, copy-paste commands carrying a real token (masked, reveal for 10s, copy without displaying), plus the K11/M11 status views. `/healthz` and any metrics stay open so monitoring cannot fail closed. | Essential | Every page rendered with seeded state; a revoked token stops working *immediately*; the printed command carries a working token; plaintext-scan proving no token reaches logs, metrics or any page except behind the reveal control. *(Added 2026-08-28 via mini-round during the L3 report — see amendment note below.)* |
 | M13 | Prometheus metrics endpoint — delivered events, failed deliveries, journal depth, entries set aside, token refreshes, exposed in the Prometheus text format | Gebouwd | Scraped successfully by the real Prometheus on CT 113; a test asserting no token, calendar id or payload content appears in the output. *(Added 2026-08-29 via mini-round — see amendment note below.)* |
+| M14 | A heartbeat line — one INFO line per interval carrying the counters, the journal depth, the source count and uptime, whether or not anything happened | Essential | The first line lands after one interval rather than at startup; it keeps coming; it stops on shutdown; it carries the numbers someone would look for; the interval is configurable and `0` switches it off, while a typo falls back to the default rather than to silence. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 | M11 | Raw request capture — a debug endpoint that accepts any inbound request, stores it verbatim (headers + full body, in memory, capped and expiring), and hands it back on request, so an undocumented webhook's real shape can be observed before a mapping profile is written for it | Essential | Test posting an arbitrary payload to the capture endpoint and reading back the exact headers and body; test that the cap and expiry both hold. *(Added 2026-08-28 via mini-round during L2 — see amendment note below.)* |
 | M10 | Full self-update — the running service checks for, verifies (checksum manifest), and applies new versions itself; keeps the previous binary, verify-before-replace, clean handover of port and in-flight requests | Essential | E2E test against a local mock release: old binary updates to new, health endpoint answers throughout minus the swap window, rollback works when the new binary fails verification. *(Added 2026-08-28 via mini-round during Phase 4 — see amendment note below.)* |
 
@@ -534,3 +535,48 @@ colour set inline read back as the previous theme's. The claims were
 rewritten to cite what could be read out of the loaded stylesheet
 itself, which is checkable. An explanation that sounds measured and is
 not is worse than none: the next person believes it.
+
+
+## M14 amendment (mini-round, 2026-09-03)
+
+**Where it came from.** Kenny looked at the almanac dashboard in Grafana
+and saw "no data" everywhere. Two causes sat under it; one was the
+homelab's (no log shipper on that container, since fixed) and one was
+ours: almanac had written nothing to its log in 48 hours and was, from
+the outside, indistinguishable from a service that had died.
+
+**It had not died, and the measurement said so.** `accepted`,
+`delivered` and `pending` were all zero: nothing was posting, and a hub
+with no traffic has nothing to say. Almanac does log per accepted and
+per delivered event; there was simply nothing.
+
+**The part nobody had noticed.** Almanac used to have a heartbeat by
+accident — the self-updater logged `checked for a new release` every six
+hours, deliberately whether or not there was one, because a silently
+stopped updater and a working one otherwise look identical (a real bug,
+0.1.3, found on hardware). When the homelab took over updates on
+2026-08-30, `ALMANAC_SELF_UPDATE=off` switched that task off and took
+the only recurring sign of life with it. Correct on its own terms, and
+it removed something load-bearing that nobody had recognised as such.
+
+**Why not just read the counters.** They were the honest counter-argument
+and Kenny weighed it: `/metrics` already answers "did almanac process
+anything today", and `/healthz` already answers "does the process
+respond". Neither answers "is the background work still turning" — and
+that is exactly the failure almanac has actually had, when the update
+loop ticked six hours late while nine tests passed and the process
+answered every request. Standing rule 23 exists because of it: *a
+periodic background task logs one line per cycle, even when there was
+nothing to do.*
+
+**The interval is a knob** (`ALMANAC_HEARTBEAT_INTERVAL_SECS`, default
+3600). `0` switches the line off, which is a real answer for a machine
+whose logs are precious. A value that cannot be parsed falls back to the
+default rather than to silence: a typo must not quietly disable the one
+thing whose job is to report silence.
+
+**The first line comes after one interval, not at startup** — and that
+detail has its own test, because it is the same shape as the updater
+bug: a tokio interval fires immediately, so a loop that does not consume
+that first tick both duplicates the startup lines and then drifts by a
+whole period.
