@@ -23,17 +23,28 @@ against before it installs anything.
   adds himself is one he controls, so it is cheaper for the source to
   speak Almanac's shape than for Almanac to learn a fourth.
 
-  The form now takes a source name and a calendar name. Almanac writes
-  the profile — the plain shape, field for field the deployed
-  `home-assistant` profile — and resolves the calendar **by its display
-  name**, creating and sharing it when none exists. A calendar id is an
-  opaque string nobody types on purpose, and having to find one first
-  was half the chore.
+  The form takes a source name and a calendar. Almanac writes the
+  profile — the plain shape, field for field the deployed
+  `home-assistant` profile.
 
-  Matching on the name before creating is what stops a second "Almanac ·
-  Huishouden" appearing per source. A duplicate calendar is close to
-  invisible: events land, nothing errors, and half of them are on a
+  The calendar is a **dropdown of the ones that exist**, plus one entry
+  that means *+ New calendar…* and reveals a box for its name. Picking
+  should not require knowing a calendar id — an opaque string nobody
+  types on purpose — and adding one should not require leaving the
+  page. Submitting creates the calendar, shares it with
+  `ALMANAC_CALENDAR_OWNER`, writes the profile and lists the source
+  ready for a token, in one act.
+
+  Creating still goes through find-or-create rather than a bare create:
+  two tabs, or a second source added to a calendar made a minute ago,
+  must not each get their own. A duplicate calendar is close to
+  invisible — events land, nothing errors, and half of them are on a
   calendar nobody has open.
+
+  The list is fetched when the page renders, and a failure to reach
+  Google does not take the page down with it: the dropdown says why it
+  is empty while the token controls below keep working, which is what
+  someone came for when Google is unreachable.
 
   Creating needs `ALMANAC_CALENDAR_OWNER`. Without it an unknown name is
   refused with that reason rather than made into a calendar owned by the

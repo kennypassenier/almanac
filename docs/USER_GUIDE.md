@@ -78,9 +78,10 @@ afternoon of reverse-engineering, not a log.
 
 **The short way: two fields on the dashboard.** On
 `/dashboard/sources`, **Add a source** asks for a name and a calendar
-(K21). Almanac writes the profile, and if no calendar by that name
-exists yet it creates one and shares it with you. Live immediately, no
-restart.
+(K21). The calendar is a dropdown of the ones that exist; choose
+*+ New calendar…* and a box appears for its name. Submitting writes the
+profile, creates the calendar if it is a new one and shares it with you,
+and lists the source ready for a token. Live immediately, no restart.
 
 What that profile says is the plain shape — a payload carrying `title`,
 `description` and `start`, one hour long, Europe/Brussels:

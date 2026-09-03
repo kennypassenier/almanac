@@ -317,6 +317,10 @@ async fn status_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
     .into_response()
 }
 
+/// The dropdown value that means "make a new one". Not a calendar id
+/// Google could ever issue, so it cannot collide with a real choice.
+const NEW_CALENDAR: &str = "__new__";
+
 async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if !is_logged_in(&state, &headers).await {
         return Redirect::to("/login").into_response();
@@ -331,7 +335,7 @@ async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 async fn render_sources(
     state: &AppState,
     error: Option<&str>,
-    draft: Option<(&str, &str)>,
+    draft: Option<(&str, &str, &str)>,
 ) -> Response {
     let issued: HashMap<String, String> = state.tokens.list().await.into_iter().collect();
     let loaded = state.profiles();
@@ -417,6 +421,16 @@ async function reveal(id) {
     setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 10000);
   } catch (e) { pre.textContent = e.message; row.classList.remove('d-none'); }
 }
+// Reveals the name box only when "+ New calendar" is chosen, and runs
+// once on load so a re-rendered form after an error comes back with the
+// box already open.
+function toggleNewCalendar() {
+  const select = document.getElementById('calendar');
+  const row = document.getElementById('new-calendar-row');
+  if (!select || !row) { return; }
+  row.classList.toggle('d-none', select.value !== '__new__');
+}
+document.addEventListener('DOMContentLoaded', toggleNewCalendar);
 function selectAll(node) {
   const range = document.createRange();
   range.selectNodeContents(node);
@@ -484,19 +498,62 @@ async function copyCmd(id) {
         })
         .unwrap_or_default();
 
-    let (draft_source, draft_calendar) = draft.unwrap_or(("", ""));
+    let (draft_source, draft_calendar, draft_new) = draft.unwrap_or(("", "", ""));
     let draft_source = escape(draft_source);
     let draft_calendar = escape(draft_calendar);
+    let draft_new_calendar = escape(draft_new);
     let profiles_dir = escape(&state.profiles_dir.display().to_string());
+
     // Without an owner a created calendar would belong to the service
-    // account and be visible to nobody, so the form says so instead of
-    // making one.
+    // account and be visible to nobody, so the form says so rather than
+    // offering to make one.
     let can_create = state.calendar_owner.is_some();
-    let calendar_help = if can_create {
-        "If no calendar by that name exists yet, Almanac creates it and shares it with you."
+
+    // Fetched on render so the dropdown shows what actually exists. A
+    // failure here must not take the page down with it: the token
+    // controls below are what someone came for when Google is
+    // unreachable.
+    let (calendars, calendar_error) = match state.client.list_calendars().await {
+        Ok(calendars) => (calendars, None),
+        Err(e) => (Vec::new(), Some(e.to_string())),
+    };
+
+    let options: String = calendars
+        .iter()
+        .map(|(id, name)| {
+            let selected = if *id == *draft_calendar {
+                " selected"
+            } else {
+                ""
+            };
+            format!(
+                r#"<option value="{}"{selected}>{}</option>"#,
+                escape(id),
+                escape(name)
+            )
+        })
+        .collect();
+    let new_option = if can_create {
+        let selected = if draft_calendar == NEW_CALENDAR {
+            " selected"
+        } else {
+            ""
+        };
+        format!(r#"<option value="{NEW_CALENDAR}"{selected}>+ New calendar…</option>"#)
     } else {
-        "ALMANAC_CALENDAR_OWNER is not set, so an existing calendar must be named — \
-         Almanac will not create one nobody can see."
+        String::new()
+    };
+    let calendar_note = match (&calendar_error, can_create) {
+        (Some(e), _) => format!(
+            r#"<div class="form-text text-danger">Could not read the calendar list: {}</div>"#,
+            escape(e)
+        ),
+        (None, true) => String::from(
+            r#"<div class="form-text">A new one is created and shared with you straight away.</div>"#,
+        ),
+        (None, false) => String::from(
+            r#"<div class="form-text">ALMANAC_CALENDAR_OWNER is not set, so no new calendar can be created — one nobody can see is worse than none.</div>"#,
+        ),
     };
 
     page(
@@ -529,9 +586,15 @@ async function copyCmd(id) {
     </div>
     <div class="col-sm-5">
       <label class="form-label" for="calendar">Calendar</label>
-      <input type="text" class="form-control" id="calendar" name="calendar"
-             value="{draft_calendar}" placeholder="Almanac · Huishouden" required>
-      <div class="form-text">{calendar_help}</div>
+      <select class="form-select" id="calendar" name="calendar" onchange="toggleNewCalendar()" required>
+        {options}{new_option}
+      </select>
+      {calendar_note}
+      <div id="new-calendar-row" class="mt-2 d-none">
+        <label class="form-label" for="new_calendar">Name for the new calendar</label>
+        <input type="text" class="form-control" id="new_calendar" name="new_calendar"
+               value="{draft_new_calendar}" placeholder="Almanac · Huishouden">
+      </div>
     </div>
     <div class="col-sm-auto">
       <button class="btn btn-primary" type="submit">Add source</button>
@@ -580,17 +643,23 @@ async function copyCmd(id) {
     .into_response()
 }
 
-/// What the add-a-source form sends: a name and a calendar (K21).
+/// What the add-a-source form sends (K21).
 ///
 /// Two fields rather than a profile, after Kenny opened the first
-/// version and said it should be "enkel een naam van de bron en de
-/// naam van de target kalender". He was right about his own sources:
-/// the profiles that need every field are the ones matching a webhook
-/// nobody here controls, and those are files.
+/// version and asked for "enkel een naam van de bron en de naam van de
+/// target kalender" — then refined it once more: the calendar is a
+/// dropdown of what exists, with one entry that means "make a new one"
+/// and reveals a box for its name. Picking a calendar should not
+/// require knowing an id, and adding one should not require leaving
+/// the page.
 #[derive(Deserialize)]
 struct NewSource {
     source_id: String,
+    /// A calendar id from the dropdown, or `NEW_CALENDAR`.
     calendar: String,
+    /// The name to create, when `calendar` says to make one.
+    #[serde(default)]
+    new_calendar: String,
 }
 
 /// `POST /dashboard/sources` — resolve or create the calendar, write
@@ -605,8 +674,9 @@ async fn create_source(
     }
 
     let source_id = form.source_id.trim();
-    let calendar = form.calendar.trim();
-    let draft = Some((source_id, calendar));
+    let chosen = form.calendar.trim();
+    let new_name = form.new_calendar.trim();
+    let draft = Some((source_id, chosen, new_name));
 
     // Checked here as well as in the parser: this one names the file
     // AND becomes a URL segment, and the message should point at the
@@ -621,44 +691,44 @@ async fn create_source(
         )
         .await;
     }
-    if calendar.is_empty() {
-        return render_sources(
-            &state,
-            Some("Name the calendar this source writes to."),
-            draft,
-        )
-        .await;
-    }
 
     // Resolved before anything is written: a profile pointing at a
     // calendar that does not exist accepts payloads and fails every
     // delivery, which looks like Google being down.
-    let calendar_id = match state.calendar_owner.as_deref() {
-        Some(owner) => match state.client.ensure_calendar(calendar, owner).await {
+    let calendar_id = if chosen == NEW_CALENDAR {
+        let Some(owner) = state.calendar_owner.as_deref() else {
+            return render_sources(
+                &state,
+                Some(
+                    "ALMANAC_CALENDAR_OWNER is not set — without an owner to share it with, a calendar \
+                     Almanac creates belongs to the service account and is visible to nobody. Set that \
+                     variable, or pick a calendar that already exists.",
+                ),
+                draft,
+            )
+            .await;
+        };
+        if new_name.is_empty() {
+            return render_sources(&state, Some("Name the new calendar."), draft).await;
+        }
+        // Still find-or-create rather than a bare create: two tabs, or
+        // a second source added to a calendar made a minute ago, must
+        // not each get their own. A duplicate calendar is close to
+        // invisible — events land, nothing errors, and half of them are
+        // on a calendar nobody has open.
+        match state.client.ensure_calendar(new_name, owner).await {
             Ok((id, created)) => {
                 if created {
-                    tracing::info!(calendar = %calendar, id = %id, "created a calendar from the dashboard");
+                    tracing::info!(calendar = %new_name, id = %id, "created a calendar from the dashboard");
                 }
                 id
             }
             Err(e) => return render_sources(&state, Some(&e.to_string()), draft).await,
-        },
-        None => match state.client.find_calendar_by_summary(calendar).await {
-            Ok(Some(id)) => id,
-            Ok(None) => {
-                return render_sources(
-                    &state,
-                    Some(&format!(
-                        "no calendar called \"{calendar}\" exists, and ALMANAC_CALENDAR_OWNER is not set — \
-                         without an owner to share it with, a calendar Almanac creates is visible to nobody. \
-                         Set that variable, or name a calendar that already exists."
-                    )),
-                    draft,
-                )
-                .await;
-            }
-            Err(e) => return render_sources(&state, Some(&e.to_string()), draft).await,
-        },
+        }
+    } else if chosen.is_empty() {
+        return render_sources(&state, Some("Choose a calendar for this source."), draft).await;
+    } else {
+        chosen.to_string()
     };
 
     let toml = crate::core::profile::default_profile_toml(source_id, &calendar_id);

@@ -317,16 +317,13 @@ impl GoogleCalendarClient {
         Ok(parsed.id)
     }
 
-    /// Finds a calendar this account can see by its display name, or
-    /// `None`.
+    /// Every calendar this account can see, as `(id, display name)`,
+    /// sorted by name.
     ///
-    /// By name because that is what a person knows. Calendar ids are
-    /// opaque strings nobody types on purpose, which is exactly why
-    /// adding a source used to mean going and finding one first.
-    pub async fn find_calendar_by_summary(
-        &self,
-        summary: &str,
-    ) -> Result<Option<String>, AlmanacError> {
+    /// The dashboard offers these in a dropdown (K21): a calendar id is
+    /// an opaque string nobody types on purpose, and having to go and
+    /// find one before adding a source was most of the chore.
+    pub async fn list_calendars(&self) -> Result<Vec<(String, String)>, AlmanacError> {
         let response = self
             .send_with_retry(|http, token| http.get(&self.calendar_list_url).bearer_auth(token))
             .await?;
@@ -338,13 +335,33 @@ impl GoogleCalendarClient {
                 transient: false,
             })?;
 
-        Ok(parsed["items"]
+        let mut calendars: Vec<(String, String)> = parsed["items"]
             .as_array()
             .unwrap_or(&Vec::new())
             .iter()
-            .find(|c| c["summary"].as_str() == Some(summary))
-            .and_then(|c| c["id"].as_str())
-            .map(str::to_string))
+            .filter_map(|c| {
+                Some((
+                    c["id"].as_str()?.to_string(),
+                    c["summary"].as_str()?.to_string(),
+                ))
+            })
+            .collect();
+        calendars.sort_by(|a, b| a.1.cmp(&b.1));
+        Ok(calendars)
+    }
+
+    /// Finds a calendar this account can see by its display name, or
+    /// `None`.
+    pub async fn find_calendar_by_summary(
+        &self,
+        summary: &str,
+    ) -> Result<Option<String>, AlmanacError> {
+        Ok(self
+            .list_calendars()
+            .await?
+            .into_iter()
+            .find(|(_, name)| name == summary)
+            .map(|(id, _)| id))
     }
 
     /// The id of the calendar called `summary`, creating and sharing it

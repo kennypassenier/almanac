@@ -800,11 +800,21 @@ duration_minutes = 60
     )
 }
 
-fn add_source_body(source_id: &str, calendar: &str) -> String {
+/// Picking an existing calendar from the dropdown: `calendar` is its id.
+fn pick_calendar_body(source_id: &str, calendar_id: &str) -> String {
     format!(
         "source_id={}&calendar={}",
         urlencode(source_id),
-        urlencode(calendar)
+        urlencode(calendar_id)
+    )
+}
+
+/// Choosing "+ New calendar…" and naming it.
+fn new_calendar_body(source_id: &str, name: &str) -> String {
+    format!(
+        "source_id={}&calendar=__new__&new_calendar={}",
+        urlencode(source_id),
+        urlencode(name)
     )
 }
 
@@ -830,7 +840,18 @@ async fn k21_the_sources_page_asks_for_a_name_and_a_calendar() {
         "no add form"
     );
     assert!(body.contains(r#"name="source_id""#), "no source name field");
-    assert!(body.contains(r#"name="calendar""#), "no calendar field");
+    assert!(
+        body.contains(r#"<select class="form-select" id="calendar" name="calendar""#),
+        "the calendar should be a dropdown of what exists"
+    );
+    assert!(
+        body.contains("+ New calendar"),
+        "and offer making a new one"
+    );
+    assert!(
+        body.contains(r#"name="new_calendar""#),
+        "with a box for its name"
+    );
     assert!(
         !body.contains(r#"name="profile""#),
         "the profile textarea should be gone"
@@ -855,7 +876,7 @@ async fn k21_adding_a_source_creates_its_calendar_and_makes_it_issuable() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("kobo", "Almanac · Test"),
+            &new_calendar_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -894,29 +915,48 @@ async fn k21_adding_a_source_creates_its_calendar_and_makes_it_issuable() {
 }
 
 #[tokio::test]
-async fn k21_a_second_source_on_the_same_calendar_does_not_create_a_second_one() {
-    // A duplicate calendar is close to invisible: events land, nothing
-    // errors, and half of them are on a calendar nobody has open.
+async fn k21_a_second_source_picks_the_existing_calendar_from_the_list() {
+    // What the dropdown is for: the first source makes the calendar,
+    // the second chooses it by id without anyone typing one.
     let dir = scratch_dir("k21-reuse");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
-    for source in ["kobo", "washing-machine"] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
-            .oneshot(post_form(
-                "/dashboard/sources",
-                Some(&cookie),
-                &add_source_body(source, "Almanac · Huishouden"),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::SEE_OTHER, "{source} failed");
-    }
+    let created = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &new_calendar_body("kobo", "Almanac · Huishouden"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::SEE_OTHER);
+
+    // The id the dropdown would now carry for that calendar.
+    let calendar_id = cal
+        .state
+        .calendars
+        .lock()
+        .await
+        .keys()
+        .next()
+        .expect("the first source created one")
+        .clone();
+
+    let picked = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &pick_calendar_body("washing-machine", &calendar_id),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(picked.status(), StatusCode::SEE_OTHER);
 
     assert_eq!(
         cal.state.calendars.lock().await.len(),
         1,
-        "the second source must reuse the calendar the first one made"
+        "picking an existing calendar must not create another"
     );
 
     let first = std::fs::read_to_string(dir.join("profiles/kobo.toml")).unwrap();
@@ -948,7 +988,7 @@ async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("../../etc/passwd", "Almanac · Test"),
+            &new_calendar_body("../../etc/passwd", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -991,7 +1031,7 @@ async fn k21_without_an_owner_an_unknown_calendar_is_refused_rather_than_created
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("kobo", "Nobody Can See This"),
+            &new_calendar_body("kobo", "Nobody Can See This"),
         ))
         .await
         .unwrap();
@@ -1053,7 +1093,7 @@ async fn k21_retiring_a_source_ends_it_and_keeps_the_record() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("kobo", "Almanac · Test"),
+            &new_calendar_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -1163,7 +1203,7 @@ async fn k21_changing_sources_needs_a_session() {
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
     for (uri, body) in [
-        ("/dashboard/sources", add_source_body("kobo", "Anything")),
+        ("/dashboard/sources", new_calendar_body("kobo", "Anything")),
         ("/dashboard/sources/reload", String::new()),
         ("/dashboard/sources/home-assistant/retire", String::new()),
     ] {
@@ -1209,7 +1249,7 @@ async fn k21_dump_the_sources_page_for_review() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("kobo", "Almanac · Test"),
+            &new_calendar_body("kobo", "Almanac · Test"),
         ))
         .await
         .unwrap();
@@ -1225,7 +1265,7 @@ async fn k21_dump_the_sources_page_for_review() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &add_source_body("grafana", "Almanac · Infra"),
+            &new_calendar_body("grafana", "Almanac · Infra"),
         ))
         .await
         .unwrap();
