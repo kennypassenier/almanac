@@ -11,6 +11,29 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **A payload almanac can never map is refused at the door, with 422.**
+  Kenny's decision after the JobTracker session measured what the two
+  502s looked like from outside. Almanac answered 502 both when Google
+  had hiccuped and when the body was unusable, so a caller could not
+  tell "wait, almanac is retrying" from "retrying will never help" —
+  JobTracker was showing "almanac will try again" for a date sent
+  without `all_day`, a sentence nobody could disprove.
+
+  No new field: HTTP already separates "your request is wrong" from "my
+  upstream broke", and almanac was not using it. **502 now means Google
+  and only Google. 422 means the source must send something else.**
+
+  The same change closes the asynchronous half. A misspelled field used
+  to get a reassuring 202 and surface much later in the dead letter,
+  because the body was only parsed in the delivery worker. It is parsed
+  at the door now, so a mistake is named while the sender can still act,
+  and nothing that can only ever fail enters the journal.
+
+  The cost, accepted: an unmappable payload is refused rather than
+  stored. It was lost either way — this way the sender hears about it.
+
 ### Fixed
 
 - **A second click could still make a second calendar** (K24). Found

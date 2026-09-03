@@ -431,6 +431,44 @@ fn requires_an_id(payload: &Value, headers: &HeaderMap) -> Result<(), Reply> {
     ))
 }
 
+/// Refuses a payload Almanac could never turn into an event.
+///
+/// Checked at the door, before the journal, so a body that can only
+/// ever fail is answered with 422 instead of being stored and retried
+/// until it dead-letters. Two things were wrong without this, and they
+/// were the same thing seen from two sides (Kenny, 2026-09-03):
+///
+/// - the asynchronous post answered a reassuring 202 to a payload with
+///   a misspelled field, and the mistake only surfaced later, in a list
+///   nobody watches;
+/// - the synchronous post answered 502 both when Google had hiccuped
+///   and when the body was unusable, so a caller could not tell "wait,
+///   almanac is retrying" from "retrying will never help". The
+///   JobTracker session was showing "almanac will try again" for a date
+///   sent without `all_day`, which is a sentence nobody could disprove.
+///
+/// With this, 502 means Google and only Google, and 422 means the
+/// source has to send something else. Neither needs a new field:
+/// HTTP already has this distinction and we were not using it.
+///
+/// The cost, accepted: a payload almanac cannot map is refused rather
+/// than kept. It was lost either way — this way the sender hears it
+/// while it can still act.
+fn must_be_mappable(payload: &Value, profile: &Profile) -> Result<(), Reply> {
+    match crate::core::mapping::map_payload(
+        payload,
+        profile,
+        &format!("profile {}", profile.source_id),
+    ) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &e.to_string(),
+            e.remedy(),
+        )),
+    }
+}
+
 fn build_entry(state: &AppState, source_id: &str, headers: &HeaderMap, payload: Value) -> Entry {
     let idempotency_key = headers
         .get(IDEMPOTENCY_HEADER)
@@ -461,6 +499,9 @@ async fn ingest(
     let source_id = profile.source_id.clone();
 
     if let Err(reply) = requires_an_id(&payload, &headers) {
+        return reply;
+    }
+    if let Err(reply) = must_be_mappable(&payload, &profile) {
         return reply;
     }
 
@@ -499,6 +540,13 @@ async fn ingest_sync(
     let profile = profile.clone();
 
     if let Err(reply) = requires_an_id(&payload, &headers) {
+        return reply;
+    }
+    // Mapped twice on this path — once here, once inside `deliver`.
+    // It is a pure function over the payload and the profile, so the
+    // second run is cheap, and the alternative is a journalled entry
+    // that exists only to fail.
+    if let Err(reply) = must_be_mappable(&payload, &profile) {
         return reply;
     }
 
