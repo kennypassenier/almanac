@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::extract::{Path, State};
@@ -49,6 +49,15 @@ pub struct CalendarState {
     pub reject_times: AtomicUsize,
     /// Calendars created through this stub, keyed by id.
     pub calendars: Mutex<HashMap<String, Created>>,
+    /// Models Google's eventually-consistent calendar list: while this
+    /// is set, a calendar the stub creates is held back from
+    /// `calendarList` until `catch_up` is called.
+    ///
+    /// Without it the stub answers instantly and consistently, and that
+    /// assumption is what let a real bug through — the dashboard's
+    /// find-or-create guard reads that list, so during the lag it finds
+    /// nothing and makes a second calendar.
+    pub lag_new_calendars: AtomicBool,
     /// Events the stub already holds, keyed by calendar id, returned
     /// from the list endpoint so an upsert can find one.
     pub existing: Mutex<HashMap<String, Vec<Value>>>,
@@ -104,6 +113,8 @@ impl CalendarState {
 pub struct Created {
     pub name: String,
     pub shared_with: Vec<String>,
+    /// Whether `calendarList` admits this one exists yet.
+    pub listed: bool,
 }
 
 /// A stand-in for the Google Calendar API.
@@ -142,6 +153,7 @@ async fn list_calendars(
     let calendars = state.calendars.lock().await;
     let items: Vec<Value> = calendars
         .iter()
+        .filter(|(_, created)| created.listed)
         .map(|(id, created)| json!({"id": id, "summary": created.name}))
         .collect();
     (StatusCode::OK, axum::Json(json!({"items": items})))
@@ -259,6 +271,7 @@ async fn create_calendar(
         Created {
             name: body["summary"].as_str().unwrap_or_default().to_string(),
             shared_with: Vec::new(),
+            listed: !state.lag_new_calendars.load(Ordering::SeqCst),
         },
     );
     (StatusCode::OK, axum::Json(json!({"id": id})))
@@ -279,6 +292,20 @@ async fn insert_acl(
 }
 
 impl CalendarStub {
+    /// Hold every calendar created from now on out of `calendarList`,
+    /// the way Google does for the first seconds.
+    pub fn lag_new_calendars(&self) {
+        self.state.lag_new_calendars.store(true, Ordering::SeqCst);
+    }
+
+    /// Google has caught up: everything created is listed again.
+    pub async fn catch_up(&self) {
+        self.state.lag_new_calendars.store(false, Ordering::SeqCst);
+        for created in self.state.calendars.lock().await.values_mut() {
+            created.listed = true;
+        }
+    }
+
     /// Who a created calendar ended up shared with.
     pub async fn shared_with(&self, name: &str) -> Vec<String> {
         self.state

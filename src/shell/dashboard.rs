@@ -736,7 +736,15 @@ async function copyCmd(id) {
     // controls below are what someone came for when Google is
     // unreachable.
     let (calendars, calendar_error) = match state.client.list_calendars().await {
-        Ok(calendars) => (state.without_deleted_calendars(calendars), None),
+        // Order matters: the create memory is reconciled against
+        // Google's own answer first, so an id Google now lists is
+        // forgotten there — then the tombstones subtract. The other way
+        // round, a calendar hidden as deleted would look unlisted to
+        // the create memory and be put straight back.
+        Ok(calendars) => (
+            state.without_deleted_calendars(state.with_created_calendars(calendars)),
+            None,
+        ),
         Err(e) => (Vec::new(), Some(e.to_string())),
     };
 
@@ -1131,9 +1139,27 @@ async fn create_calendar(
     // calendar. A duplicate is close to invisible — events land,
     // nothing errors, and half of them are on a calendar nobody has
     // open.
+    // Serialized per name, and consulted against what almanac made
+    // moments ago, because `ensure_calendar` alone is not enough: it
+    // looks for an existing calendar in Google's list, and that list
+    // lags a create by seconds. Two clicks inside that window both
+    // find nothing and both create.
+    let lock = state.locks.for_key(&format!("calendar:{name}")).await;
+    let _guard = lock.lock().await;
+
+    if let Some(id) = state.remembered_calendar(name) {
+        tracing::info!(
+            calendar = %name,
+            id = %id,
+            "a calendar with that name was just created; reusing it rather than making a second"
+        );
+        return Redirect::to("/dashboard/sources").into_response();
+    }
+
     match state.client.ensure_calendar(name, owner).await {
         Ok((id, created)) => {
             if created {
+                state.remember_created_calendar(name, &id);
                 // The sharing is named because the line without it
                 // cannot tell "created and shared" from "created and
                 // invisible to every human" — and that second outcome
@@ -1196,6 +1222,7 @@ async fn delete_calendar(
             // Google's list lags a delete by seconds, so the page that
             // renders next would otherwise still show it.
             state.remember_deleted_calendar(&calendar_id);
+            state.forget_created_calendar(&calendar_id);
             tracing::info!(calendar_id = %calendar_id, "deleted a calendar from the dashboard");
             Redirect::to("/dashboard/sources").into_response()
         }

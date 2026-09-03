@@ -1784,3 +1784,179 @@ async fn k21_dump_the_sources_page_for_review() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn k24_a_second_click_while_google_lags_does_not_make_a_second_calendar() {
+    // The fault the K24 correction form found. "Make calendar" is
+    // find-or-create precisely so a double submit cannot produce two —
+    // but it looks for the existing one in Google's calendar list, and
+    // that list lags a create by seconds. Both clicks therefore find
+    // nothing and both create. Measured on CT 112: two `deleted a
+    // calendar` lines at 19:56 for one request.
+    let dir = scratch_dir("k24-double-create");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    cal.lag_new_calendars();
+
+    for _ in 0..2 {
+        let response = almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(post_form(
+                "/dashboard/calendars",
+                Some(&cookie),
+                &format!("name={}", urlencode("Almanac · Dubbel")),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+
+    let made = cal
+        .state
+        .calendars
+        .lock()
+        .await
+        .values()
+        .filter(|created| created.name == "Almanac · Dubbel")
+        .count();
+    assert_eq!(
+        made, 1,
+        "two clicks inside Google's lag must still leave exactly one calendar"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_a_calendar_google_has_not_listed_yet_still_shows_on_the_page() {
+    // The absence misleads as much as the stale presence did: a
+    // calendar created a second ago is missing from the page that
+    // renders next, which reads as "it did not work" — and inviting
+    // exactly the second click the test above is about.
+    let dir = scratch_dir("k24-created-visible");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    cal.lag_new_calendars();
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/calendars",
+            Some(&cookie),
+            &format!("name={}", urlencode("Almanac · Vers")),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        body.contains("Almanac · Vers") || body.contains("Almanac &#183; Vers"),
+        "a calendar almanac just made must be on the page before Google lists it"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_the_memory_of_a_created_calendar_clears_itself_and_never_doubles_a_row() {
+    // Once Google catches up the memory has to let go, or a
+    // long-running process would carry every calendar it ever made —
+    // and the page would show each of them twice, once from Google and
+    // once from the memory.
+    let dir = scratch_dir("k24-created-forget");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    cal.lag_new_calendars();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/calendars",
+            Some(&cookie),
+            &format!("name={}", urlencode("Almanac · Bijgetrokken")),
+        ))
+        .await
+        .unwrap();
+    cal.catch_up().await;
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let rows = body.matches("Almanac &#183; Bijgetrokken").count()
+        + body.matches("Almanac · Bijgetrokken").count();
+    assert!(
+        rows > 0,
+        "the calendar must still be on the page once Google lists it"
+    );
+
+    assert!(
+        st.remembered_calendar("Almanac · Bijgetrokken").is_none(),
+        "the memory must let go once Google's own list carries the calendar"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_a_calendar_created_and_deleted_inside_the_lag_stays_gone() {
+    // The two memories pull in opposite directions on the same
+    // calendar. Without forgetting the creation, the memory that makes
+    // a fresh calendar visible would keep putting back one that was
+    // deleted a moment later.
+    let dir = scratch_dir("k24-created-then-deleted");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    cal.lag_new_calendars();
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/calendars",
+            Some(&cookie),
+            &format!("name={}", urlencode("Almanac · Vergissing")),
+        ))
+        .await
+        .unwrap();
+
+    let calendar_id = cal
+        .state
+        .calendars
+        .lock()
+        .await
+        .iter()
+        .find(|(_, created)| created.name == "Almanac · Vergissing")
+        .map(|(id, _)| id.clone())
+        .expect("the stub recorded the calendar even while hiding it");
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            &format!("/dashboard/calendars/{calendar_id}/delete"),
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        !body.contains("Almanac · Vergissing") && !body.contains("Almanac &#183; Vergissing"),
+        "a calendar deleted right after it was made must not be put back by the create memory"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}

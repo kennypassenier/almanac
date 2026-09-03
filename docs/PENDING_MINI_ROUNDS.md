@@ -96,3 +96,67 @@ guard is the second line and nothing mutates before it.
 **Fallback if it proves unusable:** `enforce_admins` on both
 repositories and changes go through a pull request. **Review:** at the
 first release where this guard blocks something it should not have.
+
+---
+
+## Correction · the dashboard believed Google's list (2026-09-03)
+
+Ratified by Kenny, all nine fields as proposed, 2026-09-03.
+
+**What went wrong.** The dashboard showed a calendar it had itself had
+deleted a second earlier, and gave no sign that a button was still
+working. Google's calendar list is eventually consistent: one deleted
+moments ago comes back in the next list call, which is exactly the call
+the page makes after the delete. Measured in both directions —
+`cargo run --example inspect_calendar_access` minutes later showed the
+calendar genuinely gone at Google, so the delete had worked and the
+list was what lied.
+
+**Which gate let it through.** The 42 dashboard tests, which run on
+every commit and could say nothing here: they talk to a stub that
+answers instantly and consistently, and a stub cannot double-click. The
+Phase 7 test plan accepted "the dashboard is proven against a stub" as
+a known limitation with open eyes; this is what that limitation cost.
+Same shape as the four days of red CI: a check that exists and asks the
+wrong question is harder to find than a missing one.
+
+**Where the same fault already sat** — measured, not guessed. Two
+places read Google's calendar list; only one had been fixed. The other
+is the create button, which is find-or-create precisely so a double
+submit cannot make two calendars — and it looks for the existing one in
+that same lagging list. The homelab's journal for CT 112 shows the
+consequence at 19:56: two `deleted a calendar` lines where one calendar
+had been asked for. The busy button makes that click unlikely; two tabs
+still defeat it.
+
+**The measure.** Almanac remembers what it made, the mirror of what it
+already remembered deleting, and consults that memory before asking
+Google. The create path is serialized per calendar name. The stub
+learned to lag, so the tests can now ask the question that matters.
+
+**Enforcement:** code. `k24_a_second_click_while_google_lags_does_not_make_a_second_calendar`
+fails without the guard — verified by removing it and watching the test
+go red, not by assuming. Plus three more: the fresh calendar appears on
+the page before Google lists it, the memory lets go once Google catches
+up, and a calendar created and deleted inside the same lag stays gone.
+
+**Cost.** The confirmation costs a click on every delete, including the
+hundred times it was not needed. The memory lives in the process and
+dies with it, which is correct: after a restart Google has long caught
+up. It buys nothing against a calendar created outside almanac in the
+same second — theoretical here.
+
+**PENDING — how we measure that it works, and when.** At the next time
+Kenny creates and deletes a calendar on the live service. The list must
+be right immediately in both directions: the new one there, the deleted
+one gone. That is one half-minute action and it proves both repairs
+where the stub cannot speak.
+
+**Fallback if that measurement fails:** stop reading Google's list to
+render the page at all. Almanac knows on disk which calendars it made
+and where each source writes, and that never lags; Google would then be
+consulted only for what almanac did not make. Not the proposal, because
+it gives up the one thing the current list does well — showing what
+exists outside almanac.
+
+**Review:** at the next work that touches the calendars panel.

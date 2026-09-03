@@ -11,6 +11,35 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A second click could still make a second calendar** (K24). Found
+  while filling in the correction form for 2.2.0's stale-list bug, in
+  the field that asks where the same fault sits elsewhere — so by
+  measurement rather than by noticing it again in use.
+
+  "Make calendar" is find-or-create precisely so a double submit cannot
+  produce two. But it looked for the existing calendar in Google's
+  list, and that list lags a create by seconds, so both clicks found
+  nothing and both created. CT 112's journal shows it happening at
+  19:56 on 2026-09-03: two `deleted a calendar` lines where one
+  calendar had been asked for.
+
+  Almanac now remembers what it made — the mirror of what it already
+  remembered deleting — and consults that before asking Google. The
+  create path is serialized per calendar name, so two tabs cannot race
+  either. The same memory puts a fresh calendar on the page before
+  Google lists it: the absence misled as much as the stale presence
+  did, and invited the second click.
+
+### Changed
+
+- **The Google stub can model an eventually-consistent list.** It
+  answered instantly and consistently, and that assumption is what let
+  both halves of this bug through 42 dashboard tests. `lag_new_calendars`
+  holds a created calendar out of `calendarList` until `catch_up`, which
+  is what Google does for the first seconds.
+
 ## [2.2.0] — 2026-09-03
 
 ### Fixed

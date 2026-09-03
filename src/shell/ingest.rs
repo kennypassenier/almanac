@@ -67,6 +67,23 @@ pub struct AppState {
     /// is dropped from here as soon as Google's own list no longer
     /// carries it, so this never grows and never outlives the truth.
     pub deleted_calendars: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Calendars almanac made, by name, until Google lists them (K24).
+    ///
+    /// The mirror image of `deleted_calendars`, and it exists for the
+    /// same lag. `ensure_calendar` refuses to make a second calendar
+    /// with a name it can already see — but it looks in the very list
+    /// that has not caught up, so a second click within those seconds
+    /// finds nothing and creates a duplicate. Measured on CT 112: two
+    /// `deleted a calendar` lines at 19:56 for one request.
+    ///
+    /// A duplicate calendar is close to invisible — events land,
+    /// nothing errors, and half of them are on a calendar nobody has
+    /// open — so the guard against it has to hold when Google's answer
+    /// is still on its way.
+    ///
+    /// Self-clearing on the same rule as the tombstones: an entry is
+    /// dropped as soon as Google's own list carries that id.
+    pub created_calendars: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// Who a calendar created from the dashboard is shared with (K21).
     /// `None` disables creating calendars rather than creating one
     /// nobody can see: a calendar the service account makes is owned by
@@ -125,6 +142,7 @@ impl AppState {
             profiles_dir: std::path::PathBuf::from("profiles"),
             calendar_owner: None,
             deleted_calendars: std::sync::Mutex::new(std::collections::HashSet::new()),
+            created_calendars: std::sync::Mutex::new(std::collections::HashMap::new()),
             journal,
             client,
             tokens,
@@ -202,6 +220,70 @@ impl AppState {
             .into_iter()
             .filter(|(id, _)| !deleted.contains(id))
             .collect()
+    }
+
+    /// Remembers a calendar almanac just made, so the next few seconds
+    /// do not make a second one with the same name (K24).
+    pub fn remember_created_calendar(&self, summary: &str, calendar_id: &str) {
+        self.created_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(summary.to_string(), calendar_id.to_string());
+    }
+
+    /// The id of a calendar almanac made under this name and Google has
+    /// not listed yet, if there is one.
+    pub fn remembered_calendar(&self, summary: &str) -> Option<String> {
+        self.created_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(summary)
+            .cloned()
+    }
+
+    /// Drops the memory of a created calendar by id.
+    ///
+    /// Called when one is deleted: without this, a calendar made and
+    /// removed inside the same lag window would keep being added back
+    /// to the rendered list by the very memory that was meant to make
+    /// it appear.
+    pub fn forget_created_calendar(&self, calendar_id: &str) {
+        self.created_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|_, id| id != calendar_id);
+    }
+
+    /// Adds what almanac made and Google has not listed yet, and
+    /// forgets the ones it now lists.
+    ///
+    /// The absence is as misleading as the stale presence was: a
+    /// calendar created a second ago is missing from the page that
+    /// renders next, which reads as "it did not work".
+    pub fn with_created_calendars(
+        &self,
+        mut calendars: Vec<(String, String)>,
+    ) -> Vec<(String, String)> {
+        let mut created = self
+            .created_calendars
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if created.is_empty() {
+            return calendars;
+        }
+        let listed: std::collections::HashSet<&str> =
+            calendars.iter().map(|(id, _)| id.as_str()).collect();
+        let missing: Vec<(String, String)> = created
+            .iter()
+            .filter(|(_, id)| !listed.contains(id.as_str()))
+            .map(|(summary, id)| (id.clone(), summary.clone()))
+            .collect();
+        // Google has caught up on the rest; keeping them would mean
+        // holding a name that could since have been renamed there.
+        created.retain(|_, id| !listed.contains(id.as_str()));
+        calendars.extend(missing);
+        calendars.sort_by(|a, b| a.1.cmp(&b.1));
+        calendars
     }
 
     /// Sets who a dashboard-created calendar is shared with (K21).
