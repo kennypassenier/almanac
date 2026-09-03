@@ -1091,7 +1091,21 @@ async fn create_calendar(
     match state.client.ensure_calendar(name, owner).await {
         Ok((id, created)) => {
             if created {
-                tracing::info!(calendar = %name, id = %id, "created a calendar from the dashboard");
+                // The sharing is named because the line without it
+                // cannot tell "created and shared" from "created and
+                // invisible to every human" — and that second outcome
+                // has happened here twice. `ensure_calendar` shares
+                // before it returns, so reaching this point means the
+                // grant went through; saying so is what lets a check
+                // from outside see it without opening Google Calendar
+                // (homelab's observation, 2026-09-03).
+                tracing::info!(
+                    calendar = %name,
+                    id = %id,
+                    shared_with = %owner,
+                    role = "owner",
+                    "created a calendar from the dashboard and shared it"
+                );
             }
             Redirect::to("/dashboard/sources").into_response()
         }

@@ -1250,6 +1250,30 @@ async fn k24_making_the_same_calendar_twice_does_not_make_two() {
 }
 
 #[tokio::test]
+async fn k24_a_new_calendar_is_shared_in_the_same_breath_as_making_it() {
+    // The half that has gone wrong here twice: a calendar the service
+    // account makes is owned by the service account and invisible to
+    // every human until it is shared. Asserted against what the stub
+    // actually received, not against the log line that describes it.
+    let dir = scratch_dir("k24-shared");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    make_calendar(&st, &cookie, &cal, "Almanac · Gedeeld").await;
+
+    let calendars = cal.state.calendars.lock().await;
+    let created = calendars.values().next().expect("one calendar");
+    assert_eq!(
+        created.shared_with,
+        vec!["kenny@example.com".to_string()],
+        "creating without sharing produces a calendar nobody can see"
+    );
+
+    drop(calendars);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k24_making_a_calendar_needs_a_session() {
     let dir = scratch_dir("k24-auth");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
