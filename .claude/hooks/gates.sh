@@ -38,6 +38,53 @@ if [ -d src/core ]; then
   fi
 fi
 
+# K25: the vendored kp-themes file must still match its source.
+#
+# static/themes.css is a COPY of ~/Projects/kp-themes/css/themes.css —
+# almanac has no npm and no build step, so it cannot be a dependency the
+# way it is in JobTracker. The risk a copy actually runs is not that it
+# is wrong today but that it silently ages: upstream releases, nobody
+# re-copies, and three projects drift apart on the palettes they claim
+# to share.
+#
+# So: compare, and refuse. Everything above the upstream file's own
+# opening comment is almanac's provenance header and is skipped, which
+# is why the comparison starts at that line rather than at a line
+# number. Taken from kyu, which built and proved this first — including
+# the detail that anchoring on a marker rather than a count is what
+# keeps it from reporting a difference that is not there.
+UPSTREAM_THEMES="$HOME/Projects/kp-themes/css/themes.css"
+VENDORED_THEMES="static/themes.css"
+if [ -f "$VENDORED_THEMES" ]; then
+  if [ -f "$UPSTREAM_THEMES" ]; then
+    if ! diff -q \
+        <(sed -n '/^\/\* @kp-soft\/themes/,$p' "$VENDORED_THEMES") \
+        "$UPSTREAM_THEMES" >/dev/null; then
+      {
+        echo "GATE FAILED — $VENDORED_THEMES no longer matches kp-themes."
+        echo
+        echo "It is a vendored copy: either kp-themes released a new version and"
+        echo "this copy is stale, or someone edited the copy, which its own header"
+        echo "forbids. Anything almanac-specific belongs in theme-bridge.css."
+        echo
+        echo "The differing lines:"
+        diff <(sed -n '/^\/\* @kp-soft\/themes/,$p' "$VENDORED_THEMES") \
+             "$UPSTREAM_THEMES" | head -40
+        echo
+        echo "What now: re-copy the file and bump the version in its header,"
+        echo "or move your change into static/theme-bridge.css."
+      } >&2
+      exit 1
+    fi
+  else
+    # Said out loud rather than passing quietly: on CI the source is not
+    # there, and a check that reports success when it did not run is
+    # exactly the shape this project spent a day removing.
+    echo "gates: kp-themes is not on this machine, so $VENDORED_THEMES was NOT" >&2
+    echo "       compared against its source. Checked on Kenny's workstation." >&2
+  fi
+fi
+
 # Standing rule 7, second clause: see gate_tree_fingerprint above.
 if [ "$(gate_tree_fingerprint)" != "$gate_tree_before" ]; then
   {

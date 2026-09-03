@@ -56,6 +56,22 @@ against before it installs anything.
   toggle — because that is the cheapest guard against the drift the
   shared package exists to prevent.
 
+  **The commit gate refuses a vendored copy that has drifted.** It
+  compares `static/themes.css` against `~/Projects/kp-themes` whenever
+  that repository is on the machine, and says out loud when it is not
+  there rather than passing quietly. The risk a copy actually runs is
+  not being wrong today but ageing silently, and that is the risk this
+  covers — taken from kyu, which built and proved it first. Proven the
+  same way here: `--radius` changed by a thousandth, the gate refused
+  and printed both lines; reverted, green again.
+
+  A contrast gate was considered and **not** built. kp-themes runs its
+  own before tagging, so the copied file has already passed it; running
+  it again answers an answered question and would only fire if someone
+  edited the copy, which its header forbids and the drift gate catches.
+  A gate covering the wrong risk costs more than none, because it feels
+  like cover.
+
   Two additions to the shared bridge, found here and going back to kyu:
   Bootstrap's `.bg-*` utilities read `--bs-body-bg-rgb`, a
   comma-separated triple an `hsl()` token cannot produce, so they keep
