@@ -36,6 +36,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K20 | One documented knob for the whole state tree — `ALMANAC_STATE_DIR`, with every path derived from it | Essential | A profile tree and a data tree both move by setting one variable; the four existing per-path settings still win where present, asserted against the live deployment's exact configuration. *(Added 2026-09-01 — standing rule 28.)* |
 | K21 | Manage sources from the dashboard — add one with a name and a calendar chosen from a dropdown of what exists (or a new one, created and shared on the spot), writing the profile itself and loading it without a restart; delete one, which revokes its token and removes its profile; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; deleting removes the file, refuses while that source still has undelivered events, revokes its token, and leaves calendar events alone. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 | K23 | A source speaks Almanac's own event shape — every per-event option (all-day, colour, free/busy, status, reminders, length, timezone) travels in the call rather than sitting fixed in a profile; the profile becomes routing only, and translating other shapes moves to HTTPSwitchboard | Essential | A pinned fixture using every option; a call with an unknown field refused by name; a call with neither `external_id` nor an `Idempotency-Key` header refused at ingest; a v1 profile refused with a message saying what changed. *(Added 2026-09-03 via mini-round — see amendment below.)* |
+| K24 | A calendars panel on the dashboard — make one by name, and see every calendar with the sources that write to it; delete is offered only for a calendar no source uses | Essential | A calendar in use renders no delete control and the endpoint refuses it by name; one nothing writes to is deletable and gone at Google; making the same name twice makes one calendar; making one needs a session. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -451,3 +452,41 @@ find again — the fault the JobTracker session measured hours earlier.
 
 **What a profile is now:** `source_id`, `target_calendar_id`, and two
 defaults a call may leave out. Nothing that describes an event.
+
+
+## K24 amendment (mini-round, 2026-09-03)
+
+**Where it came from.** Kenny used the K21 add-a-source form against the
+live service — the calendar was created and the sharing mail arrived, so
+that path is proven end to end — and then asked for the calendar half to
+move out of it: *"We gaan de optie om een nieuwe kalender uit die
+dropdown halen. We gaan in de plaats een nieuw paneel maken waar we de
+kalenders kunnen beheren."*
+
+He is right that they are two jobs. Adding a source is a frequent, small
+act; making and removing calendars is rarer and heavier, and mixing them
+put a destructive capability inside a form people use casually.
+
+**What the panel shows.** Name, the sources that write to it, and a
+delete. The middle column is the one that matters: Google knows what a
+calendar is, only Almanac knows who writes to it, and that is exactly
+what decides whether deleting is safe.
+
+**Delete is disabled, not hidden, and not merely refused.** Kenny's
+rule: it becomes live only when no source uses that calendar. A dead
+button that says why ("2 source(s) still write here") tells someone the
+capability exists and what to do first; a missing button tells them
+nothing. The endpoint repeats the check on arrival, because the page is
+a snapshot and a source can be added between the render and the click.
+
+**Deleting a calendar deletes every event on it, for everyone it is
+shared with.** That is Google's semantics, not a choice this project
+made, and the panel says so in those words. It also names the
+interaction with K21's source delete: deleting a source deliberately
+leaves its events alone, so a calendar emptied that way still holds
+them until it is removed here.
+
+**Making one is find-or-create.** A double submit, two tabs, or a
+retyped name must not produce a second calendar. A duplicate is close to
+invisible — events land, nothing errors, and half of them are on a
+calendar nobody has open.

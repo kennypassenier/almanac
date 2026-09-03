@@ -13,6 +13,7 @@ pub mod calendar;
 pub mod colors;
 pub mod error;
 pub mod html;
+pub mod humanise;
 pub mod journal;
 pub mod mapping;
 pub mod metrics;

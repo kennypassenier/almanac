@@ -82,6 +82,13 @@ appears for its name. Submitting writes the profile, creates the
 calendar if it is a new one and shares it with you, and lists the source
 ready for a token. Live immediately, no restart.
 
+The calendar comes from a dropdown of the ones that exist. To make a
+new one, use the **Calendars** panel below the source list: it lists
+every calendar with the sources that write to it, and offers a delete
+for the ones nothing writes to — deleting a calendar removes every event
+on it, for everyone it is shared with, which is why the button stays
+dead until you have deleted the sources first.
+
 **The profile it writes says only where events land.** Since 2.0.0 that
 is all a profile is:
 

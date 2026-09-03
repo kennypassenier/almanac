@@ -384,6 +384,19 @@ impl GoogleCalendarClient {
         Ok((id, true))
     }
 
+    /// Deletes a calendar and everything on it (K24).
+    ///
+    /// Irreversible at Google's end — this is not "remove it from my
+    /// list", it is the calendar and every event ever put on it. The
+    /// dashboard only offers it for a calendar no source writes to, and
+    /// that guard is the reason this is safe to expose at all.
+    pub async fn delete_calendar(&self, calendar_id: &str) -> Result<(), AlmanacError> {
+        let url = format!("{}/{calendar_id}", self.base_url);
+        self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
+            .await?;
+        Ok(())
+    }
+
     /// Gives `user` ownership of a calendar. Idempotent at Google's end:
     /// re-granting what someone already has is not an error.
     ///

@@ -9,6 +9,50 @@ Releases are signed. Every published release carries `SHA256SUMS` and
 compiled into the binary — which is what the self-updater verifies
 against before it installs anything.
 
+## [Unreleased]
+
+### Added
+
+- **A calendars panel on the dashboard** (K24). Make a calendar by name,
+  and see every calendar with the sources that write to it. Kenny, after
+  using the add-a-source form against the live service and getting the
+  sharing mail: *"We gaan de optie om een nieuwe kalender uit die
+  dropdown halen. We gaan in de plaats een nieuw paneel maken waar we de
+  kalenders kunnen beheren."*
+
+  They are two jobs: adding a source is frequent and small, making and
+  removing calendars is rarer and heavier. Mixing them put a destructive
+  capability inside a form used casually.
+
+  **Delete is disabled rather than hidden** until no source writes to
+  that calendar — a dead button saying "2 source(s) still write here"
+  tells someone the capability exists and what to do first, where a
+  missing button tells them nothing. The endpoint repeats the check on
+  arrival: the page is a snapshot, and a source can appear between the
+  render and the click. Deleting a calendar removes every event on it,
+  for everyone it is shared with, and the panel says so in those words.
+
+  The source form's calendar field is now a plain dropdown of what
+  exists.
+
+### Changed
+
+- **"Token issued" reads like a date.** It showed
+  `2026-09-03T01:47:02.351384747+00:00` — every digit true, and nobody
+  reads it. Now `3 Sep 2026, 03:47` in the reader's own zone, with
+  `2 hours ago` beside it. A value that cannot be parsed is shown
+  unchanged rather than blanked: a timestamp nobody can read is still
+  evidence.
+
+- **The Add source button lines up with the controls again.** It sat
+  below them because `align-items-end` stretched its column to the
+  tallest one, which is whichever field carries the longest hint.
+
+- **Making a calendar shows that it is working.** The button disables
+  itself, spins and says "Asking Google…" until the page comes back — a
+  round trip to Google behind a button that looks idle invites a second
+  click, and a second click used to mean a second calendar.
+
 ## [2.0.0] — 2026-09-03
 
 **A source now speaks Almanac's language.** The mapping profile stops

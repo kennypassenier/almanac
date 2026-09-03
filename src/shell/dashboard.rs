@@ -317,10 +317,6 @@ async fn status_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
     .into_response()
 }
 
-/// The dropdown value that means "make a new one". Not a calendar id
-/// Google could ever issue, so it cannot collide with a real choice.
-const NEW_CALENDAR: &str = "__new__";
-
 async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if !is_logged_in(&state, &headers).await {
         return Redirect::to("/login").into_response();
@@ -335,9 +331,31 @@ async fn sources_page(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 async fn render_sources(
     state: &AppState,
     error: Option<&str>,
-    draft: Option<(&str, &str, &str)>,
+    draft: Option<(&str, &str)>,
 ) -> Response {
-    let issued: HashMap<String, String> = state.tokens.list().await.into_iter().collect();
+    // Rendered for a person: "3 Sep 2026, 03:47" with "2 hours ago"
+    // beside it, in Kenny's own zone. The stored value stays exactly as
+    // issued — this is a reading, not a rewrite.
+    let zone: chrono_tz::Tz = "Europe/Brussels".parse().unwrap_or(chrono_tz::UTC);
+    let now = chrono::Utc::now();
+    let issued: HashMap<String, String> = state
+        .tokens
+        .list()
+        .await
+        .into_iter()
+        .map(|(source_id, raw)| {
+            let when = crate::core::humanise::timestamp(&raw, zone);
+            let rendered = match crate::core::humanise::how_long_ago(&raw, now) {
+                Some(ago) => format!(
+                    r#"{}<span class="text-secondary small ms-2">{}</span>"#,
+                    escape(&when),
+                    escape(&ago)
+                ),
+                None => escape(&when),
+            };
+            (source_id, rendered)
+        })
+        .collect();
     let loaded = state.profiles();
     let mut profiles: Vec<_> = loaded.values().collect();
     profiles.sort_by(|a, b| a.source_id.cmp(&b.source_id));
@@ -365,7 +383,7 @@ async fn render_sources(
   </form>
 </td></tr>
 <tr id="out-{id}" class="d-none"><td colspan="3"><pre class="mb-0 small" id="pre-{id}"></pre></td></tr>"#,
-                    when = escape(when)
+                    when = when
                 ),
                 None => format!(
                     r#"<tr>
@@ -444,16 +462,20 @@ async function reveal(id) {
     setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 10000);
   } catch (e) { pre.textContent = e.message; row.classList.remove('d-none'); }
 }
-// Reveals the name box only when "+ New calendar" is chosen, and runs
-// once on load so a re-rendered form after an error comes back with the
-// box already open.
-function toggleNewCalendar() {
-  const select = document.getElementById('calendar');
-  const row = document.getElementById('new-calendar-row');
-  if (!select || !row) { return; }
-  row.classList.toggle('d-none', select.value !== '__new__');
+// Making a calendar is a round trip to Google, and a button that looks
+// idle while that happens invites a second click — which would make a
+// second calendar. So the button says what it is doing and stops
+// accepting presses until the page comes back.
+function startCreating(form) {
+  const button = form.querySelector('button[type=submit]');
+  if (!button) { return true; }
+  button.disabled = true;
+  const spinner = button.querySelector('.spinner-border');
+  const label = button.querySelector('.label');
+  if (spinner) { spinner.classList.remove('d-none'); }
+  if (label) { label.textContent = ' Asking Google…'; }
+  return true;
 }
-document.addEventListener('DOMContentLoaded', toggleNewCalendar);
 function selectAll(node) {
   const range = document.createRange();
   range.selectNodeContents(node);
@@ -521,10 +543,10 @@ async function copyCmd(id) {
         })
         .unwrap_or_default();
 
-    let (draft_source, draft_calendar, draft_new) = draft.unwrap_or(("", "", ""));
+    let (draft_source, draft_calendar) = draft.unwrap_or(("", ""));
     let draft_source = escape(draft_source);
     let draft_calendar = escape(draft_calendar);
-    let draft_new_calendar = escape(draft_new);
+    let draft_new_calendar = String::new();
     let profiles_dir = escape(&state.profiles_dir.display().to_string());
 
     // Without an owner a created calendar would belong to the service
@@ -556,28 +578,116 @@ async function copyCmd(id) {
             )
         })
         .collect();
-    let new_option = if can_create {
-        let selected = if draft_calendar == NEW_CALENDAR {
-            " selected"
-        } else {
-            ""
-        };
-        format!(r#"<option value="{NEW_CALENDAR}"{selected}>+ New calendar…</option>"#)
-    } else {
-        String::new()
-    };
-    let calendar_note = match (&calendar_error, can_create) {
-        (Some(e), _) => format!(
+    let calendar_note = match &calendar_error {
+        Some(e) => format!(
             r#"<div class="form-text text-danger">Could not read the calendar list: {}</div>"#,
             escape(e)
         ),
-        (None, true) => String::from(
-            r#"<div class="form-text">A new one is created and shared with you straight away.</div>"#,
-        ),
-        (None, false) => String::from(
-            r#"<div class="form-text">ALMANAC_CALENDAR_OWNER is not set, so no new calendar can be created — one nobody can see is worse than none.</div>"#,
-        ),
+        None if calendars.is_empty() => {
+            String::from(r#"<div class="form-text">No calendars yet — make one below first.</div>"#)
+        }
+        None => String::from(r#"<div class="form-text">Make a new one in Calendars, below.</div>"#),
     };
+
+    // Which sources write to each calendar. Built from the loaded
+    // profiles rather than asked of Google: Google knows what a
+    // calendar is, only almanac knows who writes to it — and this is
+    // what decides whether the delete button is live.
+    let loaded_profiles = state.profiles();
+    let mut users: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for profile in loaded_profiles.values() {
+        users
+            .entry(profile.target_calendar_id.as_str())
+            .or_default()
+            .push(profile.source_id.as_str());
+    }
+    for sources in users.values_mut() {
+        sources.sort_unstable();
+    }
+
+    let calendar_rows: String = calendars
+        .iter()
+        .map(|(id, name)| {
+            let sources = users.get(id.as_str()).cloned().unwrap_or_default();
+            let listed = if sources.is_empty() {
+                r#"<span class="text-secondary">none</span>"#.to_string()
+            } else {
+                sources
+                    .iter()
+                    .map(|s| format!("<code>{}</code>", escape(s)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            // Disabled rather than hidden, and disabled rather than
+            // refused on submit: the button being there and dead says
+            // "this exists, and not yet", which a missing button does
+            // not.
+            let action = if sources.is_empty() {
+                format!(
+                    r#"<form method="post" action="/dashboard/calendars/{id}/delete" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+  </form>"#,
+                    id = escape(id)
+                )
+            } else {
+                format!(
+                    r#"<button class="btn btn-sm btn-outline-secondary" type="button" disabled
+          title="{} source(s) still write here — delete them first">Delete</button>"#,
+                    sources.len()
+                )
+            };
+            format!(
+                r#"<tr>
+<td class="fw-medium">{}</td>
+<td>{listed}</td>
+<td class="text-end">{action}</td>
+</tr>"#,
+                escape(name)
+            )
+        })
+        .collect();
+
+    let calendars_card = format!(
+        r#"<h2 class="h5">Calendars</h2>
+<div class="card mb-4"><div class="card-body">
+  <h2 class="h6 card-title">Make a calendar</h2>
+  <p class="text-secondary small">
+    A calendar Almanac makes is shared with you as its owner straight away — one it made
+    without sharing would be visible to nobody, which is why {owner_note}
+  </p>
+  <form method="post" action="/dashboard/calendars" class="row g-2 align-items-start"
+        onsubmit="return startCreating(this)">
+    <div class="col-sm-6">
+      <label class="form-label" for="calendar_name">Name</label>
+      <input type="text" class="form-control" id="calendar_name" name="name"
+             value="{draft_new_calendar}" placeholder="Almanac · Huishouden" required {disabled}>
+    </div>
+    <div class="col-sm-auto d-flex align-items-end" style="min-height: 62px">
+      <button class="btn btn-primary" type="submit" {disabled}>
+        <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+        <span class="label">Make calendar</span>
+      </button>
+    </div>
+  </form>
+
+  <div class="table-responsive mt-3"><table class="table table-sm align-middle mb-0">
+  <thead><tr><th>Name</th><th>Sources</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>{calendar_rows}</tbody></table></div>
+
+  <p class="text-secondary small mt-3 mb-0">
+    <b>Delete removes the calendar and every event on it, for everyone it is shared with.</b>
+    It is only available for a calendar no source writes to — delete the source first, and the
+    button becomes live. Deleting a source never touches its events, so a calendar emptied that
+    way still holds them until you remove it here.
+  </p>
+</div></div>"#,
+        owner_note = if can_create {
+            "Almanac refuses to make one when ALMANAC_CALENDAR_OWNER is unset."
+        } else {
+            "<b>ALMANAC_CALENDAR_OWNER is not set, so this is switched off.</b>"
+        },
+        disabled = if can_create { "" } else { "disabled" }
+    );
 
     page(
         "Sources",
@@ -602,7 +712,7 @@ async function copyCmd(id) {
     resending update an event instead of adding a second, and it is the only handle the
     delete endpoint has. It takes effect immediately; no restart.
   </p>
-  <form method="post" action="/dashboard/sources" class="row g-2 align-items-end">
+  <form method="post" action="/dashboard/sources" class="row g-2 align-items-start">
     <div class="col-sm-4">
       <label class="form-label" for="source_id">Source name</label>
       <input type="text" class="form-control" id="source_id" name="source_id"
@@ -611,17 +721,17 @@ async function copyCmd(id) {
     </div>
     <div class="col-sm-5">
       <label class="form-label" for="calendar">Calendar</label>
-      <select class="form-select" id="calendar" name="calendar" onchange="toggleNewCalendar()" required>
-        {options}{new_option}
+      <select class="form-select" id="calendar" name="calendar" required>
+        {options}
       </select>
       {calendar_note}
-      <div id="new-calendar-row" class="mt-2 d-none">
-        <label class="form-label" for="new_calendar">Name for the new calendar</label>
-        <input type="text" class="form-control" id="new_calendar" name="new_calendar"
-               value="{draft_new_calendar}" placeholder="Almanac · Huishouden">
-      </div>
     </div>
-    <div class="col-sm-auto">
+    <!-- The button lines up with the CONTROLS, not with the bottom of
+         the help text under them: align-items-end stretched this
+         column to the tallest one, which is whichever field carries
+         the longest hint. A fixed control-row height puts it back on
+         the line a person reads it against. -->
+    <div class="col-sm-auto d-flex align-items-end" style="min-height: 62px">
       <button class="btn btn-primary" type="submit">Add source</button>
     </div>
   </form>
@@ -648,6 +758,8 @@ async function copyCmd(id) {
     for a profile placed on the machine by hand, rather than through the box above
   </span>
 </form>
+
+{calendars_card}
 
 <div class="alert alert-secondary" role="alert">
   <h2 class="h6">Where these live, and what survives</h2>
@@ -682,11 +794,8 @@ async function copyCmd(id) {
 #[derive(Deserialize)]
 struct NewSource {
     source_id: String,
-    /// A calendar id from the dropdown, or `NEW_CALENDAR`.
+    /// A calendar id from the dropdown.
     calendar: String,
-    /// The name to create, when `calendar` says to make one.
-    #[serde(default)]
-    new_calendar: String,
 }
 
 /// `POST /dashboard/sources` — resolve or create the calendar, write
@@ -702,8 +811,7 @@ async fn create_source(
 
     let source_id = form.source_id.trim();
     let chosen = form.calendar.trim();
-    let new_name = form.new_calendar.trim();
-    let draft = Some((source_id, chosen, new_name));
+    let draft = Some((source_id, chosen));
 
     // Checked here as well as in the parser: this one names the file
     // AND becomes a URL segment, and the message should point at the
@@ -722,41 +830,10 @@ async fn create_source(
     // Resolved before anything is written: a profile pointing at a
     // calendar that does not exist accepts payloads and fails every
     // delivery, which looks like Google being down.
-    let calendar_id = if chosen == NEW_CALENDAR {
-        let Some(owner) = state.calendar_owner.as_deref() else {
-            return render_sources(
-                &state,
-                Some(
-                    "ALMANAC_CALENDAR_OWNER is not set — without an owner to share it with, a calendar \
-                     Almanac creates belongs to the service account and is visible to nobody. Set that \
-                     variable, or pick a calendar that already exists.",
-                ),
-                draft,
-            )
-            .await;
-        };
-        if new_name.is_empty() {
-            return render_sources(&state, Some("Name the new calendar."), draft).await;
-        }
-        // Still find-or-create rather than a bare create: two tabs, or
-        // a second source added to a calendar made a minute ago, must
-        // not each get their own. A duplicate calendar is close to
-        // invisible — events land, nothing errors, and half of them are
-        // on a calendar nobody has open.
-        match state.client.ensure_calendar(new_name, owner).await {
-            Ok((id, created)) => {
-                if created {
-                    tracing::info!(calendar = %new_name, id = %id, "created a calendar from the dashboard");
-                }
-                id
-            }
-            Err(e) => return render_sources(&state, Some(&e.to_string()), draft).await,
-        }
-    } else if chosen.is_empty() {
+    if chosen.is_empty() {
         return render_sources(&state, Some("Choose a calendar for this source."), draft).await;
-    } else {
-        chosen.to_string()
-    };
+    }
+    let calendar_id = chosen.to_string();
 
     let toml = crate::core::profile::default_profile_toml(source_id, &calendar_id);
     if let Err(e) = crate::shell::profiles::save_new(&state.profiles_dir, &toml) {
@@ -830,6 +907,100 @@ async fn delete_source(
         "deleted a source from the dashboard"
     );
     Redirect::to("/dashboard/sources").into_response()
+}
+
+/// What the make-a-calendar form sends (K24).
+#[derive(Deserialize)]
+struct NewCalendar {
+    name: String,
+}
+
+/// `POST /dashboard/calendars` — make one and share it (K24).
+async fn create_calendar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Form(form): Form<NewCalendar>,
+) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+
+    let name = form.name.trim();
+    if name.is_empty() {
+        return render_sources(&state, Some("Name the calendar."), None).await;
+    }
+
+    let Some(owner) = state.calendar_owner.as_deref() else {
+        return render_sources(
+            &state,
+            Some(
+                "ALMANAC_CALENDAR_OWNER is not set — without an owner to share it with, a \
+                 calendar Almanac creates belongs to the service account and is visible to \
+                 nobody.",
+            ),
+            None,
+        )
+        .await;
+    };
+
+    // Find-or-create, not create: a double submit, two tabs, or someone
+    // retyping a name that already exists must not produce a second
+    // calendar. A duplicate is close to invisible — events land,
+    // nothing errors, and half of them are on a calendar nobody has
+    // open.
+    match state.client.ensure_calendar(name, owner).await {
+        Ok((id, created)) => {
+            if created {
+                tracing::info!(calendar = %name, id = %id, "created a calendar from the dashboard");
+            }
+            Redirect::to("/dashboard/sources").into_response()
+        }
+        Err(e) => render_sources(&state, Some(&e.to_string()), None).await,
+    }
+}
+
+/// `POST /dashboard/calendars/{calendar_id}/delete` — remove a calendar
+/// and everything on it (K24).
+///
+/// Guarded twice on purpose. The button is dead in the page when a
+/// source still writes here, and the check is repeated on arrival: the
+/// page is a snapshot, and a source can be added between the render and
+/// the click.
+async fn delete_calendar(
+    State(state): State<Arc<AppState>>,
+    Path(calendar_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+
+    let users: Vec<String> = state
+        .profiles()
+        .values()
+        .filter(|p| p.target_calendar_id == calendar_id)
+        .map(|p| p.source_id.clone())
+        .collect();
+    if !users.is_empty() {
+        return render_sources(
+            &state,
+            Some(&format!(
+                "{} still writes to that calendar, so it cannot be deleted yet. Delete the \
+                 source first — its events stay on the calendar either way.",
+                users.join(", ")
+            )),
+            None,
+        )
+        .await;
+    }
+
+    match state.client.delete_calendar(&calendar_id).await {
+        Ok(()) => {
+            tracing::info!(calendar_id = %calendar_id, "deleted a calendar from the dashboard");
+            Redirect::to("/dashboard/sources").into_response()
+        }
+        Err(e) => render_sources(&state, Some(&e.to_string()), None).await,
+    }
 }
 
 /// `POST /dashboard/profiles/{file_name}/delete` — remove a file the
@@ -1050,6 +1221,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/dashboard/profiles/{file_name}/delete",
             axum::routing::post(delete_unusable),
+        )
+        .route("/dashboard/calendars", axum::routing::post(create_calendar))
+        .route(
+            "/dashboard/calendars/{calendar_id}/delete",
+            axum::routing::post(delete_calendar),
         )
         .route("/dashboard/captures", axum::routing::get(captures_page))
         .route(

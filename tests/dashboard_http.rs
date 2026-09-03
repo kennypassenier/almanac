@@ -801,13 +801,36 @@ fn pick_calendar_body(source_id: &str, calendar_id: &str) -> String {
     )
 }
 
-/// Choosing "+ New calendar…" and naming it.
-fn new_calendar_body(source_id: &str, name: &str) -> String {
-    format!(
-        "source_id={}&calendar=__new__&new_calendar={}",
-        urlencode(source_id),
-        urlencode(name)
-    )
+/// Makes a calendar through the panel that owns that job now (K24) and
+/// hands back its id, which is what the source form's dropdown carries.
+async fn make_calendar(
+    st: &Arc<AppState>,
+    cookie: &str,
+    cal: &almanac::shell::testing::CalendarStub,
+    name: &str,
+) -> String {
+    let response = almanac::shell::build_router(Arc::clone(st))
+        .oneshot(post_form(
+            "/dashboard/calendars",
+            Some(cookie),
+            &format!("name={}", urlencode(name)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::SEE_OTHER,
+        "making {name} failed"
+    );
+
+    cal.state
+        .calendars
+        .lock()
+        .await
+        .iter()
+        .find(|(_, created)| created.name == name)
+        .map(|(id, _)| id.clone())
+        .expect("the calendar should exist after creating it")
 }
 
 #[tokio::test]
@@ -837,12 +860,12 @@ async fn k21_the_sources_page_asks_for_a_name_and_a_calendar() {
         "the calendar should be a dropdown of what exists"
     );
     assert!(
-        body.contains("+ New calendar"),
-        "and offer making a new one"
+        !body.contains("+ New calendar"),
+        "making a calendar moved to its own panel (K24)"
     );
     assert!(
-        body.contains(r#"name="new_calendar""#),
-        "with a box for its name"
+        body.contains(r#"action="/dashboard/calendars""#),
+        "which is where a calendar is made now"
     );
     assert!(
         !body.contains(r#"name="profile""#),
@@ -857,18 +880,19 @@ async fn k21_the_sources_page_asks_for_a_name_and_a_calendar() {
 }
 
 #[tokio::test]
-async fn k21_adding_a_source_creates_its_calendar_and_makes_it_issuable() {
-    // End to end, in one sitting and without a restart: name, calendar,
+async fn k21_adding_a_source_puts_it_on_the_chosen_calendar_and_makes_it_issuable() {
+    // End to end, in one sitting and without a restart: calendar, name,
     // token.
     let dir = scratch_dir("k21-add");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("kobo", "Almanac · Test"),
+            &pick_calendar_body("kobo", &calendar_id),
         ))
         .await
         .unwrap();
@@ -918,26 +942,16 @@ async fn k21_a_second_source_picks_the_existing_calendar_from_the_list() {
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
     let created = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("kobo", "Almanac · Huishouden"),
+            &pick_calendar_body("kobo", &calendar_id),
         ))
         .await
         .unwrap();
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-
-    // The id the dropdown would now carry for that calendar.
-    let calendar_id = cal
-        .state
-        .calendars
-        .lock()
-        .await
-        .keys()
-        .next()
-        .expect("the first source created one")
-        .clone();
 
     let picked = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
@@ -984,7 +998,7 @@ async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("../../etc/passwd", "Almanac · Test"),
+            &pick_calendar_body("../../etc/passwd", "some-calendar-id"),
         ))
         .await
         .unwrap();
@@ -994,10 +1008,6 @@ async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
     assert!(
         body.contains("source name"),
         "the error must name the field"
-    );
-    assert!(
-        body.contains("Almanac · Test") || body.contains("Almanac &#183; Test"),
-        "the calendar that was typed should still be in the form"
     );
     assert_eq!(
         cal.state.calendars.lock().await.len(),
@@ -1014,7 +1024,7 @@ async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
 }
 
 #[tokio::test]
-async fn k21_without_an_owner_an_unknown_calendar_is_refused_rather_than_created() {
+async fn k24_without_an_owner_no_calendar_is_created() {
     // A calendar the service account creates belongs to the service
     // account and is invisible to every human until it is shared. That
     // mistake has been made here twice; making it from a button would
@@ -1025,9 +1035,9 @@ async fn k21_without_an_owner_an_unknown_calendar_is_refused_rather_than_created
 
     let response = almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
-            "/dashboard/sources",
+            "/dashboard/calendars",
             Some(&cookie),
-            &new_calendar_body("kobo", "Nobody Can See This"),
+            "name=Nobody+Can+See+This",
         ))
         .await
         .unwrap();
@@ -1122,6 +1132,142 @@ async fn k23_deleting_an_unusable_profile_needs_a_session() {
 }
 
 #[tokio::test]
+async fn k24_a_calendar_in_use_cannot_be_deleted_and_says_so() {
+    // Kenny's rule: the delete button is only live for a calendar no
+    // source writes to. Checked in the page AND on arrival — the page
+    // is a snapshot, and a source can appear between the render and
+    // the click.
+    let dir = scratch_dir("k24-in-use");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
+    almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/sources",
+            Some(&cookie),
+            &pick_calendar_body("kobo", &calendar_id),
+        ))
+        .await
+        .unwrap();
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        body.contains("Almanac · Huishouden") || body.contains("Almanac &#183; Huishouden"),
+        "the calendar should be listed"
+    );
+    assert!(
+        !body.contains(&format!("/dashboard/calendars/{calendar_id}/delete")),
+        "a calendar in use must not offer a live delete"
+    );
+    assert!(
+        body.contains("still write here"),
+        "and should say why the button is dead"
+    );
+
+    // The guard is repeated on arrival, not only drawn in the page.
+    let refused = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            &format!("/dashboard/calendars/{calendar_id}/delete"),
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        refused.status(),
+        StatusCode::OK,
+        "re-render with the reason"
+    );
+    assert!(text(refused).await.contains("kobo"));
+    assert_eq!(
+        cal.state.calendars.lock().await.len(),
+        1,
+        "and the calendar must still be there"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_a_calendar_nothing_writes_to_can_be_deleted() {
+    let dir = scratch_dir("k24-free");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Leeg").await;
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        body.contains(&format!("/dashboard/calendars/{calendar_id}/delete")),
+        "with no source writing to it, delete must be live"
+    );
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            &format!("/dashboard/calendars/{calendar_id}/delete"),
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        cal.state.calendars.lock().await.is_empty(),
+        "it should be gone at Google, not only off the page"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_making_the_same_calendar_twice_does_not_make_two() {
+    // A double submit, or someone retyping a name that already exists.
+    // A duplicate calendar is close to invisible: events land, nothing
+    // errors, and half of them are on a calendar nobody has open.
+    let dir = scratch_dir("k24-twice");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
+    make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
+
+    assert_eq!(cal.state.calendars.lock().await.len(), 1);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k24_making_a_calendar_needs_a_session() {
+    let dir = scratch_dir("k24-auth");
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form("/dashboard/calendars", None, "name=Anything"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        cal.state.calendars.lock().await.is_empty(),
+        "an anonymous POST must not reach Google at all"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k21_reload_picks_up_a_profile_written_by_hand() {
     let dir = scratch_dir("k21-reload");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
@@ -1157,14 +1303,15 @@ async fn k21_deleting_a_source_removes_it_entirely() {
     // deleting a source says something about the source, not about
     // what already happened.
     let dir = scratch_dir("k21-retire");
-    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
     almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("kobo", "Almanac · Test"),
+            &pick_calendar_body("kobo", &calendar_id),
         ))
         .await
         .unwrap();
@@ -1285,7 +1432,10 @@ async fn k21_changing_sources_needs_a_session() {
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
     for (uri, body) in [
-        ("/dashboard/sources", new_calendar_body("kobo", "Anything")),
+        (
+            "/dashboard/sources",
+            pick_calendar_body("kobo", "any-calendar"),
+        ),
         ("/dashboard/sources/reload", String::new()),
         ("/dashboard/sources/home-assistant/delete", String::new()),
     ] {
@@ -1324,14 +1474,15 @@ async fn k21_dump_the_sources_page_for_review() {
         return;
     };
     let dir = scratch_dir("k21-dump");
-    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
+    let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
     almanac::shell::build_router(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("kobo", "Almanac · Test"),
+            &pick_calendar_body("kobo", &calendar_id),
         ))
         .await
         .unwrap();
@@ -1347,7 +1498,7 @@ async fn k21_dump_the_sources_page_for_review() {
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
-            &new_calendar_body("grafana", "Almanac · Infra"),
+            &pick_calendar_body("grafana", &calendar_id),
         ))
         .await
         .unwrap();

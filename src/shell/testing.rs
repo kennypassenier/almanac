@@ -128,6 +128,14 @@ fn permanent_body() -> Value {
 /// The calendars this "account" can see — whatever the stub has been
 /// asked to create. Enough for K21's find-or-create to be tested
 /// without a live Google.
+async fn delete_calendar(
+    State(state): State<Arc<CalendarState>>,
+    Path(calendar_id): Path<String>,
+) -> StatusCode {
+    state.calendars.lock().await.remove(&calendar_id);
+    StatusCode::NO_CONTENT
+}
+
 async fn list_calendars(
     State(state): State<Arc<CalendarState>>,
 ) -> (StatusCode, axum::Json<Value>) {
@@ -299,6 +307,7 @@ impl CalendarStub {
             .route("/", axum::routing::post(create_calendar))
             .route("/calendarList", axum::routing::get(list_calendars))
             .route("/{calendar_id}/acl", axum::routing::post(insert_acl))
+            .route("/{calendar_id}", axum::routing::delete(delete_calendar))
             .with_state(Arc::clone(&state));
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
