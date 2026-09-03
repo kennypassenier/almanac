@@ -7,92 +7,157 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::core::error::AlmanacError;
-use crate::core::profile::{Profile, validate_unique_source_ids};
+use crate::core::profile::Profile;
 
-/// A profile file this build cannot read because it was written for an
-/// older format.
+/// A profile file the service cannot use, and why.
+///
+/// Kept rather than thrown: the dashboard lists these so a person can
+/// see what is not being served and delete it, and a file nobody can
+/// see is a source that stopped working silently.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Skipped {
+pub struct Unusable {
     pub path: PathBuf,
-    pub schema_version: u32,
+    /// One sentence, in the shape every other error here takes: what is
+    /// wrong, and what to do about it.
+    pub reason: String,
 }
 
-/// What a profiles directory yielded: what loaded, and what was passed
-/// over because it is written for an older format.
-#[derive(Debug, Clone, PartialEq)]
+impl Unusable {
+    /// The file name, which is what the dashboard addresses it by — a
+    /// broken profile may have no readable `source_id` at all.
+    pub fn file_name(&self) -> String {
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+}
+
+/// What a profiles directory yielded: what loaded, and what could not
+/// be used.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Loaded {
     pub profiles: Vec<Profile>,
-    pub skipped: Vec<Skipped>,
+    pub unusable: Vec<Unusable>,
 }
 
-/// Loads every `*.toml` profile in `dir`.
+/// Loads every `*.toml` profile in `dir`. **Never fails.**
 ///
-/// Fails on the first unreadable or **malformed** file, and on any
-/// duplicate `source_id` across the set (AR15) — a broken profile must
-/// stop startup with a message naming the file, not be silently skipped
-/// (standing rule 12).
+/// Kenny, 2026-09-03: *"een kapot profiel mag niet het opstarten van de
+/// app belemmeren … De app moet ten allen tijde zelf kunnen opstarten
+/// op zichzelf. Dingen buiten de app mogen dat niet beïnvloeden."*
 ///
-/// A profile written for an **older schema version** is different, and
-/// is skipped rather than fatal (Kenny, 2026-09-03). It is not a
-/// mistake; it is a known state with a known fix, and taking every
-/// other source down over one outdated file is the wrong blast radius.
-/// Skipping is loud: the caller gets the list and reports each one.
+/// That is a stronger rule than the one this module used to follow, and
+/// a better one. A profile is a file outside the program: it can be
+/// half-written by an editor, left behind by an older version, or
+/// duplicated by a copy-paste. Any of those used to stop the whole
+/// service — including the dashboard, which is the one place from which
+/// they could have been fixed. A service that cannot start because of a
+/// file it is supposed to manage has no way back.
 ///
-/// A skipped source answers 401 to its own posts, the same as an
-/// unknown source — which it effectively is for this build, and which
-/// the sender sees immediately rather than as silence.
-pub fn load_all(dir: &Path) -> Result<Loaded, AlmanacError> {
-    let entries = std::fs::read_dir(dir).map_err(|e| AlmanacError::Config {
-        message: format!("failed to read profiles directory {}: {e}", dir.display()),
-        remedy: format!(
-            "create {} with at least one *.toml mapping profile",
-            dir.display()
-        ),
-    })?;
+/// So every per-file problem yields an `Unusable` entry instead: the
+/// source is not served, it is reported at startup, and it is listed on
+/// the dashboard with a delete button. A missing or unreadable
+/// directory is the same — zero profiles, one report, still serving.
+pub fn load_all(dir: &Path) -> Loaded {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            return Loaded {
+                profiles: Vec::new(),
+                unusable: vec![Unusable {
+                    path: dir.to_path_buf(),
+                    reason: format!(
+                        "the profiles directory could not be read: {e} — create it, or add a \
+                         source from the dashboard and almanac will"
+                    ),
+                }],
+            };
+        }
+    };
 
     let mut paths: Vec<_> = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
         .collect();
-    // Deterministic order so "index 0 and 1" in a duplicate-source_id
-    // error means the same thing on every run.
+    // Deterministic order, which now decides more than error text: when
+    // two files claim the same source_id, the first one sorted wins and
+    // the other is reported. Deterministic beats "whichever the
+    // filesystem handed over first".
     paths.sort();
 
-    let mut profiles = Vec::with_capacity(paths.len());
-    let mut skipped = Vec::new();
+    let mut profiles: Vec<Profile> = Vec::with_capacity(paths.len());
+    let mut unusable = Vec::new();
+
     for path in paths {
         let origin = path.display().to_string();
-        let contents = std::fs::read_to_string(&path).map_err(|e| AlmanacError::Config {
-            message: format!("failed to read {origin}: {e}"),
-            remedy: format!("check {origin} exists and is readable"),
-        })?;
+
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(e) => {
+                unusable.push(Unusable {
+                    path,
+                    reason: format!("could not be read: {e}"),
+                });
+                continue;
+            }
+        };
 
         if let Some(schema_version) = crate::core::profile::outdated_version(&contents) {
-            skipped.push(Skipped {
-                path: path.clone(),
-                schema_version,
+            unusable.push(Unusable {
+                path,
+                reason: format!(
+                    "written for schema_version {schema_version}; this build reads {} — reduce \
+                     it to source_id and target_calendar_id, and have the source send almanac's \
+                     event shape",
+                    crate::core::profile::SUPPORTED_SCHEMA_VERSION
+                ),
             });
             continue;
         }
 
-        profiles.push(Profile::parse(&contents, &origin)?);
+        let profile = match Profile::parse(&contents, &origin) {
+            Ok(profile) => profile,
+            Err(e) => {
+                unusable.push(Unusable {
+                    path,
+                    reason: e.to_string(),
+                });
+                continue;
+            }
+        };
+
+        // AR15: two profiles sharing a source_id make the upsert key
+        // ambiguous. The first one wins and the second is reported,
+        // rather than both being lost along with every other source.
+        if let Some(clash) = profiles.iter().find(|p| p.source_id == profile.source_id) {
+            unusable.push(Unusable {
+                path,
+                reason: format!(
+                    "source_id \"{}\" is already used by another profile, which is being served \
+                     instead — a source_id is an identity (AR15) and two files cannot share one",
+                    clash.source_id
+                ),
+            });
+            continue;
+        }
+
+        profiles.push(profile);
     }
 
-    validate_unique_source_ids(&profiles)?;
-
-    Ok(Loaded { profiles, skipped })
+    Loaded { profiles, unusable }
 }
 
 /// The same set, keyed by `source_id` — the shape the running service
 /// actually reads. Built here rather than at each call site so that
 /// startup and a K21 reload cannot key the map differently.
-pub fn load_map(dir: &Path) -> Result<HashMap<String, Profile>, AlmanacError> {
-    Ok(load_all(dir)?
+pub fn load_map(dir: &Path) -> HashMap<String, Profile> {
+    load_all(dir)
         .profiles
         .into_iter()
         .map(|p| (p.source_id.clone(), p))
-        .collect())
+        .collect()
 }
 
 /// Writes a new mapping profile submitted through the dashboard (K21)
@@ -113,7 +178,18 @@ pub fn save_new(dir: &Path, contents: &str) -> Result<Profile, AlmanacError> {
     // profile added five seconds ago by another tab is on disk and not
     // yet in memory, and two profiles sharing a source_id stop the
     // service from starting at all (AR15).
-    let existing = load_all(dir)?;
+    // The directory may not exist yet on a fresh machine — creating it
+    // here is what lets someone add their first source from the
+    // dashboard instead of having to make a directory over ssh first.
+    std::fs::create_dir_all(dir).map_err(|e| AlmanacError::Config {
+        message: format!(
+            "could not create the profiles directory {}: {e}",
+            dir.display()
+        ),
+        remedy: "check the path is writable by the almanac user".to_string(),
+    })?;
+
+    let existing = load_all(dir);
     if existing
         .profiles
         .iter()
@@ -170,6 +246,47 @@ pub fn delete(dir: &Path, source_id: &str) -> Result<PathBuf, AlmanacError> {
         return Err(AlmanacError::Config {
             message: format!("{} does not exist", path.display()),
             remedy: "this source has no profile file — reload the page".to_string(),
+        });
+    }
+
+    std::fs::remove_file(&path).map_err(|e| AlmanacError::Config {
+        message: format!("failed to delete {}: {e}", path.display()),
+        remedy: format!(
+            "check the profiles directory {} is writable by the almanac user",
+            dir.display()
+        ),
+    })?;
+    Ok(path)
+}
+
+/// Deletes an unusable profile by its file name (K23).
+///
+/// Separate from [`delete`] because a broken profile may have no
+/// readable `source_id` to address it by — that is often exactly what
+/// is wrong with it. The dashboard lists these by file name and deletes
+/// them the same way.
+pub fn delete_file(dir: &Path, file_name: &str) -> Result<PathBuf, AlmanacError> {
+    // The name arrives from a URL path segment. It must be one path
+    // component of the shape this directory holds, and nothing else:
+    // no separators, no traversal, no other extension.
+    let looks_safe = !file_name.is_empty()
+        && !file_name.starts_with('.')
+        && file_name.ends_with(".toml")
+        && file_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    if !looks_safe {
+        return Err(AlmanacError::Config {
+            message: format!("\"{file_name}\" is not a profile file name"),
+            remedy: "check the name in the URL".to_string(),
+        });
+    }
+
+    let path = dir.join(file_name);
+    if !path.exists() {
+        return Err(AlmanacError::Config {
+            message: format!("{} does not exist", path.display()),
+            remedy: "reload the page — it may already be gone".to_string(),
         });
     }
 
@@ -240,9 +357,9 @@ target_calendar_id = "primary"
         write_profile(&dir, "b.toml", "uptime-kuma");
         std::fs::write(dir.join("not-a-profile.txt"), "ignored").unwrap();
 
-        let loaded = load_all(&dir).unwrap();
+        let loaded = load_all(&dir);
         assert_eq!(loaded.profiles.len(), 2);
-        assert!(loaded.skipped.is_empty());
+        assert!(loaded.unusable.is_empty());
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -261,33 +378,13 @@ target_calendar_id = "primary"
         )
         .unwrap();
 
-        let loaded = load_all(&dir).expect("one outdated file must not fail the whole load");
+        let loaded = load_all(&dir);
 
         assert_eq!(loaded.profiles.len(), 1, "the usable profile must load");
         assert_eq!(loaded.profiles[0].source_id, "home-assistant");
-        assert_eq!(loaded.skipped.len(), 1, "and the old one must be reported");
-        assert_eq!(loaded.skipped[0].schema_version, 1);
-        assert!(loaded.skipped[0].path.ends_with("old.toml"));
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn k23_a_malformed_profile_still_stops_everything() {
-        // The distinction that makes skipping safe: an OLD profile is a
-        // known state, a BROKEN one is a mistake. Running with a source
-        // missing because somebody fat-fingered a TOML key is worse
-        // than not running.
-        let dir = temp_dir("malformed");
-        write_profile(&dir, "good.toml", "home-assistant");
-        std::fs::write(
-            dir.join("bad.toml"),
-            "schema_version = 2\nthis is not toml\n",
-        )
-        .unwrap();
-
-        let err = load_all(&dir).unwrap_err();
-        assert!(err.to_string().contains("bad.toml"));
+        assert_eq!(loaded.unusable.len(), 1, "and the old one must be reported");
+        assert!(loaded.unusable[0].reason.contains("schema_version 1"));
+        assert_eq!(loaded.unusable[0].file_name(), "old.toml");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -295,22 +392,17 @@ target_calendar_id = "primary"
     #[test]
     fn a_missing_directory_names_itself_with_a_remedy() {
         let dir = std::env::temp_dir().join("almanac-profiles-definitely-does-not-exist");
-        let err = load_all(&dir).unwrap_err();
-        assert!(err.to_string().contains(&dir.display().to_string()));
-    }
-
-    #[test]
-    fn duplicate_source_ids_across_files_are_rejected() {
-        let dir =
-            std::env::temp_dir().join(format!("almanac-profiles-dup-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        write_profile(&dir, "a.toml", "same-id");
-        write_profile(&dir, "b.toml", "same-id");
-
-        let err = load_all(&dir).unwrap_err();
-        assert!(err.to_string().contains("same-id"));
-
-        std::fs::remove_dir_all(&dir).ok();
+        let loaded = load_all(&dir);
+        assert!(loaded.profiles.is_empty());
+        assert_eq!(loaded.unusable.len(), 1);
+        assert!(
+            loaded.unusable[0]
+                .path
+                .display()
+                .to_string()
+                .contains(&dir.display().to_string())
+        );
+        assert!(!loaded.unusable[0].reason.is_empty(), "it must say why");
     }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
@@ -341,7 +433,7 @@ target_calendar_id = "primary"
         let saved = save_new(&dir, SUBMITTED).unwrap();
         assert_eq!(saved.source_id, "kobo");
 
-        let map = load_map(&dir).unwrap();
+        let map = load_map(&dir);
         assert!(map.contains_key("kobo"));
         assert!(dir.join("kobo.toml").exists());
 
@@ -440,7 +532,7 @@ target_calendar_id = "primary"
 
         assert!(!removed.exists(), "the profile file must be gone");
         assert!(
-            !load_map(&dir).unwrap().contains_key("kobo"),
+            !load_map(&dir).contains_key("kobo"),
             "a deleted source must not be loaded"
         );
         assert_eq!(
@@ -482,9 +574,13 @@ target_calendar_id = "primary"
         // got wrong — and the first thing to notice would be a
         // half-provisioned LXC refusing to start.
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/profiles");
-        let profiles = load_all(&dir)
-            .expect("the shipped profiles must parse")
-            .profiles;
+        let loaded = load_all(&dir);
+        assert!(
+            loaded.unusable.is_empty(),
+            "the shipped profiles must all be usable, got {:?}",
+            loaded.unusable
+        );
+        let profiles = loaded.profiles;
 
         assert!(
             profiles.len() >= 2,

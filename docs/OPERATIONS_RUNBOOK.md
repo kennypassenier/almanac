@@ -710,41 +710,40 @@ time anything restarts it. If a re-mint is ever genuinely needed, replace
 sitting.
 
 
-## R18 · Upgrading to 2.0.0 — an old profile is skipped, not fatal
 
-2.0.0 reads `schema_version = 2`. A profile still on version 1 describes
-a translation the service no longer performs, so it **cannot** be
-honoured — but it does not stop the service either.
+## R18 · Almanac always starts; a profile it cannot use is listed instead
 
-Almanac loads every profile it understands, skips the ones it does not,
-and says so at error level, once per file, naming the file and its
-version:
+Loading profiles cannot fail. Whatever is wrong with a file — malformed
+TOML, `schema_version = 1`, unreadable, a `source_id` another file
+already claims — almanac reports it, does not serve that source, and
+starts.
 
 ```
-ERROR almanac: skipping a profile written for an older format
+ERROR almanac: a profile could not be used; this source is not being served
       path=/appdata/almanac/almanac-config/profiles/uptime-kuma.toml
-      schema_version=1
-      remedy=reduce it to schema_version 2 … see docs/USER_GUIDE.md
+      reason=written for schema_version 1; this build reads 2 — reduce it to …
 ```
 
-The count also appears on the startup line and on `/v1/debug/status`, so
-"how many sources am I actually serving" has an answer that is not the
-number of files.
+The count rides on the startup line next to the sources it did load, and
+every unusable file is listed on `/dashboard/sources` under **Not being
+served**, with the reason and a **Delete** button.
+
+**Why it works this way** (Kenny, 2026-09-03): the dashboard is where a
+bad profile gets deleted, so a bad profile that stops the service takes
+away the means of fixing itself. Nothing outside the program decides
+whether the program runs.
+
+**A directory that does not exist is fine.** So is one with nothing
+usable in it: almanac serves zero sources, says so at warn level, and
+waits for one to be added from the dashboard — which creates the
+directory if it has to. That is what a fresh machine looks like.
 
 **What a skipped source experiences:** its posts answer 401, the same as
-an unknown source. That is the honest outcome — the source is not
-registered as far as this build is concerned — and it is visible from
-the sender's side immediately rather than as silence.
+an unknown source. It is not registered as far as this build is
+concerned, and the sender sees that immediately rather than as silence.
 
-**Why skip rather than refuse.** A malformed profile still stops
-startup: that is a mistake, and running with a source missing because
-somebody fat-fingered a TOML key is worse than not running. An old
-format is not a mistake, it is a known state with a known fix, and
-taking down every other source over it is the wrong blast radius
-(Kenny, 2026-09-03).
-
-**Fixing one:** reduce it to `schema_version = 2`, `source_id` and
-`target_calendar_id`, then press *Reload profiles from disk* on the
-dashboard. No restart. The source must also send Almanac's event shape
-— if it cannot, put HTTPSwitchboard in front of it, which is what that
-tool is for.
+**Fixing a v1 profile:** reduce it to `schema_version = 2`, `source_id`
+and `target_calendar_id`, then press *Reload profiles from disk*. No
+restart. The source must also send Almanac's event shape — if it
+cannot, put HTTPSwitchboard in front of it, which is what that tool is
+for.

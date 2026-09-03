@@ -40,22 +40,37 @@ describing what a payload means; the call carries the event.
   energy-prices (4) and job-tracker (2). Their profiles and fixtures
   went with the layer they existed to prove.
 
-- **`schema_version` is 2, and a v1 profile is skipped rather than
-  fatal.** It cannot be honoured — its `[mapping]` block describes a
-  translation that no longer happens — but taking every other source
-  down over one outdated file is the wrong blast radius (Kenny,
-  2026-09-03). Almanac loads what it understands, logs one error per
-  skipped file naming it and its version, and reports the count on the
-  startup line.
+- **Nothing outside the program can stop it starting.** Kenny,
+  2026-09-03: *"een kapot profiel mag niet het opstarten van de app
+  belemmeren … De app moet ten allen tijde zelf kunnen opstarten op
+  zichzelf."*
 
-  A **malformed** profile still stops startup. That distinction is the
-  point: an old format is a known state with a known fix; a broken file
-  is a mistake, and running with a source missing because somebody
-  fat-fingered a TOML key is worse than not running.
+  Loading profiles can no longer fail. A file that is malformed, written
+  for `schema_version = 1`, unreadable, or claiming a `source_id`
+  another file already uses is reported and left unserved; almanac
+  starts and serves everything else. A missing profiles directory and a
+  directory with nothing usable in it are both legitimate states — that
+  is what a fresh machine looks like — and almanac serves zero sources
+  and says so.
 
-  A skipped source answers 401 to its own posts — the same as an unknown
-  source, which for this build it is — so its sender sees it at once
-  rather than as silence.
+  This replaces the rule the module used to follow, and the reason is
+  the dashboard: **the page from which a bad profile gets deleted is
+  part of what would not have started.** A service that cannot come up
+  because of a file it is supposed to manage has no way back.
+
+  Every unusable file is listed on `/dashboard/sources` under *Not being
+  served*, with what is wrong with it and a **Delete** button — by file
+  name, because a broken profile often has no readable `source_id`,
+  which is frequently the thing wrong with it.
+
+  Two profiles claiming one `source_id` no longer take the whole set
+  down either: the first in sorted order serves, the second is reported.
+  AR15 keeps its meaning — one identity, one profile — with a resolution
+  that is deterministic and local.
+
+  An unserved source answers 401 to its own posts, the same as an
+  unknown source, so its sender learns immediately rather than through
+  silence.
 
 - **A profile is now routing only:** `source_id`,
   `target_calendar_id`, and optional `timezone` and
@@ -95,8 +110,8 @@ describing what a payload means; the call carries the event.
 
 ### Migration
 
-Nothing has to happen at upgrade time: an old profile is skipped, the
-rest keep serving. To bring one back, reduce it to `schema_version = 2`,
+Nothing has to happen at upgrade time: an old profile is left unserved
+and listed on the dashboard, the rest keep serving. To bring one back, reduce it to `schema_version = 2`,
 `source_id` and `target_calendar_id`, and press *Reload profiles from
 disk* — no restart. The source must also send Almanac's event shape; if
 it cannot, HTTPSwitchboard goes in front of it. See

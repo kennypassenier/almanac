@@ -1049,6 +1049,79 @@ async fn k21_without_an_owner_an_unknown_calendar_is_refused_rather_than_created
 }
 
 #[tokio::test]
+async fn k23_an_unusable_profile_is_listed_and_can_be_deleted() {
+    // Kenny, 2026-09-03: a broken profile must not stop the app, and
+    // the dashboard should show it as broken with a delete button. The
+    // second half matters as much as the first — the page from which
+    // you fix it is the page that would not have existed if a broken
+    // file could stop the service.
+    let dir = scratch_dir("k23-unusable");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    std::fs::write(
+        dir.join("profiles/wrecked.toml"),
+        "this is not toml at all\n",
+    )
+    .unwrap();
+
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard/sources", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        body.contains("wrecked.toml"),
+        "an unusable profile must be visible, not only logged"
+    );
+    assert!(
+        body.contains("/dashboard/profiles/wrecked.toml/delete"),
+        "and deletable from the same page"
+    );
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/profiles/wrecked.toml/delete",
+            Some(&cookie),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(!dir.join("profiles/wrecked.toml").exists());
+
+    // The source that was fine all along never noticed.
+    assert!(dir.join("profiles/home-assistant.toml").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k23_deleting_an_unusable_profile_needs_a_session() {
+    let dir = scratch_dir("k23-unusable-auth");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    std::fs::write(dir.join("profiles/wrecked.toml"), "not toml\n").unwrap();
+
+    let response = almanac::shell::build_router(Arc::clone(&st))
+        .oneshot(post_form(
+            "/dashboard/profiles/wrecked.toml/delete",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(
+        dir.join("profiles/wrecked.toml").exists(),
+        "an anonymous POST must not delete anything"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k21_reload_picks_up_a_profile_written_by_hand() {
     let dir = scratch_dir("k21-reload");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
@@ -1286,6 +1359,12 @@ async fn k21_dump_the_sources_page_for_review() {
         ))
         .await
         .unwrap();
+
+    std::fs::write(
+        dir.join("profiles/wrecked.toml"),
+        "schema_version = 1\nsource_id = \"uptime-kuma\"\ntarget_calendar_id = \"x\"\n",
+    )
+    .unwrap();
 
     let body = text(
         almanac::shell::build_router(Arc::clone(&st))

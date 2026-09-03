@@ -83,8 +83,15 @@ fn token_store_path() -> PathBuf {
 async fn check_mode() -> ! {
     let version = env!("CARGO_PKG_VERSION");
 
-    if let Err(e) = shell::profiles::load_all(&profiles_dir()) {
-        die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
+    // Reported, not fatal: --check answers "can this binary run here",
+    // and an unusable profile is a source that will not be served, not
+    // a reason the process cannot start. It says so and carries on.
+    for unusable in shell::profiles::load_all(&profiles_dir()).unusable {
+        eprintln!(
+            "--check: profile not usable: {} — {}",
+            unusable.path.display(),
+            unusable.reason
+        );
     }
     if let Err(e) = load_credentials() {
         die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
@@ -205,41 +212,41 @@ async fn main() {
     // Profiles first: a typo in a profile should stop the process
     // before it has authenticated against anything (M4).
     let profiles_dir = profiles_dir();
-    let loaded = match shell::profiles::load_all(&profiles_dir) {
-        Ok(loaded) => loaded,
-        Err(e) => die(e),
-    };
+    let loaded = shell::profiles::load_all(&profiles_dir);
 
-    // Reported one line per file, at error level, before anything else
-    // is said about profiles: an outdated profile is a source that is
-    // NOT being served, and the quietest possible failure would be a
-    // count that simply came out lower than expected.
-    for skipped in &loaded.skipped {
+    // Reported one line per file, at error level: an unusable profile
+    // is a source that is NOT being served, and the quietest possible
+    // failure would be a count that simply came out lower than
+    // expected. They are also listed on the dashboard, where they can
+    // be deleted — which is why refusing to start over one would be
+    // exactly the wrong move: the way to fix it is the thing that
+    // would not have started.
+    for unusable in &loaded.unusable {
         tracing::error!(
-            path = %skipped.path.display(),
-            schema_version = skipped.schema_version,
-            remedy = "reduce it to schema_version 2 with source_id and target_calendar_id,                       and have the source send almanac's event shape (or put HTTPSwitchboard                       in front of it) — see docs/USER_GUIDE.md",
-            "skipping a profile written for an older format; this source is not being served"
+            path = %unusable.path.display(),
+            reason = %unusable.reason,
+            "a profile could not be used; this source is not being served"
         );
     }
 
     let profiles = loaded.profiles;
     if profiles.is_empty() {
-        die(format!(
-            "no usable mapping profiles in {} ({} skipped for an older schema_version) — \
-             create at least one *.toml profile there, or point ALMANAC_STATE_DIR at the \
-             directory holding profiles/ and data/ (or ALMANAC_PROFILES_DIR at the profiles \
-             alone)",
-            profiles_dir.display(),
-            loaded.skipped.len()
-        ));
+        // Serving nothing is a legitimate state, not a failure: it is
+        // what a fresh machine looks like before anyone has added a
+        // source, and the dashboard is how they add one.
+        tracing::warn!(
+            directory = %profiles_dir.display(),
+            unusable = loaded.unusable.len(),
+            "no usable mapping profiles — almanac is serving no sources; add one from /dashboard/sources"
+        );
+    } else {
+        tracing::info!(
+            count = profiles.len(),
+            unusable = loaded.unusable.len(),
+            sources = ?profiles.iter().map(|p| p.source_id.as_str()).collect::<Vec<_>>(),
+            "loaded mapping profiles"
+        );
     }
-    tracing::info!(
-        count = profiles.len(),
-        skipped = loaded.skipped.len(),
-        sources = ?profiles.iter().map(|p| p.source_id.as_str()).collect::<Vec<_>>(),
-        "loaded mapping profiles"
-    );
     let profiles: HashMap<String, _> = profiles
         .into_iter()
         .map(|p| (p.source_id.clone(), p))

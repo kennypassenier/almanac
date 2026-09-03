@@ -384,6 +384,48 @@ async fn render_sources(
         })
         .collect();
 
+    let loaded_unusable = crate::shell::profiles::load_all(&state.profiles_dir).unusable;
+
+    // Files that are on disk and not being served. Shown rather than
+    // only logged: a source that stopped working is invisible from
+    // here otherwise, and the fix — delete it — belongs on the same
+    // page as everything else about sources.
+    let unusable_card = if loaded_unusable.is_empty() {
+        String::new()
+    } else {
+        let rows: String = loaded_unusable
+            .iter()
+            .map(|u| {
+                let name = escape(&u.file_name());
+                format!(
+                    r#"<tr>
+<td><code>{name}</code></td>
+<td class="small text-secondary">{reason}</td>
+<td class="text-end">
+  <form method="post" action="/dashboard/profiles/{name}/delete" class="d-inline">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+  </form>
+</td></tr>"#,
+                    reason = escape(&u.reason)
+                )
+            })
+            .collect();
+        format!(
+            r#"<h2 class="h5">Not being served</h2>
+<div class="card mb-4 border-danger"><div class="card-body">
+  <p class="text-secondary small">
+    These files are in the profiles directory and Almanac cannot use them, so the sources they
+    describe receive nothing — a post to one answers 401, the same as an unknown source. Almanac
+    starts and serves everything else regardless; nothing outside the program decides whether it
+    runs.
+  </p>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+  <thead><tr><th>File</th><th>Why</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>{rows}</tbody></table></div>
+</div></div>"#
+        )
+    };
+
     // The reveal and copy controls fetch the token only when clicked,
     // so a token never sits in the page source waiting to be read over
     // someone's shoulder or scraped out of a cached page.
@@ -598,6 +640,8 @@ async function copyCmd(id) {
 <tbody>{rows}</tbody></table></div>
 </div></div>
 
+{unusable_card}
+
 <form method="post" action="/dashboard/sources/reload" class="mb-4">
   <button class="btn btn-sm btn-outline-secondary" type="submit">Reload profiles from disk</button>
   <span class="text-secondary small ms-2">
@@ -722,14 +766,9 @@ async fn create_source(
     // Reload from disk rather than inserting the parsed profile: the
     // set is what has to stay valid, and reading it back is also the
     // only proof that what was written can be read again.
-    match crate::shell::profiles::load_map(&state.profiles_dir) {
-        Ok(profiles) => {
-            state.set_profiles(profiles);
-            tracing::info!(source_id = %source_id, "added a source from the dashboard");
-            Redirect::to("/dashboard/sources").into_response()
-        }
-        Err(e) => render_sources(&state, Some(&e.to_string()), draft).await,
-    }
+    state.set_profiles(crate::shell::profiles::load_map(&state.profiles_dir));
+    tracing::info!(source_id = %source_id, "added a source from the dashboard");
+    Redirect::to("/dashboard/sources").into_response()
 }
 
 /// `POST /dashboard/sources/{source_id}/delete` — remove a source
@@ -784,13 +823,44 @@ async fn delete_source(
         Err(e) => return render_sources(&state, Some(&e.to_string()), None).await,
     };
 
-    match crate::shell::profiles::load_map(&state.profiles_dir) {
-        Ok(profiles) => {
-            state.set_profiles(profiles);
+    state.set_profiles(crate::shell::profiles::load_map(&state.profiles_dir));
+    tracing::info!(
+        source_id = %source_id,
+        removed = %removed.display(),
+        "deleted a source from the dashboard"
+    );
+    Redirect::to("/dashboard/sources").into_response()
+}
+
+/// `POST /dashboard/profiles/{file_name}/delete` — remove a file the
+/// service cannot use (K23).
+///
+/// Addressed by file name rather than source id: a broken profile often
+/// has no readable source id, which is frequently the thing wrong with
+/// it.
+async fn delete_unusable(
+    State(state): State<Arc<AppState>>,
+    Path(file_name): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_logged_in(&state, &headers).await {
+        return Redirect::to("/login").into_response();
+    }
+
+    // Only a file the loader actually reported as unusable. A loaded
+    // profile has its own delete, which revokes the token too, and
+    // routing that through here would leave the token behind.
+    let unusable = crate::shell::profiles::load_all(&state.profiles_dir).unusable;
+    if !unusable.iter().any(|u| u.file_name() == file_name) {
+        return (StatusCode::NOT_FOUND, "no such unusable profile").into_response();
+    }
+
+    match crate::shell::profiles::delete_file(&state.profiles_dir, &file_name) {
+        Ok(removed) => {
+            state.set_profiles(crate::shell::profiles::load_map(&state.profiles_dir));
             tracing::info!(
-                source_id = %source_id,
                 removed = %removed.display(),
-                "deleted a source from the dashboard"
+                "deleted an unusable profile from the dashboard"
             );
             Redirect::to("/dashboard/sources").into_response()
         }
@@ -806,17 +876,13 @@ async fn reload_profiles(State(state): State<Arc<AppState>>, headers: HeaderMap)
         return Redirect::to("/login").into_response();
     }
 
-    match crate::shell::profiles::load_map(&state.profiles_dir) {
-        Ok(profiles) => {
-            tracing::info!(
-                count = profiles.len(),
-                "reloaded profiles from the dashboard"
-            );
-            state.set_profiles(profiles);
-            Redirect::to("/dashboard/sources").into_response()
-        }
-        Err(e) => render_sources(&state, Some(&e.to_string()), None).await,
-    }
+    let profiles = crate::shell::profiles::load_map(&state.profiles_dir);
+    tracing::info!(
+        count = profiles.len(),
+        "reloaded profiles from the dashboard"
+    );
+    state.set_profiles(profiles);
+    Redirect::to("/dashboard/sources").into_response()
 }
 
 async fn captures_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
@@ -980,6 +1046,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/dashboard/sources/reload",
             axum::routing::post(reload_profiles),
+        )
+        .route(
+            "/dashboard/profiles/{file_name}/delete",
+            axum::routing::post(delete_unusable),
         )
         .route("/dashboard/captures", axum::routing::get(captures_page))
         .route(
