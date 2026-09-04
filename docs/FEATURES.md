@@ -37,7 +37,7 @@ from here on. Changes after the freeze go through a mini-round only
 | K21 | Manage sources from the dashboard — add one with a name and a calendar chosen from a dropdown of what exists (or a new one, created and shared on the spot), writing the profile itself and loading it without a restart; delete one, which revokes its token and removes its profile; plus a reload for profiles placed by hand | Essential | Round trip: a profile written through the surface is read back by `load_all`; a second source on the same calendar reuses it rather than creating a duplicate; a name that would escape the profiles directory is refused and creates neither file nor calendar; an unknown calendar without `ALMANAC_CALENDAR_OWNER` is refused rather than created invisible; a duplicate `source_id` is refused before it can break the next start; a `source_id` that would escape the profiles directory is refused and writes nothing outside it; an existing file is never overwritten; deleting removes the file, refuses while that source still has undelivered events, revokes its token, and leaves calendar events alone. *(Added 2026-09-02 via mini-round — see amendment note below.)* |
 | K23 | A source speaks Almanac's own event shape — every per-event option (all-day, colour, free/busy, status, reminders, length, timezone) travels in the call rather than sitting fixed in a profile; the profile becomes routing only, and translating other shapes moves to HTTPSwitchboard | Essential | A pinned fixture using every option; a call with an unknown field refused by name; a call with neither `external_id` nor an `Idempotency-Key` header refused at ingest; a v1 profile refused with a message saying what changed. *(Added 2026-09-03 via mini-round — see amendment below.)* |
 | K24 | A calendars panel on the dashboard — make one by name, and see every calendar with the sources that write to it; delete is offered only for a calendar no source uses | Essential | A calendar in use renders no delete control and the endpoint refuses it by name; one nothing writes to is deletable and gone at Google; making the same name twice makes one calendar; making one needs a session. *(Added 2026-09-03 via mini-round — see amendment below.)* |
-| K25 | The kp-themes palettes on the dashboard — seven themes with the shared picker, stored and applied exactly as `@kp-soft/themes` defines | Essential | Every theme rendered as an option with its swatch and its darkness; the three dark ones counted rather than named; the stored contract (key `theme`, default `formal`, the `.dark` toggle) asserted against the shipped script; the assets served and the no-flash script proven to sit in the head. *(Added 2026-09-03 via mini-round — see amendment below.)* |
+| K25 | The kp-themes palettes on the dashboard — every theme the package ships, with the package's own picker, stored and applied exactly as `@kp-soft/themes` defines | Essential | Every theme in the vendored registry rendered as an option, checked against that registry rather than against a list typed twice; each option wearing its own theme as its swatch; the stored contract (key `theme`, default `formal`, the `.dark` toggle) asserted against the vendored modules; the assets served and the no-flash script proven to sit in the head, settling Bootstrap's own switch in the same breath. *(Added 2026-09-03 via mini-round; v1.0.0 adopted 2026-09-04 — see the amendments below.)* |
 
 ## Round 2 — Claude's proposals (gaps, hardening, quality-of-life)
 
@@ -580,3 +580,46 @@ detail has its own test, because it is the same shape as the updater
 bug: a tokio interval fires immediately, so a loop that does not consume
 that first tick both duplicates the startup lines and then drifts by a
 whole period.
+
+## K25 second amendment (v1.0.0 adopted, 2026-09-04)
+
+**What Kenny asked for:** kp-themes released 1.0.0, and almanac should
+take the themes as they now exist.
+
+**Four themes almanac could not offer, and nothing was failing.** The
+package went from seven themes to eleven — `high-contrast`, `sepia`,
+`blueprint` and `solstice` are new. The commit gate compared the one
+file almanac had vendored, and that file was in step, so the gate was
+green while the picker was a version behind. A check that guards one
+file guards one file; the list in Rust was outside it.
+
+That is now covered from the other side: a test reads the vendored
+registry and asserts that almanac offers exactly the themes it names,
+in both directions. It runs on CI too, where kp-themes is not on the
+machine — it reads what almanac shipped rather than what is upstream.
+
+**The behaviour is no longer almanac's own.** v1 ships a framework-free
+picker built for exactly this case — its own comments name almanac and
+kyu as the reason it exists — so the hand-written `theme.js` is gone and
+the package's three modules are vendored instead. Almanac still writes
+the markup, because a menu that only exists once JavaScript has run is
+an empty box on first paint.
+
+**21 copied colours are gone.** Each option used to carry two hand-typed
+hex values to draw its swatch. A swatch now wears the theme:
+`<span class="kp-swatch" data-theme="…">` reads that theme's live
+tokens, because `data-theme` works on any element. The most ordinary
+change upstream is adjusting a palette, and it was exactly the change
+that would have left almanac previewing a colour the theme no longer
+had, with nothing to notice it.
+
+**What stayed almanac's own, deliberately:** `theme-bootstrap.js`.
+Bootstrap decides light or dark from `data-bs-theme`, which the package
+knows nothing about and should not. It listens to the package's own
+`kp-theme-change` event rather than to the buttons, so it keeps working
+if the markup moves.
+
+**Proven by clicking it**, not only by tests: the local dashboard, all
+eleven themes in the menu, `solstice` applied and surviving a page load
+with the cards, tables and navbar following the tokens rather than
+staying Bootstrap-light.

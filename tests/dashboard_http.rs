@@ -1402,10 +1402,11 @@ async fn k24_making_a_calendar_needs_a_session() {
 }
 
 #[tokio::test]
-async fn k25_the_picker_offers_every_theme_with_its_swatch_and_darkness() {
-    // The seven themes live once, in Rust, and the script reads them off
-    // this markup. If that list and the markup ever disagree, the picker
-    // silently offers fewer themes than exist.
+async fn k25_the_picker_offers_every_theme_the_package_ships() {
+    // The eleven themes live once, in Rust, because almanac renders its
+    // markup on the server. If that list and the package's registry ever
+    // disagree, the picker silently offers fewer themes than exist —
+    // which is what happened when the package grew from seven to eleven.
     let dir = scratch_dir("k25-picker");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
@@ -1426,23 +1427,85 @@ async fn k25_the_picker_offers_every_theme_with_its_swatch_and_darkness() {
         "pastel",
         "terminal",
         "topo",
+        "high-contrast",
+        "sepia",
+        "blueprint",
+        "solstice",
     ] {
         assert!(
-            body.contains(&format!(r#"data-theme="{theme}""#)),
+            body.contains(&format!(r#"data-kp-theme="{theme}""#)),
             "the picker must offer {theme}"
         );
     }
-    // Three are dark, four are not — asserted as counts rather than by
-    // name, so the script's derivation has something to derive from.
+
+    // Every option previews its theme by wearing it. The hand-copied
+    // gradient this replaced held 21 colours whose only job was to look
+    // like the theme, and nothing would have failed when they stopped.
     assert_eq!(
-        body.matches(r#"data-dark="true""#).count(),
-        3,
-        "dark, cyberpunk and terminal"
+        body.matches(r#"<span class="kp-swatch" data-theme="#)
+            .count(),
+        11,
+        "each option shows a swatch that reads the theme's own tokens"
     );
-    assert_eq!(body.matches(r#"data-dark="false""#).count(), 4);
     assert!(
-        body.contains("linear-gradient(135deg"),
-        "each option shows its two-colour swatch"
+        !body.contains("linear-gradient(135deg"),
+        "no copied swatch colours may come back"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn k25_the_rust_theme_list_matches_the_packages_own_registry() {
+    // The one place a vendored picker can rot without any file
+    // disagreeing: almanac's list is Rust, upstream's is JavaScript, and
+    // the commit gate compares the files it vendored — not this.
+    //
+    // Read out of the vendored registry rather than out of kp-themes, so
+    // this still means something on CI where the source is not present.
+    let dir = scratch_dir("k25-registry");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let registry = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/static/theme-registry.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    let upstream: Vec<&str> = registry
+        .match_indices("name: '")
+        .map(|(at, _)| {
+            let rest = &registry[at + "name: '".len()..];
+            &rest[..rest.find('\'').expect("a closing quote")]
+        })
+        .collect();
+    assert_eq!(
+        upstream.len(),
+        11,
+        "the vendored registry should carry eleven themes, not {}",
+        upstream.len()
+    );
+
+    for name in &upstream {
+        assert!(
+            body.contains(&format!(r#"data-kp-theme="{name}""#)),
+            "the package ships {name} and the picker does not offer it"
+        );
+    }
+    assert_eq!(
+        body.matches(r#"data-kp-theme=""#).count(),
+        upstream.len(),
+        "the picker offers a theme the package does not ship"
     );
 
     std::fs::remove_dir_all(&dir).ok();
@@ -1452,28 +1515,37 @@ async fn k25_the_picker_offers_every_theme_with_its_swatch_and_darkness() {
 async fn k25_the_stored_contract_is_the_one_the_shared_package_defines() {
     // The cheapest guard against the thing kp-themes exists to prevent:
     // three projects drifting apart on what "theme" means in
-    // localStorage. kyu ships the same assertion against the same file.
+    // localStorage. Asserted against the vendored modules themselves
+    // since v1 — the behaviour is no longer almanac's own copy.
     let dir = scratch_dir("k25-contract");
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
-    let script = text(
+    let registry = text(
         almanac::shell::build_router(Arc::clone(&st))
-            .oneshot(get("/static/theme.js", None))
+            .oneshot(get("/static/theme-registry.js", None))
             .await
             .unwrap(),
     )
     .await;
 
     assert!(
-        script.contains("'theme'"),
+        registry.contains("STORAGE_KEY = 'theme'"),
         "the localStorage key must stay 'theme'"
     );
     assert!(
-        script.contains("'formal'"),
+        registry.contains("DEFAULT_THEME = 'formal'"),
         "the default must stay 'formal'"
     );
+
+    let core = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/static/theme-core.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
     assert!(
-        script.contains("classList.toggle('dark'"),
+        core.contains("classList.toggle('dark'"),
         "a dark theme must still set the .dark class the package's CSS expects"
     );
 
@@ -1488,8 +1560,15 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
 
     for (path, marker) in [
         ("/static/themes.css", "[data-theme='cyberpunk']"),
+        // One of the four themes v1 added: a stale copy of the file
+        // would still pass every assertion about the original seven.
+        ("/static/themes.css", "[data-theme='solstice']"),
+        ("/static/kp-components.css", ".kp-swatch"),
         ("/static/theme-bridge.css", "--bs-body-bg"),
-        ("/static/theme.js", "data-theme-picker"),
+        ("/static/theme-picker.js", "data-kp-theme-picker"),
+        ("/static/theme-core.js", "applyTheme"),
+        ("/static/theme-registry.js", "STORAGE_KEY"),
+        ("/static/theme-bootstrap.js", "data-bs-theme"),
     ] {
         let response = almanac::shell::build_router(Arc::clone(&st))
             .oneshot(get(path, None))
@@ -1502,8 +1581,6 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
         );
     }
 
-    // And nothing renders before the stored theme is applied: the
-    // no-flash script has to be in the head, not after the body.
     let body = text(
         almanac::shell::build_router(Arc::clone(&st))
             .oneshot(get("/dashboard", Some(&cookie)))
@@ -1511,10 +1588,31 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
             .unwrap(),
     )
     .await;
+
+    // The three modules import each other by relative path, so they only
+    // resolve while all of them are served from the same directory.
+    for asset in [
+        "/static/themes.css",
+        "/static/kp-components.css",
+        "/static/theme-picker.js",
+        "/static/theme-bootstrap.js",
+    ] {
+        assert!(body.contains(asset), "the page must ask for {asset}");
+    }
+
+    // And nothing renders before the stored theme is applied: the
+    // no-flash script has to be in the head, not after the body.
     let head = &body[..body.find("</head>").expect("a head")];
     assert!(
         head.contains("localStorage.getItem('theme')"),
         "the no-flash script must run before the page paints"
+    );
+    // Bootstrap's own switch is set in that same breath. Without it the
+    // tokens go dark while every card and table stays light — the half
+    // -applied look this glue exists to prevent.
+    assert!(
+        head.contains("data-bs-theme"),
+        "the first paint must settle Bootstrap's theme too, not only the tokens"
     );
 
     std::fs::remove_dir_all(&dir).ok();

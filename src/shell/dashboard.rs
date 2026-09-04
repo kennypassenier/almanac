@@ -52,84 +52,76 @@ async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
 
 /// The seven kp-themes palettes, once (K25).
 ///
-/// Mirrors `THEME_META` in `@kp-soft/themes` v0.1.1: name, the Dutch
-/// label the package ships, whether it is a dark theme, and the two
-/// swatch colours. It lives here and nowhere else — `theme.js`
-/// deliberately carries no list and reads `data-theme` / `data-dark`
-/// off the markup this renders, because a copy of the list in
-/// JavaScript would be a second source of truth and the stale one is
-/// always the one nobody is looking at.
+/// The eleven house themes, mirroring `THEMES` in
+/// `@kp-soft/themes/js/theme-registry.js` v1.0.0: name, the Dutch label
+/// the package ships, and whether it is a dark theme.
 ///
-/// `(name, label, dark, background, primary)`.
-const THEMES: [(&str, &str, bool, &str, &str); 7] = [
-    (
-        "formal",
-        "Formeel",
-        false,
-        "hsl(40,25%,97%)",
-        "hsl(218,45%,24%)",
-    ),
-    (
-        "light",
-        "Licht",
-        false,
-        "hsl(0,0%,100%)",
-        "hsl(243,60%,45%)",
-    ),
-    (
-        "dark",
-        "Donker",
-        true,
-        "hsl(226,22%,8%)",
-        "hsl(255,85%,74%)",
-    ),
-    (
-        "cyberpunk",
-        "Cyberpunk",
-        true,
-        "hsl(258,40%,6%)",
-        "hsl(315,95%,64%)",
-    ),
-    (
-        "pastel",
-        "Pastel",
-        false,
-        "hsl(285,45%,97%)",
-        "hsl(330,55%,42%)",
-    ),
-    (
-        "terminal",
-        "Terminal",
-        true,
-        "hsl(120,10%,5%)",
-        "hsl(120,90%,50%)",
-    ),
-    (
-        "topo",
-        "Topografisch",
-        false,
-        "hsl(42,32%,95%)",
-        "hsl(158,42%,24%)",
-    ),
+/// The swatch colours that used to sit here are gone, and that is the
+/// point of v1. They were 21 hand-copied colours whose only job was to
+/// preview a theme — the most ordinary change upstream is adjusting a
+/// palette, and it is exactly the change that would have left this
+/// showing a colour the theme no longer had, with nothing failing. A
+/// swatch now wears the theme instead: `<span class="kp-swatch"
+/// data-theme="…">` reads that theme's own live custom properties,
+/// because `data-theme` works on any element and not only on `<html>`.
+///
+/// The list itself still lives here because almanac renders its markup
+/// on the server: a picker that only exists after JavaScript has run is
+/// an empty box on first paint.
+///
+/// `(name, label, dark)`.
+const THEMES: [(&str, &str, bool); 11] = [
+    ("formal", "Formeel", false),
+    ("light", "Licht", false),
+    ("dark", "Donker", true),
+    ("cyberpunk", "Cyberpunk", true),
+    ("pastel", "Pastel", false),
+    ("terminal", "Terminal", true),
+    ("topo", "Topografisch", false),
+    ("high-contrast", "Hoog contrast", false),
+    ("sepia", "Sepia", false),
+    ("blueprint", "Blauwdruk", true),
+    ("solstice", "Zonnewende", true),
 ];
 
 /// Everything the browser needs before the first paint, and the three
 /// stylesheets in the order they must load: Bootstrap first, then the
 /// theme tokens, then the bridge that points Bootstrap at them.
 fn head_assets() -> String {
-    String::from(
+    // Which themes are dark, as the browser needs it before the first
+    // paint. Written from THEMES rather than typed again: Bootstrap is
+    // almanac's own business, so upstream cannot answer this, but the
+    // list it derives from is still the one list.
+    let dark: String = THEMES
+        .iter()
+        .filter(|(_, _, dark)| *dark)
+        .map(|(name, _, _)| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!(
         r#"<script>
 /* Before the first paint: the visitor's last theme, or the default.
    Without this the page renders in `formal` and jumps to the chosen
    theme — the flash the package's initializeTheme() exists to prevent.
-   Deliberately tiny: it does not know which themes exist or which are
-   dark. theme.js settles both once the picker is in the DOM. */
-(function () {
-  try {
+
+   The package's own snippet copies a name and stops there, deliberately
+   knowing nothing about which themes are dark. Almanac needs one thing
+   more: Bootstrap reads data-bs-theme, and without it the tokens go dark
+   while every card, table and button stays light. So the dark names are
+   printed here from the Rust list, and theme-picker.js settles the rest
+   as soon as it loads. */
+(function () {{
+  try {{
     var t = localStorage.getItem('theme');
-    if (t) document.documentElement.dataset.theme = t;
-  } catch (e) { /* blocked storage: the default stands */ }
-})();
+    if (!t) return;
+    var root = document.documentElement;
+    root.dataset.theme = t;
+    var dark = [{dark}].indexOf(t) !== -1;
+    root.classList.toggle('dark', dark);
+    root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+  }} catch (e) {{ /* blocked storage: the default stands */ }}
+}})();
 </script>
 <link rel="preconnect" href="https://fonts.bunny.net">
 <!-- Three themes carry their own face — formal wants Fraunces, cyberpunk
@@ -140,35 +132,36 @@ fn head_assets() -> String {
       href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600|fraunces:600,700|share-tech-mono:400|chakra-petch:500,600,700">
 <link rel="stylesheet" href="/static/bootstrap.min.css">
 <link rel="stylesheet" href="/static/themes.css">
-<link rel="stylesheet" href="/static/theme-bridge.css">"#,
+<link rel="stylesheet" href="/static/kp-components.css">
+<link rel="stylesheet" href="/static/theme-bridge.css">"#
     )
 }
 
 /// The picker itself, rendered from `THEMES` so the list exists once.
+///
+/// The markup is the shape `@kp-soft/themes/js/theme-picker.js` attaches
+/// to, and the classes are the ones `css/components.css` styles, so the
+/// look and the behaviour both come from the package rather than from a
+/// copy here. Written by the server rather than by the package's own
+/// `themeMenuMarkup()`: almanac renders HTML from a Rust binary, and a
+/// menu that only exists once a module has run is an empty box on first
+/// paint.
 fn theme_picker() -> String {
     let options: String = THEMES
         .iter()
-        .map(|(name, label, dark, bg, primary)| {
+        .map(|(name, label, _)| {
             format!(
-                r#"<li class="theme-picker__option" role="option" tabindex="0"
-              data-theme="{name}" data-dark="{dark}" aria-selected="false">
-            <span class="theme-picker__swatch"
-                  style="background: linear-gradient(135deg, {bg} 50%, {primary} 50%)"></span>
-            <span class="theme-picker__label">{label}</span>
-            <svg class="theme-picker__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 6 9 17l-5-5"/>
-            </svg>
-          </li>"#
+                r#"<li><button type="button" data-kp-theme="{name}">
+            <span class="kp-swatch" data-theme="{name}"></span>{label}</button></li>"#
             )
         })
         .collect();
 
     format!(
-        r#"<div class="theme-picker" data-theme-picker>
-        <button type="button" class="theme-picker__trigger" data-theme-trigger
-                aria-label="Thema kiezen" aria-haspopup="listbox" aria-expanded="false">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+        r#"<span class="kp-theme-menu">
+        <button type="button" class="kp-icon-button" popovertarget="kp-theme-menu"
+                aria-label="Thema kiezen" style="anchor-name: --kp-theme-menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
             <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
@@ -177,10 +170,14 @@ fn theme_picker() -> String {
             <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.6-10-8.6z"/>
           </svg>
         </button>
-        <ul class="theme-picker__list" data-theme-list role="listbox" aria-label="Thema kiezen" hidden>
-          {options}
-        </ul>
-      </div>"#
+        <div popover="auto" id="kp-theme-menu" class="kp-popover"
+             style="position-anchor: --kp-theme-menu">
+          <ul class="kp-menu" data-kp-theme-picker aria-label="Thema kiezen">
+            {options}
+          </ul>
+        </div>
+        <p data-kp-theme-status hidden></p>
+      </span>"#
     )
 }
 
@@ -202,7 +199,8 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Almanac</title>
 {assets}
-<script src="/static/theme.js" defer></script>
+<script type="module" src="/static/theme-picker.js"></script>
+<script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
 <nav class="navbar navbar-expand bg-body-tertiary border-bottom mb-4">
@@ -247,7 +245,8 @@ fn login_page(error: Option<&str>) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in — Almanac</title>
 {assets}
-<script src="/static/theme.js" defer></script>
+<script type="module" src="/static/theme-picker.js"></script>
+<script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
 <main class="container" style="max-width: 26rem; margin-top: 6rem;">
@@ -1442,11 +1441,51 @@ async fn theme_bridge_css() -> Response {
         .into_response()
 }
 
-/// The picker's behaviour — shared verbatim with kyu (K25).
-async fn theme_js() -> Response {
+/// The component styles that go with those tokens (K25) — the swatch,
+/// the popover menu and the icon button the picker markup uses.
+async fn kp_components_css() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../static/kp-components.css"),
+    )
+        .into_response()
+}
+
+/// The picker's behaviour, vendored from the package itself since v1
+/// (K25). Three modules rather than one because that is how upstream
+/// ships it, and the relative imports between them resolve as long as
+/// all three are served from `/static/`.
+async fn theme_picker_js() -> Response {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        include_str!("../../static/theme.js"),
+        include_str!("../../static/theme-picker.js"),
+    )
+        .into_response()
+}
+
+async fn theme_core_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/theme-core.js"),
+    )
+        .into_response()
+}
+
+async fn theme_registry_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/theme-registry.js"),
+    )
+        .into_response()
+}
+
+/// Almanac's own glue, and the one piece of theming that is not the
+/// package's business: Bootstrap decides light or dark from
+/// `data-bs-theme`, which upstream knows nothing about.
+async fn theme_bootstrap_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/theme-bootstrap.js"),
     )
         .into_response()
 }
@@ -1508,5 +1547,21 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/static/theme-bridge.css",
             axum::routing::get(theme_bridge_css),
         )
-        .route("/static/theme.js", axum::routing::get(theme_js))
+        .route(
+            "/static/kp-components.css",
+            axum::routing::get(kp_components_css),
+        )
+        .route(
+            "/static/theme-picker.js",
+            axum::routing::get(theme_picker_js),
+        )
+        .route("/static/theme-core.js", axum::routing::get(theme_core_js))
+        .route(
+            "/static/theme-registry.js",
+            axum::routing::get(theme_registry_js),
+        )
+        .route(
+            "/static/theme-bootstrap.js",
+            axum::routing::get(theme_bootstrap_js),
+        )
 }

@@ -11,6 +11,30 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **kp-themes v1.0.0 adopted** (K25). Eleven themes instead of seven —
+  `high-contrast`, `sepia`, `blueprint` and `solstice` are new — and the
+  picker's behaviour now comes from the package rather than from a copy
+  written here.
+
+  The stale copy was invisible: the commit gate compared the one file
+  almanac had vendored, that file was in step with itself, and the
+  theme list living in Rust was outside what the gate looked at. So the
+  gate now covers every vendored file, and a test checks almanac's list
+  against the vendored registry in both directions — including on CI,
+  where kp-themes is not on the machine.
+
+  Each option's two hand-copied swatch colours are gone, 21 in total: a
+  swatch wears the theme now (`<span class="kp-swatch" data-theme="…">`
+  reads that theme's live tokens). Adjusting a palette upstream would
+  have left almanac previewing colours the theme no longer had, and
+  nothing would have failed.
+
+  `static/theme-bootstrap.js` stays almanac's own: Bootstrap reads
+  `data-bs-theme`, which the package knows nothing about. It listens to
+  the package's `kp-theme-change` event rather than to the buttons.
+
 ## [2.3.0] — 2026-09-03
 
 ### Changed

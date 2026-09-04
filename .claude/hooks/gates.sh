@@ -38,52 +38,62 @@ if [ -d src/core ]; then
   fi
 fi
 
-# K25: the vendored kp-themes file must still match its source.
+# K25: every vendored kp-themes file must still match its source.
 #
-# static/themes.css is a COPY of ~/Projects/kp-themes/css/themes.css —
-# almanac has no npm and no build step, so it cannot be a dependency the
-# way it is in JobTracker. The risk a copy actually runs is not that it
-# is wrong today but that it silently ages: upstream releases, nobody
-# re-copies, and three projects drift apart on the palettes they claim
-# to share.
+# static/themes.css, static/kp-components.css and the three theme-*.js
+# modules are COPIES of ~/Projects/kp-themes — almanac has no npm and no
+# build step, so it cannot be a dependency the way it is in JobTracker.
+# The risk a copy actually runs is not that it is wrong today but that
+# it silently ages: upstream releases, nobody re-copies, and three
+# projects drift apart on the palettes they claim to share. Which is
+# exactly what happened between v0.1.1 and v1.0.0 — four new themes that
+# almanac's picker could not offer, with nothing failing.
 #
-# So: compare, and refuse. Everything above the upstream file's own
-# opening comment is almanac's provenance header and is skipped, which
-# is why the comparison starts at that line rather than at a line
-# number. Taken from kyu, which built and proved this first — including
-# the detail that anchoring on a marker rather than a count is what
-# keeps it from reporting a difference that is not there.
-UPSTREAM_THEMES="$HOME/Projects/kp-themes/css/themes.css"
-VENDORED_THEMES="static/themes.css"
-if [ -f "$VENDORED_THEMES" ]; then
-  if [ -f "$UPSTREAM_THEMES" ]; then
-    if ! diff -q \
-        <(sed -n '/^\/\* @kp-soft\/themes/,$p' "$VENDORED_THEMES") \
-        "$UPSTREAM_THEMES" >/dev/null; then
-      {
-        echo "GATE FAILED — $VENDORED_THEMES no longer matches kp-themes."
-        echo
-        echo "It is a vendored copy: either kp-themes released a new version and"
-        echo "this copy is stale, or someone edited the copy, which its own header"
-        echo "forbids. Anything almanac-specific belongs in theme-bridge.css."
-        echo
-        echo "The differing lines:"
-        diff <(sed -n '/^\/\* @kp-soft\/themes/,$p' "$VENDORED_THEMES") \
-             "$UPSTREAM_THEMES" | head -40
-        echo
-        echo "What now: re-copy the file and bump the version in its header,"
-        echo "or move your change into static/theme-bridge.css."
-      } >&2
-      exit 1
-    fi
-  else
+# So: compare, and refuse. Each vendored file opens with almanac's own
+# provenance header; the comparison starts at the upstream file's first
+# line rather than at a line number, which is what keeps this from
+# reporting a difference that is not there. Taken from kyu, which built
+# and proved the shape first.
+#
+# static/theme-bootstrap.js is deliberately NOT in this list: it is
+# almanac's own glue onto Bootstrap and has no upstream to match.
+check_vendored() {
+  local vendored="$1" upstream="$2" anchor="$3"
+  [ -f "$vendored" ] || return 0
+  if [ ! -f "$upstream" ]; then
     # Said out loud rather than passing quietly: on CI the source is not
     # there, and a check that reports success when it did not run is
     # exactly the shape this project spent a day removing.
-    echo "gates: kp-themes is not on this machine, so $VENDORED_THEMES was NOT" >&2
+    echo "gates: kp-themes is not on this machine, so $vendored was NOT" >&2
     echo "       compared against its source. Checked on Kenny's workstation." >&2
+    return 0
   fi
-fi
+  if ! diff -q <(sed -n "/$anchor/,\$p" "$vendored") "$upstream" >/dev/null; then
+    {
+      echo "GATE FAILED — $vendored no longer matches kp-themes."
+      echo
+      echo "It is a vendored copy: either kp-themes released a new version and"
+      echo "this copy is stale, or someone edited the copy, which its own header"
+      echo "forbids. Anything almanac-specific belongs in theme-bridge.css or"
+      echo "static/theme-bootstrap.js."
+      echo
+      echo "The differing lines:"
+      diff <(sed -n "/$anchor/,\$p" "$vendored") "$upstream" | head -40
+      echo
+      echo "What now: re-copy the file and bump the version in its header,"
+      echo "and check whether the theme list in src/shell/dashboard.rs still"
+      echo "matches the package's registry."
+    } >&2
+    exit 1
+  fi
+}
+
+KP="$HOME/Projects/kp-themes"
+check_vendored "static/themes.css"        "$KP/css/themes.css"      '^\/\* @kp-soft\/themes'
+check_vendored "static/kp-components.css" "$KP/css/components.css"  '^\/\* Component styles'
+check_vendored "static/theme-picker.js"   "$KP/js/theme-picker.js"  '^\/\/ The framework-free theme picker'
+check_vendored "static/theme-core.js"     "$KP/js/theme-core.js"    '^\/\/ The theme state'
+check_vendored "static/theme-registry.js" "$KP/js/theme-registry.js" '^\/\/ GENERATED'
 
 # Standing rule 7, second clause: see gate_tree_fingerprint above.
 if [ "$(gate_tree_fingerprint)" != "$gate_tree_before" ]; then
