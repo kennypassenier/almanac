@@ -41,6 +41,19 @@ against before it installs anything.
   the list mistake before and said so; almanac's first attempt had the
   same list and it is gone.
 
+  **The gate that guards the copies now has two severities**, which is
+  kyu's observation about the version I first wrote. An edited copy is
+  refused — a change made in a vendored file disappears at the next
+  re-vendor and nothing else would report it — and that check runs off
+  recorded checksums, so it works on CI where kp-themes is not present.
+  A copy that has merely fallen behind only says so: taking a release is
+  a decision with a moment of its own, and one project's release should
+  not break another project's unrelated commits.
+
+  `scripts/vendor-kp-themes.sh` does the update in one step and records
+  what it took, so there is no file anyone has to keep in step by hand.
+  It refuses to vendor a working copy that differs from its own tag.
+
   Thirty lines of picker styling left `theme-bridge.css` with it: the
   package styles its own picker now, and what remains in that file is
   the one thing it cannot do for us — pointing Bootstrap's variables at

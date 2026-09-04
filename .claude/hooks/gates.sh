@@ -38,62 +38,86 @@ if [ -d src/core ]; then
   fi
 fi
 
-# K25: every vendored kp-themes file must still match its source.
+# K25: the vendored kp-themes files, checked at two severities.
 #
 # static/themes.css, static/kp-components.css and the three theme-*.js
 # modules are COPIES of ~/Projects/kp-themes — almanac has no npm and no
 # build step, so it cannot be a dependency the way it is in JobTracker.
-# The risk a copy actually runs is not that it is wrong today but that
-# it silently ages: upstream releases, nobody re-copies, and three
-# projects drift apart on the palettes they claim to share. Which is
-# exactly what happened between v0.1.1 and v1.0.0 — four new themes that
-# almanac's picker could not offer, with nothing failing.
+# `scripts/vendor-kp-themes.sh` takes them and records what it took.
 #
-# So: compare, and refuse. Each vendored file opens with almanac's own
-# provenance header; the comparison starts at the upstream file's first
-# line rather than at a line number, which is what keeps this from
-# reporting a difference that is not there. Taken from kyu, which built
-# and proved the shape first.
+# Two different things can be wrong with a copy, and they deserve
+# different answers (kyu's observation, 2026-09-04, on the first version
+# of this gate, which blocked on both):
 #
-# static/theme-bootstrap.js is deliberately NOT in this list: it is
-# almanac's own glue onto Bootstrap and has no upstream to match.
-check_vendored() {
-  local vendored="$1" upstream="$2" anchor="$3"
-  [ -f "$vendored" ] || return 0
-  if [ ! -f "$upstream" ]; then
-    # Said out loud rather than passing quietly: on CI the source is not
-    # there, and a check that reports success when it did not run is
-    # exactly the shape this project spent a day removing.
-    echo "gates: kp-themes is not on this machine, so $vendored was NOT" >&2
-    echo "       compared against its source. Checked on Kenny's workstation." >&2
-    return 0
-  fi
-  if ! diff -q <(sed -n "/$anchor/,\$p" "$vendored") "$upstream" >/dev/null; then
+#   * SOMEONE EDITED IT — a change made here is a change that vanishes
+#     at the next re-vendor, and nothing else would ever report it.
+#     Refused. Detected against the recorded checksums, so it works on
+#     CI too, where kp-themes is not on the machine.
+#
+#   * IT HAS FALLEN BEHIND — kp-themes released and this copy is the
+#     previous version. Said out loud, not refused: taking a release is
+#     a decision with a moment of its own, and blocking every unrelated
+#     almanac commit until someone re-vendors makes one project's
+#     release break another project's build.
+#
+# static/theme-bootstrap.js and static/theme-bridge.css are NOT in this
+# list: they are almanac's own and have no upstream to match.
+# shellcheck source=scripts/kp-vendored.sh
+. scripts/kp-vendored.sh
+
+if [ -f "$KP_SUMS_FILE" ]; then
+  edited=""
+  for pair in "${KP_VENDORED_FILES[@]}"; do
+    dest=${pair%%:*}
+    [ -f "$dest" ] || continue
+    recorded=$(awk -v f="$dest" '$2 == f {print $1}' "$KP_SUMS_FILE")
+    actual=$(kp_upstream_slice "$dest" | sha256sum | cut -d' ' -f1)
+    if [ -z "$recorded" ]; then
+      edited="$edited\n  $dest (no checksum recorded for it)"
+    elif [ "$recorded" != "$actual" ]; then
+      edited="$edited\n  $dest"
+    fi
+  done
+  if [ -n "$edited" ]; then
     {
-      echo "GATE FAILED — $vendored no longer matches kp-themes."
+      echo "GATE FAILED — a vendored kp-themes file was edited here:"
+      printf '%b\n' "$edited"
       echo
-      echo "It is a vendored copy: either kp-themes released a new version and"
-      echo "this copy is stale, or someone edited the copy, which its own header"
-      echo "forbids. Anything almanac-specific belongs in theme-bridge.css or"
-      echo "static/theme-bootstrap.js."
+      echo "These are copies of ~/Projects/kp-themes. A change made here is a"
+      echo "change that disappears at the next re-vendor, silently. Anything"
+      echo "almanac-specific belongs in static/theme-bridge.css or"
+      echo "static/theme-bootstrap.js; anything everyone needs belongs upstream."
       echo
-      echo "The differing lines:"
-      diff <(sed -n "/$anchor/,\$p" "$vendored") "$upstream" | head -40
-      echo
-      echo "What now: re-copy the file and bump the version in its header,"
-      echo "and check whether the theme list in src/shell/dashboard.rs still"
-      echo "matches the package's registry."
+      echo "What now: undo the edit, or — if kp-themes released and you meant to"
+      echo "take it — run ./scripts/vendor-kp-themes.sh, which re-copies all five"
+      echo "and records the new checksums."
     } >&2
     exit 1
   fi
-}
 
-KP="$HOME/Projects/kp-themes"
-check_vendored "static/themes.css"        "$KP/css/themes.css"      '^\/\* @kp-soft\/themes'
-check_vendored "static/kp-components.css" "$KP/css/components.css"  '^\/\* Component styles'
-check_vendored "static/theme-picker.js"   "$KP/js/theme-picker.js"  '^\/\/ The framework-free theme picker'
-check_vendored "static/theme-core.js"     "$KP/js/theme-core.js"    '^\/\/ The theme state'
-check_vendored "static/theme-registry.js" "$KP/js/theme-registry.js" '^\/\/ GENERATED'
+  # The second severity: is this copy still the current release?
+  KP="${KP_THEMES_DIR:-$HOME/Projects/kp-themes}"
+  if [ -d "$KP" ]; then
+    behind=""
+    for pair in "${KP_VENDORED_FILES[@]}"; do
+      dest=${pair%%:*}
+      upstream="$KP/${pair#*:}"
+      [ -f "$dest" ] && [ -f "$upstream" ] || continue
+      diff -q <(kp_upstream_slice "$dest") "$upstream" >/dev/null || behind="$behind $dest"
+    done
+    if [ -n "$behind" ]; then
+      echo "gates: kp-themes has moved on. A version behind:$behind" >&2
+      echo "       Not a failure: taking a release is a decision. When you do," >&2
+      echo "       run ./scripts/vendor-kp-themes.sh and check that THEMES in" >&2
+      echo "       src/shell/dashboard.rs still matches js/theme-registry.js." >&2
+    fi
+  else
+    # Said out loud rather than passing quietly: on CI the source is not
+    # there, so only the "was it edited" half of this ran.
+    echo "gates: kp-themes is not on this machine, so the vendored copies were" >&2
+    echo "       checked for edits but NOT against the current release." >&2
+  fi
+fi
 
 # Standing rule 7, second clause: see gate_tree_fingerprint above.
 if [ "$(gate_tree_fingerprint)" != "$gate_tree_before" ]; then

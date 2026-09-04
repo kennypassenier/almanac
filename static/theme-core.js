@@ -1,7 +1,7 @@
-// VENDORED — do not edit here.
-// Source: ~/Projects/kp-themes js/theme-core.js @kp-soft/themes v1.0.0, commit 237a471,
-// copied verbatim on 2026-09-04. The commit gate compares everything below
-// this header against the upstream file.
+// VENDORED — do not edit here. Source: ~/Projects/kp-themes js/theme-core.js
+// @kp-soft/themes v1.0.0, commit 237a471, copied verbatim on 2026-09-04
+// by scripts/vendor-kp-themes.sh. The commit gate refuses an edited copy
+// and says so when kp-themes has moved on.
 
 // The theme state, owned by the document rather than by either channel
 // [AR5, AR6, TH26].

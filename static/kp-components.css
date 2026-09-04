@@ -1,12 +1,10 @@
-/* VENDORED — do not edit here.
-   Source: ~/Projects/kp-themes css/components.css @kp-soft/themes v1.0.0,
-   commit 237a471, copied verbatim on 2026-09-04.
-
-   Taken with themes.css and under the same rule: the commit gate compares
-   everything below this header against the upstream file. It styles the
-   theme picker almanac renders server-side — the swatch, the popover menu
-   and the icon button — and every rule in it reads tokens, so it follows
-   whichever theme is active. */
+/* VENDORED — do not edit here. Source: ~/Projects/kp-themes css/components.css
+   @kp-soft/themes v1.0.0, commit 237a471, copied verbatim on 2026-09-04
+   by scripts/vendor-kp-themes.sh. Almanac has no npm and no build step,
+   so the shared package cannot be a dependency: this is a copy. The
+   commit gate refuses an edited copy and says so when kp-themes has moved
+   on. Anything almanac-specific belongs in theme-bridge.css or
+   static/theme-bootstrap.js. */
 
 /* Component styles [T1, L4].
  *
