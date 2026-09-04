@@ -33,7 +33,18 @@ against before it installs anything.
 
   `static/theme-bootstrap.js` stays almanac's own: Bootstrap reads
   `data-bs-theme`, which the package knows nothing about. It listens to
-  the package's `kp-theme-change` event rather than to the buttons.
+  the package's `kp-theme-change` event rather than to the buttons, and
+  keeps no list of which themes are dark — every theme declares its own
+  `color-scheme`, so the browser is asked instead of told. The head does
+  the same thing once, after the stylesheets and still before the first
+  paint. The kyu session, which ported this an hour earlier, had made
+  the list mistake before and said so; almanac's first attempt had the
+  same list and it is gone.
+
+  Thirty lines of picker styling left `theme-bridge.css` with it: the
+  package styles its own picker now, and what remains in that file is
+  the one thing it cannot do for us — pointing Bootstrap's variables at
+  its tokens.
 
 ## [2.3.0] — 2026-09-03
 

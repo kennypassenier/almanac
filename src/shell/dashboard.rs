@@ -53,75 +53,55 @@ async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
 /// The seven kp-themes palettes, once (K25).
 ///
 /// The eleven house themes, mirroring `THEMES` in
-/// `@kp-soft/themes/js/theme-registry.js` v1.0.0: name, the Dutch label
-/// the package ships, and whether it is a dark theme.
+/// `@kp-soft/themes/js/theme-registry.js` v1.0.0: a name and the Dutch
+/// label the package ships. Nothing else.
 ///
-/// The swatch colours that used to sit here are gone, and that is the
-/// point of v1. They were 21 hand-copied colours whose only job was to
-/// preview a theme — the most ordinary change upstream is adjusting a
-/// palette, and it is exactly the change that would have left this
-/// showing a colour the theme no longer had, with nothing failing. A
-/// swatch now wears the theme instead: `<span class="kp-swatch"
-/// data-theme="…">` reads that theme's own live custom properties,
-/// because `data-theme` works on any element and not only on `<html>`.
+/// Everything else that used to sit here was a copy. The two swatch
+/// colours per theme went first — a swatch wears the theme now, reading
+/// its live tokens through `data-theme` on the span itself. The
+/// dark/light flag went with them: every theme declares its own
+/// `color-scheme`, so the browser can be asked instead of told, and a
+/// theme that changes side upstream cannot leave a hardcoded answer
+/// behind. (The kyu session made that mistake first, believing in a
+/// fourth dark theme; there were three, and now there are four, which
+/// is the point.)
 ///
-/// The list itself still lives here because almanac renders its markup
-/// on the server: a picker that only exists after JavaScript has run is
-/// an empty box on first paint.
+/// The names and labels remain because almanac renders its markup on
+/// the server: a picker that only exists after JavaScript has run is an
+/// empty box on first paint.
 ///
-/// `(name, label, dark)`.
-const THEMES: [(&str, &str, bool); 11] = [
-    ("formal", "Formeel", false),
-    ("light", "Licht", false),
-    ("dark", "Donker", true),
-    ("cyberpunk", "Cyberpunk", true),
-    ("pastel", "Pastel", false),
-    ("terminal", "Terminal", true),
-    ("topo", "Topografisch", false),
-    ("high-contrast", "Hoog contrast", false),
-    ("sepia", "Sepia", false),
-    ("blueprint", "Blauwdruk", true),
-    ("solstice", "Zonnewende", true),
+/// `(name, label)`.
+const THEMES: [(&str, &str); 11] = [
+    ("formal", "Formeel"),
+    ("light", "Licht"),
+    ("dark", "Donker"),
+    ("cyberpunk", "Cyberpunk"),
+    ("pastel", "Pastel"),
+    ("terminal", "Terminal"),
+    ("topo", "Topografisch"),
+    ("high-contrast", "Hoog contrast"),
+    ("sepia", "Sepia"),
+    ("blueprint", "Blauwdruk"),
+    ("solstice", "Zonnewende"),
 ];
 
 /// Everything the browser needs before the first paint, and the three
 /// stylesheets in the order they must load: Bootstrap first, then the
 /// theme tokens, then the bridge that points Bootstrap at them.
 fn head_assets() -> String {
-    // Which themes are dark, as the browser needs it before the first
-    // paint. Written from THEMES rather than typed again: Bootstrap is
-    // almanac's own business, so upstream cannot answer this, but the
-    // list it derives from is still the one list.
-    let dark: String = THEMES
-        .iter()
-        .filter(|(_, _, dark)| *dark)
-        .map(|(name, _, _)| format!("'{name}'"))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    format!(
+    String::from(
         r#"<script>
 /* Before the first paint: the visitor's last theme, or the default.
    Without this the page renders in `formal` and jumps to the chosen
    theme — the flash the package's initializeTheme() exists to prevent.
-
-   The package's own snippet copies a name and stops there, deliberately
-   knowing nothing about which themes are dark. Almanac needs one thing
-   more: Bootstrap reads data-bs-theme, and without it the tokens go dark
-   while every card, table and button stays light. So the dark names are
-   printed here from the Rust list, and theme-picker.js settles the rest
-   as soon as it loads. */
-(function () {{
-  try {{
+   Deliberately tiny, and deliberately ignorant: it copies a name and
+   knows nothing about which themes exist or which are dark. */
+(function () {
+  try {
     var t = localStorage.getItem('theme');
-    if (!t) return;
-    var root = document.documentElement;
-    root.dataset.theme = t;
-    var dark = [{dark}].indexOf(t) !== -1;
-    root.classList.toggle('dark', dark);
-    root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
-  }} catch (e) {{ /* blocked storage: the default stands */ }}
-}})();
+    if (t) document.documentElement.dataset.theme = t;
+  } catch (e) { /* blocked storage: the default stands */ }
+})();
 </script>
 <link rel="preconnect" href="https://fonts.bunny.net">
 <!-- Three themes carry their own face — formal wants Fraunces, cyberpunk
@@ -133,7 +113,24 @@ fn head_assets() -> String {
 <link rel="stylesheet" href="/static/bootstrap.min.css">
 <link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/kp-components.css">
-<link rel="stylesheet" href="/static/theme-bridge.css">"#
+<link rel="stylesheet" href="/static/theme-bridge.css">
+<script>
+/* Bootstrap decides light or dark from data-bs-theme, which the package
+   knows nothing about and should not. Almanac has to set it, and the
+   answer is already in the stylesheet: every theme declares its own
+   color-scheme. So ask, rather than keep a list of dark theme names that
+   goes stale the day a palette changes sides.
+
+   This runs AFTER the stylesheets on purpose — that is the first moment
+   the declaration is readable — and still inside <head>, so nothing has
+   painted. theme-bootstrap.js keeps it in step from here on. */
+(function () {
+  var root = document.documentElement;
+  var dark = getComputedStyle(root).colorScheme.indexOf('dark') !== -1;
+  root.classList.toggle('dark', dark);
+  root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+})();
+</script>"#,
     )
 }
 
@@ -149,7 +146,7 @@ fn head_assets() -> String {
 fn theme_picker() -> String {
     let options: String = THEMES
         .iter()
-        .map(|(name, label, _)| {
+        .map(|(name, label)| {
             format!(
                 r#"<li><button type="button" data-kp-theme="{name}">
             <span class="kp-swatch" data-theme="{name}"></span>{label}</button></li>"#

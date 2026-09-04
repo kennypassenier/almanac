@@ -617,7 +617,18 @@ had, with nothing to notice it.
 Bootstrap decides light or dark from `data-bs-theme`, which the package
 knows nothing about and should not. It listens to the package's own
 `kp-theme-change` event rather than to the buttons, so it keeps working
-if the markup moves.
+if the markup moves — and it keeps no list of dark themes. Every theme
+declares its own `color-scheme`, so it asks the browser what is applied
+instead of holding an answer a palette change upstream would falsify.
+The head settles the same thing once, placed after the stylesheets
+because that is the first moment the declaration is readable, and still
+inside `<head>`, so nothing has painted.
+
+Almanac's first attempt printed a list of dark theme names from Rust
+into that snippet. The kyu session, porting the same release an hour
+earlier, had made that exact mistake before — believing in a fourth
+dark theme when there were three — and said so unprompted. There are
+four now, which is the argument.
 
 **Proven by clicking it**, not only by tests: the local dashboard, all
 eleven themes in the menu, `solstice` applied and surviving a page load
