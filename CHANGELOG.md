@@ -13,6 +13,35 @@ against before it installs anything.
 
 ### Changed
 
+- **kp-themes v3.0.0 adopted** (K25). The framework-free modules are pure
+  since this release — importing `theme-picker.js` no longer attaches
+  itself, so the head now imports `attachThemePickers` explicitly and
+  calls it, rather than loading `js/auto.js`: that one script also wires
+  up datatables, comboboxes, date pickers and eight other components
+  almanac's dashboard does not use, and vendoring all of it for one
+  button would put ten files nobody reads behind the commit gate.
+
+  The picker also groups its options into light and dark sections by
+  default now (TH63). Grouping needs the split before the page paints,
+  which is exactly the fact this project stopped hand-keeping in Rust
+  after the K25 correction — so `dark_themes()` reads it out of the same
+  vendored registry the picker's names are already checked against,
+  rather than a second copy that could disagree with the first one.
+
+  `theme-picker.js` gained a dependency on `js/strings.js` for its
+  status text, so that file is now vendored too — six files behind the
+  gate rather than five. Almanac's UI is English (standing rule 1),
+  which is the package's own default since 3.0.0, so nothing calls
+  `setStrings()`; the theme *names* stay Dutch (Formeel, Donker,
+  Zonnewende, …) because README frames them as Kenny's names for his
+  themes, not interface chrome, the same reason they were not English
+  before the package's own default flipped.
+
+  Fixed in passing: the picker's `aria-label` had been "Thema kiezen"
+  since v1.0.0, in an otherwise English UI — a leftover from when the
+  package's own default was Dutch too. It is "Choose a theme" now, and
+  so are the new group headings ("Light" / "Dark").
+
 - **kp-themes v1.0.0 adopted** (K25). Eleven themes instead of seven —
   `high-contrast`, `sepia`, `blueprint` and `solstice` are new — and the
   picker's behaviour now comes from the package rather than from a copy

@@ -1,8 +1,9 @@
-# @kp-soft/themes v1.0.0, commit 237a471, vendored 2026-09-04.
+# @kp-soft/themes v3.0.0, commit d5d25c3, vendored 2026-09-05.
 # sha256 of each file's upstream content: everything after the blank
 # line that closes almanac's provenance header.
-afe3b05b98acfaa12c456bb0bdf59b5612d0184f3c33723a216bfef03bab397e  static/themes.css
-90ad00b39bb6c0fe2d01b88ee894cd2aac34c2255139eabefab8bd437986fe81  static/kp-components.css
-8b7f9eadb505ab2c9d9c97370e397ef6eb2f62e0c3b33f4fc63819913fa49896  static/theme-core.js
-400703fd4dd26415698937b161f5419609d6e8f5a0b0129d712c09e93b4b47b1  static/theme-picker.js
-40fdacc17b2364fc624f4abb15797ca1cd1175b6ce4d7bbaf9d85452e638dd02  static/theme-registry.js
+261087057dff87483a0518f4b4ceec394c969559d5340508a5ae0c101c6e832c  static/themes.css
+2488777f797d9987fdf11123bf151d3507461d70d7eb5a68a02dfef57857ab46  static/kp-components.css
+11a890a91cc6c797987608a525af40cbd2328357f76491c8dfd1616d152fdd21  static/theme-core.js
+1cdd3d6a63df88ed644731351551022538e96adabecc5cd177c3e498daf51836  static/theme-picker.js
+cb5fa72d531bd797cdb2320f382d3dae7f93260adfa877294cfca72a0c102301  static/theme-registry.js
+813fcb1627bdf6d89a812aba1f7525654a8377ee166fb1019be021785465deb9  static/strings.js

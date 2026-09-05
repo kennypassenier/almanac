@@ -29,7 +29,7 @@ today=$(date -u +%Y-%m-%d)
 # a vendored file that matches nobody's release is the worst of both.
 if git -C "$KP" rev-parse -q --verify "v$version" >/dev/null; then
     if ! git -C "$KP" diff --quiet "v$version" HEAD -- \
-        css/themes.css css/components.css js/theme-core.js js/theme-picker.js js/theme-registry.js; then
+        css/themes.css css/components.css js/theme-core.js js/theme-picker.js js/theme-registry.js js/strings.js; then
         echo "kp-themes' working copy differs from tag v$version for the files almanac takes." >&2
         echo "Check out the tag there first, or release what is on HEAD." >&2
         exit 1

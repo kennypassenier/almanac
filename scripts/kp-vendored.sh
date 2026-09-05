@@ -4,12 +4,18 @@
 # gate, so the two cannot disagree about where the header ends.
 
 # vendored path : upstream path, relative to the kp-themes checkout
+#
+# static/strings.js keeps that exact basename (not theme-strings.js):
+# theme-picker.js imports it as './strings.js', and a relative ES module
+# import resolves against the URL it was served from — renaming the
+# destination would 404 in the browser without any gate here to catch it.
 KP_VENDORED_FILES=(
     "static/themes.css:css/themes.css"
     "static/kp-components.css:css/components.css"
     "static/theme-core.js:js/theme-core.js"
     "static/theme-picker.js:js/theme-picker.js"
     "static/theme-registry.js:js/theme-registry.js"
+    "static/strings.js:js/strings.js"
 )
 
 KP_SUMS_FILE="static/KP_THEMES.sha256"

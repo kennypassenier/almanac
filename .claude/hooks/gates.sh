@@ -40,9 +40,10 @@ fi
 
 # K25: the vendored kp-themes files, checked at two severities.
 #
-# static/themes.css, static/kp-components.css and the three theme-*.js
-# modules are COPIES of ~/Projects/kp-themes — almanac has no npm and no
-# build step, so it cannot be a dependency the way it is in JobTracker.
+# static/themes.css, static/kp-components.css, the three theme-*.js
+# modules and static/strings.js are COPIES of ~/Projects/kp-themes —
+# almanac has no npm and no build step, so it cannot be a dependency the
+# way it is in JobTracker.
 # `scripts/vendor-kp-themes.sh` takes them and records what it took.
 #
 # Two different things can be wrong with a copy, and they deserve
@@ -89,7 +90,7 @@ if [ -f "$KP_SUMS_FILE" ]; then
       echo "static/theme-bootstrap.js; anything everyone needs belongs upstream."
       echo
       echo "What now: undo the edit, or — if kp-themes released and you meant to"
-      echo "take it — run ./scripts/vendor-kp-themes.sh, which re-copies all five"
+      echo "take it — run ./scripts/vendor-kp-themes.sh, which re-copies all six"
       echo "and records the new checksums."
     } >&2
     exit 1

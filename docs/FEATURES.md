@@ -634,3 +634,61 @@ four now, which is the argument.
 eleven themes in the menu, `solstice` applied and surviving a page load
 with the cards, tables and navbar following the tokens rather than
 staying Bootstrap-light.
+
+## K25 third amendment (v3.0.0 adopted, 2026-09-05)
+
+**What Kenny asked for:** kp-themes released 3.0.0 — "every feature of
+every component became configurable" — and almanac should take it, in a
+style consistent with how other projects adopt the same release, without
+Claude talking to the kp-themes project itself.
+
+**The picker had gone quiet, and nothing would have said so.** Since
+3.0.0 the framework-free modules are pure: importing `theme-picker.js`
+attaches nothing by itself. Almanac's page still loaded it exactly the
+old way — one `<script type="module" src="…">` tag — which would have
+kept building, kept passing its existing tests (they check the markup
+and the assets, not whether a click does anything), and produced a
+picker whose buttons open the popover and do nothing else. The head now
+imports `attachThemePickers` explicitly and calls it.
+
+Weighed against `js/auto.js`, which upstream's own comments name almanac
+as a consumer of: that one script also wires up datatables, comboboxes,
+date pickers, wizards, uploads and six more components almanac's
+dashboard does not render anywhere. Attaching only the picker keeps the
+vendored surface — and the commit gate's checksum list — proportional to
+what almanac actually ships, at the cost of not matching upstream's own
+suggested one-line integration. Decided here rather than asked upstream,
+per this round's instruction; worth revisiting if almanac ever adopts a
+second kp-themes component.
+
+**The picker groups themes into light and dark now, by default.** That
+split has to exist before the page paints, because almanac writes the
+whole menu server-side — and "which themes are dark" is precisely the
+fact K25's second amendment already stopped hand-keeping in Rust, after
+kyu's session was found believing in a fourth dark theme that did not
+exist. `dark_themes()` reads the flag out of the same vendored registry
+`k25_the_rust_theme_list_matches_the_packages_own_registry` already
+checks almanac's names against, so there is exactly one place that list
+can come from, and a new test
+(`k25_the_picker_groups_light_and_dark_from_the_registry_not_a_copy`)
+checks every theme lands in the section the registry says it belongs in.
+
+**`theme-picker.js` now imports `js/strings.js`** for its status text —
+the message shown when a browser refuses to remember the choice. Vendored
+as a sixth file rather than configured: almanac's UI is English (standing
+rule 1), which is the package's own default since 3.0.0, so there is
+nothing to call `setStrings()` with. The eleven theme *names* stay Dutch
+(Formeel, Donker, Zonnewende, …) — README frames them as Kenny's names
+for his themes rather than interface chrome, the same reason they did
+not follow the package's default to English earlier either.
+
+**Fixed in passing, found while rewriting the function these both live
+in:** the picker's `aria-label` had read "Thema kiezen" since v1.0.0, in
+a dashboard whose own header comment says the UI is English. A leftover,
+almost certainly, from when the package's own default was Dutch too —
+it is "Choose a theme" now, and so are the new group headings.
+
+**Proven by clicking it**, not only by tests: the local dashboard, the
+menu now split into a "Light" and a "Dark" section, every theme in the
+section the registry puts it in, a theme click still applying and
+surviving a reload.

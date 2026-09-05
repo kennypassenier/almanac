@@ -1456,6 +1456,88 @@ async fn k25_the_picker_offers_every_theme_the_package_ships() {
 }
 
 #[tokio::test]
+async fn k25_the_picker_groups_light_and_dark_from_the_registry_not_a_copy() {
+    // kp-themes 3.0.0 groups the picker into light and dark sections by
+    // default (TH63); almanac writes that split itself since it writes
+    // the whole menu server-side. The split has to come from the same
+    // vendored registry the other K25 tests already treat as the source
+    // of truth — a second, hand-typed dark list is exactly the mistake
+    // this project made once already.
+    let dir = scratch_dir("k25-groups");
+    let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
+    let cookie = login(&st).await;
+
+    let registry = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/static/theme-registry.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let body = text(
+        almanac::shell::build_router(Arc::clone(&st))
+            .oneshot(get("/dashboard", Some(&cookie)))
+            .await
+            .unwrap(),
+    )
+    .await;
+
+    assert!(
+        body.contains(r#"data-kp-theme-group="light""#),
+        "the picker must have a light section"
+    );
+    assert!(
+        body.contains(r#"data-kp-theme-group="dark""#),
+        "the picker must have a dark section"
+    );
+
+    // Same technique the registry-vs-Rust test uses: read name and dark
+    // flag straight out of the vendored file, entry by entry.
+    let light_at = body
+        .find(r#"data-kp-theme-group="light""#)
+        .expect("a light group");
+    let dark_at = body
+        .find(r#"data-kp-theme-group="dark""#)
+        .expect("a dark group");
+    assert!(
+        light_at < dark_at,
+        "light comes before dark, matching upstream's own order"
+    );
+    let light_section = &body[light_at..dark_at];
+    let dark_section = &body[dark_at..];
+
+    for (at, _) in registry.match_indices("{ name: '") {
+        let rest = &registry[at + "{ name: '".len()..];
+        let name = &rest[..rest.find('\'').expect("a closing quote")];
+        let entry_end = rest.find('}').expect("a closing brace");
+        let is_dark = rest[..entry_end].contains("dark: true");
+
+        let needle = format!(r#"data-kp-theme="{name}""#);
+        if is_dark {
+            assert!(
+                dark_section.contains(&needle),
+                "{name} is dark in the registry but missing from the dark group"
+            );
+            assert!(
+                !light_section.contains(&needle),
+                "{name} is dark in the registry but offered in the light group"
+            );
+        } else {
+            assert!(
+                light_section.contains(&needle),
+                "{name} is light in the registry but missing from the light group"
+            );
+            assert!(
+                !dark_section.contains(&needle),
+                "{name} is light in the registry but offered in the dark group"
+            );
+        }
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn k25_the_rust_theme_list_matches_the_packages_own_registry() {
     // The one place a vendored picker can rot without any file
     // disagreeing: almanac's list is Rust, upstream's is JavaScript, and
@@ -1544,9 +1626,18 @@ async fn k25_the_stored_contract_is_the_one_the_shared_package_defines() {
             .unwrap(),
     )
     .await;
+    // Since 3.0.0 the class is a configurable `darkClass` rather than a
+    // literal `classList.toggle('dark', ...)` call — `configureTheme()`
+    // can rename it — so the guard checks the *default* stays 'dark'
+    // rather than the exact call shape, which is free to keep reshaping
+    // as configureTheme grows more options.
     assert!(
-        core.contains("classList.toggle('dark'"),
-        "a dark theme must still set the .dark class the package's CSS expects"
+        core.contains("classList.toggle(cls"),
+        "a dark theme must still set a class the package's CSS expects"
+    );
+    assert!(
+        core.contains("darkClass") && core.contains("('dark')"),
+        "the default dark class must still be 'dark', unless almanac starts calling configureTheme()"
     );
 
     std::fs::remove_dir_all(&dir).ok();
@@ -1568,6 +1659,7 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
         ("/static/theme-picker.js", "data-kp-theme-picker"),
         ("/static/theme-core.js", "applyTheme"),
         ("/static/theme-registry.js", "STORAGE_KEY"),
+        ("/static/strings.js", "DEFAULT_STRINGS"),
         ("/static/theme-bootstrap.js", "data-bs-theme"),
     ] {
         let response = almanac::shell::build_router(Arc::clone(&st))

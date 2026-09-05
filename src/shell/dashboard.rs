@@ -52,19 +52,21 @@ async fn is_logged_in(state: &AppState, headers: &HeaderMap) -> bool {
 
 /// The seven kp-themes palettes, once (K25).
 ///
-/// The eleven house themes, mirroring `THEMES` in
-/// `@kp-soft/themes/js/theme-registry.js` v1.0.0: a name and the Dutch
-/// label the package ships. Nothing else.
+/// The eleven house themes. A name and the Dutch label almanac gives it
+/// — the package's own `js/theme-registry.js` labels them in English
+/// since v3.0.0, and README's own framing is why almanac does not follow
+/// that here: "the theme names — Kenny's names for his themes, not
+/// interface chrome" stay as they are on this English-UI page, the way
+/// a product name does. Nothing else lives in this list.
 ///
 /// Everything else that used to sit here was a copy. The two swatch
 /// colours per theme went first — a swatch wears the theme now, reading
 /// its live tokens through `data-theme` on the span itself. The
-/// dark/light flag went with them: every theme declares its own
-/// `color-scheme`, so the browser can be asked instead of told, and a
-/// theme that changes side upstream cannot leave a hardcoded answer
-/// behind. (The kyu session made that mistake first, believing in a
-/// fourth dark theme; there were three, and now there are four, which
-/// is the point.)
+/// dark/light flag went with them: `dark_themes()` below reads it out of
+/// the vendored registry instead, so a theme that changes side upstream
+/// cannot leave a hardcoded answer behind. (The kyu session made that
+/// mistake first, believing in a fourth dark theme; there were three,
+/// and now there are four, which is the point.)
 ///
 /// The names and labels remain because almanac renders its markup on
 /// the server: a picker that only exists after JavaScript has run is an
@@ -134,6 +136,32 @@ fn head_assets() -> String {
     )
 }
 
+/// Which of the eleven themes are dark, read out of the vendored
+/// registry rather than kept as a second Rust list.
+///
+/// kp-themes 3.0.0 groups its picker into light and dark sections by
+/// default (TH63); almanac writes that grouping itself since it writes
+/// the whole menu server-side, and grouping needs the split *before*
+/// the page paints. A hand-typed list here would be exactly the mistake
+/// K25 already made once — this reads the same generated file
+/// `k25_the_rust_theme_list_matches_the_packages_own_registry` checks
+/// almanac's names against, so a palette that changes side upstream
+/// changes this too, the next time someone runs the vendor script.
+fn dark_themes() -> std::collections::HashSet<&'static str> {
+    const REGISTRY: &str = include_str!("../../static/theme-registry.js");
+    REGISTRY
+        .split("{ name: '")
+        .skip(1)
+        .filter_map(|entry| {
+            let name_end = entry.find('\'')?;
+            let close = entry.find('}')?;
+            entry[..close]
+                .contains("dark: true")
+                .then_some(&entry[..name_end])
+        })
+        .collect()
+}
+
 /// The picker itself, rendered from `THEMES` so the list exists once.
 ///
 /// The markup is the shape `@kp-soft/themes/js/theme-picker.js` attaches
@@ -142,22 +170,40 @@ fn head_assets() -> String {
 /// copy here. Written by the server rather than by the package's own
 /// `themeMenuMarkup()`: almanac renders HTML from a Rust binary, and a
 /// menu that only exists once a module has run is an empty box on first
-/// paint.
+/// paint. The light/dark grouping below mirrors that function's own
+/// `themeOptionsMarkup()` — same two group headings, same order, same
+/// wrapper elements — so the look does not depend on which side wrote
+/// the HTML.
 fn theme_picker() -> String {
-    let options: String = THEMES
-        .iter()
-        .map(|(name, label)| {
-            format!(
-                r#"<li><button type="button" data-kp-theme="{name}">
+    let dark = dark_themes();
+    let option = |(name, label): &(&str, &str)| {
+        format!(
+            r#"<li><button type="button" data-kp-theme="{name}">
             <span class="kp-swatch" data-theme="{name}"></span>{label}</button></li>"#
-            )
-        })
-        .collect();
+        )
+    };
+    let group = |heading: &str, kind: &str, themes: &[(&str, &str)]| -> String {
+        if themes.is_empty() {
+            return String::new();
+        }
+        let options: String = themes.iter().map(option).collect();
+        format!(
+            r#"<li role="presentation" class="kp-theme-group" data-kp-theme-group="{kind}">
+            <span class="kp-theme-group__label" aria-hidden="true">{heading}</span>
+            <ul class="kp-theme-group__list" aria-label="{heading}">{options}</ul>
+          </li>"#
+        )
+    };
+    let (light_themes, dark_themes): (Vec<_>, Vec<_>) = THEMES
+        .iter()
+        .copied()
+        .partition(|(name, _)| !dark.contains(name));
+    let options = group("Light", "light", &light_themes) + &group("Dark", "dark", &dark_themes);
 
     format!(
         r#"<span class="kp-theme-menu">
         <button type="button" class="kp-icon-button" popovertarget="kp-theme-menu"
-                aria-label="Thema kiezen" style="anchor-name: --kp-theme-menu">
+                aria-label="Choose a theme" style="anchor-name: --kp-theme-menu">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
@@ -169,7 +215,7 @@ fn theme_picker() -> String {
         </button>
         <div popover="auto" id="kp-theme-menu" class="kp-popover"
              style="position-anchor: --kp-theme-menu">
-          <ul class="kp-menu" data-kp-theme-picker aria-label="Thema kiezen">
+          <ul class="kp-menu" data-kp-theme-picker aria-label="Choose a theme">
             {options}
           </ul>
         </div>
@@ -196,7 +242,16 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Almanac</title>
 {assets}
-<script type="module" src="/static/theme-picker.js"></script>
+<script type="module">
+/* Pure since kp-themes 3.0.0: importing theme-picker.js attaches
+   nothing by itself, so the call has to be made explicitly. Not
+   js/auto.js — that one script also wires up datatables, comboboxes,
+   date pickers and eight other components almanac's dashboard does
+   not use; attaching only the picker keeps what almanac ships in step
+   with what it actually shows. */
+import {{ attachThemePickers }} from '/static/theme-picker.js';
+attachThemePickers();
+</script>
 <script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
@@ -242,7 +297,16 @@ fn login_page(error: Option<&str>) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in — Almanac</title>
 {assets}
-<script type="module" src="/static/theme-picker.js"></script>
+<script type="module">
+/* Pure since kp-themes 3.0.0: importing theme-picker.js attaches
+   nothing by itself, so the call has to be made explicitly. Not
+   js/auto.js — that one script also wires up datatables, comboboxes,
+   date pickers and eight other components almanac's dashboard does
+   not use; attaching only the picker keeps what almanac ships in step
+   with what it actually shows. */
+import {{ attachThemePickers }} from '/static/theme-picker.js';
+attachThemePickers();
+</script>
 <script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
@@ -1449,9 +1513,9 @@ async fn kp_components_css() -> Response {
 }
 
 /// The picker's behaviour, vendored from the package itself since v1
-/// (K25). Three modules rather than one because that is how upstream
+/// (K25). Four modules rather than one because that is how upstream
 /// ships it, and the relative imports between them resolve as long as
-/// all three are served from `/static/`.
+/// all four are served from `/static/`.
 async fn theme_picker_js() -> Response {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
@@ -1472,6 +1536,19 @@ async fn theme_registry_js() -> Response {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
         include_str!("../../static/theme-registry.js"),
+    )
+        .into_response()
+}
+
+/// The dictionary `theme-picker.js` reads its status text from, since
+/// kp-themes 2.0.0 (K25). Vendored rather than configured: almanac's UI
+/// is English (standing rule 1), which is the package's own default
+/// since 3.0.0, so there is nothing to override here — the file only
+/// has to exist for the relative import in theme-picker.js to resolve.
+async fn theme_strings_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/strings.js"),
     )
         .into_response()
 }
@@ -1557,6 +1634,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/static/theme-registry.js",
             axum::routing::get(theme_registry_js),
         )
+        .route("/static/strings.js", axum::routing::get(theme_strings_js))
         .route(
             "/static/theme-bootstrap.js",
             axum::routing::get(theme_bootstrap_js),

@@ -1,12 +1,12 @@
 /* VENDORED — do not edit here. Source: ~/Projects/kp-themes css/themes.css
-   @kp-soft/themes v1.0.0, commit 237a471, copied verbatim on 2026-09-04
+   @kp-soft/themes v3.0.0, commit d5d25c3, copied verbatim on 2026-09-05
    by scripts/vendor-kp-themes.sh. Almanac has no npm and no build step,
    so the shared package cannot be a dependency: this is a copy. The
    commit gate refuses an edited copy and says so when kp-themes has moved
    on. Anything almanac-specific belongs in theme-bridge.css or
    static/theme-bootstrap.js. */
 
-/* @kp-soft/themes v1.0.0 — css/themes.css
+/* @kp-soft/themes v3.0.0 — css/themes.css
    The seven house themes as plain CSS custom properties, plus the shared
    register/texture machinery. No Tailwind here: a Tailwind v4 consumer
    also imports css/tailwind-bridge.css; the cyberpunk register (HUD
@@ -1033,7 +1033,9 @@ body::after {
     content: '';
     position: fixed;
     inset: 0;
-    z-index: 80;
+    /* The layer scale [KT6]: texture 80, popover/menus 20, toasts 90,
+     * skip link 100 — each a --kp-z-* knob with this as its fallback. */
+    z-index: var(--kp-z-texture, 80);
     pointer-events: none;
     background-image: var(--fx-texture, none);
     background-size: var(--fx-texture-size, auto);
@@ -1206,7 +1208,8 @@ body {
  * ring behind while the keyboard still gets one.
  */
 :focus-visible {
-    outline: 2px solid var(--focus-ring-contrast);
+    /* The same token the components read; the global ring ignored it [KT6]. */
+    outline: var(--focus-ring-width, 2px) solid var(--focus-ring-contrast);
     outline-offset: 2px;
     box-shadow: 0 0 0 2px var(--focus-ring);
 }
@@ -1353,7 +1356,10 @@ textarea:invalid {
         --foreground: hsl(0, 0%, 0%);
     }
 
-    body::before {
+    /* The texture layer is body::after. The first version of this rule
+     * hid body::before, which carries nothing, so the texture printed
+     * for two versions while the guide promised otherwise [KT6]. */
+    body::after {
         display: none;
     }
 
@@ -1417,13 +1423,17 @@ textarea:invalid {
         content: '\2588';
         margin-inline-start: 0.15em;
         color: var(--primary);
+        /* A literal, not a knob: the cursor blink changes luminance and DI5
+         * pins it above the flash threshold [KT6]. */
         animation: kp-blink 1000ms steps(1, end) infinite;
     }
 
     /* topo — the contour layer drifts, slowly enough to read as weather
        rather than as motion. 40 seconds for one pass. */
-    [data-theme='topo'] body::before {
-        animation: kp-drift 40s linear infinite;
+    [data-theme='topo'] body::after {
+        /* ::after, where the texture actually is [KT6]. The duration reads
+         * a knob with the old literal as its fallback. */
+        animation: kp-drift var(--kp-drift-duration, 40s) linear infinite;
     }
 
     /* blueprint — a ruled line that extends across a heading, drawn at

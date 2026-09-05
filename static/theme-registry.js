@@ -1,5 +1,5 @@
 // VENDORED — do not edit here. Source: ~/Projects/kp-themes js/theme-registry.js
-// @kp-soft/themes v1.0.0, commit 237a471, copied verbatim on 2026-09-04
+// @kp-soft/themes v3.0.0, commit d5d25c3, copied verbatim on 2026-09-05
 // by scripts/vendor-kp-themes.sh. The commit gate refuses an edited copy
 // and says so when kp-themes has moved on.
 
@@ -8,24 +8,41 @@
 // source disagree. Add a theme by adding its token file and its name
 // to themes/order.json.
 
-/** @typedef {{name: string, label: string, dark: boolean}} ThemeRecord */
+/**
+ * Every theme name there is [KT4].
+ *
+ * A union rather than `string`, so a typo is a compile error for a
+ * consumer instead of a silent fallback to `formal` at runtime. It is
+ * generated for the same reason the list below is: two consumers were
+ * measured on 2026-09-04 carrying a hand-kept copy of which themes
+ * exist, and both had it wrong.
+ *
+ * @typedef {'formal' | 'light' | 'dark' | 'cyberpunk' | 'pastel' | 'terminal' | 'topo' | 'high-contrast' | 'sepia' | 'blueprint' | 'solstice'} ThemeName
+ */
+
+/** @typedef {{name: ThemeName, label: string, dark: boolean}} ThemeRecord */
 
 /** @type {readonly ThemeRecord[]} */
 export const THEMES = Object.freeze([
-    { name: 'formal', label: 'Formeel', dark: false },
-    { name: 'light', label: 'Licht', dark: false },
-    { name: 'dark', label: 'Donker', dark: true },
+    { name: 'formal', label: 'Formal', dark: false },
+    { name: 'light', label: 'Light', dark: false },
+    { name: 'dark', label: 'Dark', dark: true },
     { name: 'cyberpunk', label: 'Cyberpunk', dark: true },
     { name: 'pastel', label: 'Pastel', dark: false },
     { name: 'terminal', label: 'Terminal', dark: true },
-    { name: 'topo', label: 'Topografisch', dark: false },
-    { name: 'high-contrast', label: 'Hoog contrast', dark: false },
+    { name: 'topo', label: 'Topographic', dark: false },
+    { name: 'high-contrast', label: 'High contrast', dark: false },
     { name: 'sepia', label: 'Sepia', dark: false },
-    { name: 'blueprint', label: 'Blauwdruk', dark: true },
-    { name: 'solstice', label: 'Zonnewende', dark: true },
+    { name: 'blueprint', label: 'Blueprint', dark: true },
+    { name: 'solstice', label: 'Solstice', dark: true },
 ]);
 
-/** The theme a visitor gets before choosing, and the answer to any unknown value. */
+/**
+ * The theme a visitor gets before choosing, and the answer to any
+ * unknown value.
+ *
+ * @type {ThemeName}
+ */
 export const DEFAULT_THEME = 'formal';
 
 /** The localStorage key. Contract value: consumers read it too [TH26]. */
