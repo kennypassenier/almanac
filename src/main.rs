@@ -153,8 +153,36 @@ async fn supervised_update() {
     }
 }
 
+/// `--version` / `-V`: print the compiled version and exit, touching
+/// nothing else.
+///
+/// Every other special mode — `--check`, `update` — needs the full
+/// production configuration, on purpose: they answer "can this binary
+/// run here", which is a question about this machine. "What version is
+/// this" is not, and answering it should not need `latch run`, a
+/// working directory next to `profiles/`, or `ALMANAC_NOTIFY_WEBHOOK`
+/// set. Before this existed, asking required starting the whole
+/// process — the homelab session hit exactly that running the binary
+/// by hand to sanity-check a deploy.
+///
+/// Answers about the file, not the process: under a supervised update
+/// (R12b) `almanac update` replaces this binary before the homelab
+/// restarts the unit, so for that window `--version` and `/healthz`
+/// can correctly disagree — `--version` already sees the new file,
+/// `/healthz` still reports the version actually serving traffic until
+/// the restart happens. Verifying what is running wants `/healthz`;
+/// this is for the file on disk.
+fn version_mode() -> ! {
+    println!("almanac {}", env!("CARGO_PKG_VERSION"));
+    std::process::exit(0);
+}
+
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
+        version_mode();
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),

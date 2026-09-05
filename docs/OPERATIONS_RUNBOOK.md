@@ -437,6 +437,21 @@ what happens next by comparing the binary's checksum, which is exactly
 what it does. `1` only when the attempt itself failed, which leaves the
 service on the version it is already running.
 
+**Checking what happened after: the binary and the running process can
+briefly disagree, on purpose.** `almanac update` installs the new
+binary but does not restart — that is the homelab's job, next. Between
+those two steps, `almanac --version` (reads the file on disk) and
+`/healthz` (reports the running process) can legitimately answer
+differently: `--version` already says the new number; `/healthz` still
+says the old one, correctly, because that is still what is serving
+traffic. Found on 2.4.0's rollout, when a nightly `update_cmd` run won
+a race against a manual one: `/healthz` at the moment in question was
+the right thing to have looked at, and it was. After a supervised
+update, verify against `/healthz` — it answers "what is actually
+running", which is the question that matters here. `--version` is for
+confirming what a specific downloaded or installed file is, without
+starting it.
+
 **Never arm both.** Two systems each preserving and restoring a binary
 will eventually restore each other's copy. If `almanac update` is in the
 stack file, `ALMANAC_SELF_UPDATE` must be off; if it is not, it must

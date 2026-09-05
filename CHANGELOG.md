@@ -11,6 +11,25 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Added
+
+- **`almanac --version` / `-V`** prints the compiled version and exits,
+  touching nothing else. Found missing by the Homelab Rust session,
+  running the binary by hand outside `latch run` to sanity-check the
+  2.4.0 deploy: every other special mode (`--check`, `update`) needs
+  the full production configuration on purpose, because they answer
+  "can this run here" — but "what version is this" got the same
+  treatment by default, so asking started the whole process and
+  complained about a missing webhook and an unreadable profiles
+  directory instead of just answering.
+
+  It answers about the file, not the process: under a supervised
+  update `almanac update` replaces the binary before the homelab
+  restarts the unit, so for that window `--version` and `/healthz` can
+  correctly disagree — noted in `docs/OPERATIONS_RUNBOOK.md` R12b after
+  the same session found it during 2.4.0's own rollout. `/healthz` is
+  what answers "what is actually running"; `--version` is for the file.
+
 ### Changed
 
 - **kp-themes v3.0.0 adopted** (K25). The framework-free modules are pure

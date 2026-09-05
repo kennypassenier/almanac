@@ -362,3 +362,45 @@ async fn sigterm_stops_it_cleanly_after_it_is_serving() {
         "and it should say it finished:\n{printed}"
     );
 }
+
+#[test]
+fn version_needs_no_configuration_at_all() {
+    // Found by the homelab session running the binary by hand outside
+    // `latch run` to sanity-check a deploy: every other special mode
+    // needs the full production configuration (by design — they answer
+    // "can this run here"), so asking "what version is this" started
+    // the whole process and complained about a missing webhook and an
+    // unreadable profiles directory instead of just answering.
+    let output = Command::new(env!("CARGO_BIN_EXE_almanac"))
+        .arg("--version")
+        .env_clear()
+        .output()
+        .unwrap();
+
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        output.status.success(),
+        "--version must succeed with no environment at all, got {:?}:\n{printed}",
+        output.status
+    );
+    assert!(
+        printed.contains(env!("CARGO_PKG_VERSION")),
+        "it should print the version it was actually built as:\n{printed}"
+    );
+    assert!(
+        !printed.contains("ALMANAC_NOTIFY_WEBHOOK"),
+        "it must not touch anything that needs configuration:\n{printed}"
+    );
+
+    let short = Command::new(env!("CARGO_BIN_EXE_almanac"))
+        .arg("-V")
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(short.status.success(), "-V is the same flag, spelled short");
+}
