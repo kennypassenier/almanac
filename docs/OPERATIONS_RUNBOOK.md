@@ -414,6 +414,15 @@ serving.
 
 ## R12b · When the homelab manages updates
 
+> **3.0.0 (chassis migration):** the updater is the kit's. The knob is
+> `ALMANAC_UPDATE_MODE` = `off` | `supervised` | `autonomous` (the 2.x
+> `ALMANAC_SELF_UPDATE` on/off is still honoured with a warning; unset means
+> off). Under the homelab set `supervised` and let the stack's `update_cmd`
+> call `almanac update` (see `deploy/service.yml`); the binary lives at
+> `/opt/almanac/bin/almanac`. Releases must carry the signed manifest with
+> the trusted comment `kennypassenier/almanac v<version>` — releases up to
+> 2.4.0 do not and are refused, so the first 3.x is installed by hand.
+
 Two update mechanisms exist and exactly one should be armed.
 
 **Almanac alone** (the default): the periodic updater checks every six

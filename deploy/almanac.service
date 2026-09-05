@@ -1,98 +1,60 @@
-# systemd unit for Almanac (AR20).
+# almanac — the golden unit, latch variant (AR17, critic #4).
 #
-# systemd rather than Docker because M10's self-update replaces the
-# running binary: inside a container that write lands in the writable
-# layer and is silently discarded on the next container recreation,
-# putting the service back on the pinned image version — which then
-# updates itself again, forever. The compose file next to this unit is
-# for the future homelab-v2 migration, where homelab owns updates and
-# self-update disables itself.
-#
-# Install:
-#   sudo cp deploy/almanac.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now almanac
+# `latch run` spawns the service and waits (it does not exec), so latch is
+# the main PID and the service's READY=1 comes from a child: NotifyAccess=all
+# lets systemd accept it. ExecStartPre needs the secrets too, so it also
+# runs under latch. Everything else is the plain unit.
 
 [Unit]
-Description=Almanac — event-to-calendar hub
-Documentation=https://github.com/kennypassenier/almanac
-# Wants= rather than Requires=: if the network is slow to come up
-# after a power cut, Almanac retries its first Google call on its own
-# (AR21) rather than failing to start.
+Description=almanac — event-to-calendar hub
 Wants=network-online.target
 After=network-online.target
-
-# No start limit (AR21). A power cut can start Almanac before DNS is
-# up; systemd's default five-tries-in-ten-seconds would then park the
-# unit in `failed` permanently with nobody watching. Almanac's own
-# startup retry handles transient failures and a genuinely broken key
-# still exits — this only makes sure a restartable process keeps being
-# restarted.
-#
-# It lives in [Unit], not [Service]. systemd silently ignores it in
-# [Service] with "Unknown key", which is how the first deployment of
-# this file ran for a few minutes with the protection AR21 exists for
-# not actually in effect.
 StartLimitIntervalSec=0
 StartLimitBurst=0
 
 [Service]
-Type=exec
+Type=notify
+NotifyAccess=all
 User=almanac
 Group=almanac
-WorkingDirectory=/opt/almanac
-
-# Latch injects the five secrets straight into the process (AR8), so
-# nothing lands on disk as plaintext. The key that opens Latch's store
-# does live here, in a root-owned 0600 file — unavoidable for an
-# unattended restart, and a conscious, recorded limitation.
-#
-# LATCH_KEY_ALMANAC (the per-project key) rather than LATCH_PASSPHRASE
-# (Kenny, after consulting the Latch project, 2026-08-28): the
-# passphrase would open every project's secrets and the GitHub token;
-# the project key opens only Almanac's five values. If this LXC ever
-# leaks, the blast radius is one project instead of everything.
 EnvironmentFile=/etc/almanac/latch.env
-
-# Where releases are published. An address, not a secret. Leaving it
-# out is a supported configuration: self-update simply stays off and
-# versions are installed by hand.
-Environment=ALMANAC_UPDATE_URL=https://github.com/kennypassenier/almanac/releases
-
-# ALMANAC_NOTIFY_WEBHOOK is NOT set here on purpose. A Home Assistant
-# webhook id is a bearer credential for triggering that automation —
-# its random suffix is the only thing protecting it — and this
-# repository is public, so anything written here is published. It
-# comes from Latch with the other secrets, via the EnvironmentFile
-# above.
-Environment=ALMANAC_PROFILES_DIR=/opt/almanac/profiles
-Environment=ALMANAC_DATA_DIR=/opt/almanac/data
-Environment=ALMANAC_JOURNAL=/opt/almanac/data/journal.jsonl
-Environment=ALMANAC_TOKEN_STORE=/opt/almanac/data/tokens.json
-
-ExecStart=/usr/local/bin/latch run -- /opt/almanac/almanac
-
+# 3.0.0: the state root is the 2.x layout, so nothing moves — profiles/ and
+# data/ stay under /opt/almanac; the binary sits in /opt/almanac/bin.
+Environment=ALMANAC_STATE_DIR=/opt/almanac
+WorkingDirectory=/opt/almanac
+ExecStartPre=/usr/local/bin/latch run --env prod -- /opt/almanac/bin/almanac --check
+ExecStart=/usr/local/bin/latch run --env prod -- /opt/almanac/bin/almanac
 Restart=always
 RestartSec=5s
-
-# M2's graceful shutdown drains in-flight requests and the worker
-# before exiting; give it room rather than SIGKILLing mid-delivery.
 KillSignal=SIGTERM
 TimeoutStopSec=60
-
-NoNewPrivileges=true
-PrivateTmp=true
+# Mirrored so `--check` can warn when the shutdown timeout would outlive it (critic #20).
+Environment=ALMANAC_TIMEOUT_STOP_SECS=60
+NoNewPrivileges=yes
+PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=true
-
-# The whole install directory, not just data/ — M10's self-update
-# writes the new binary next to the running one and keeps the replaced
-# one beside it for AR23's revert. With only data/ writable the update
-# would verify, download, and then fail at the swap on every single
-# check, forever.
-ReadWritePaths=/opt/almanac
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/opt/almanac /opt/almanac-pre-update /opt/almanac/bin
+# S2: the swap needs write access to the binary's OWN directory only; a
+# code-execution bug can then replace this service's binary, not latch or
+# its neighbours. The rest is systemd's free hardening for a network daemon.
+UMask=0077
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+PrivateDevices=yes
+ProtectProc=invisible
 
 [Install]
 WantedBy=multi-user.target

@@ -67,7 +67,9 @@ impl Metrics {
     /// zero, since "nothing is waiting" and "I cannot tell you what is
     /// waiting" are opposite kinds of news and a dashboard must not
     /// show the alarming one as the reassuring one.
-    pub fn render(&self, pending: Option<u64>, version: &str) -> String {
+    /// `_version` stays in the signature for callers; the kit emits
+    /// `almanac_build_info{version}` itself since 3.0.0.
+    pub fn render(&self, pending: Option<u64>, _version: &str) -> String {
         let mut out = String::new();
 
         for (name, help, value) in [
@@ -123,11 +125,7 @@ impl Metrics {
         // The conventional way to expose a version: a constant 1 with
         // the version as a label, so a dashboard can group by it and an
         // alert can fire on a fleet running mixed versions.
-        out.push_str(
-            "# HELP almanac_build_info The running version, as a label on a constant 1.\n\
-             # TYPE almanac_build_info gauge\n",
-        );
-        out.push_str(&format!("almanac_build_info{{version=\"{version}\"}} 1\n"));
+        // almanac_build_info is emitted by the kit since 3.0.0 (same name, same label).
 
         out
     }
@@ -228,9 +226,12 @@ mod tests {
     }
 
     #[test]
-    fn the_version_is_exposed_the_conventional_way() {
+    fn the_version_series_is_left_to_the_kit() {
         let rendered = Metrics::default().render(Some(0), "0.1.3");
-        assert!(rendered.contains("almanac_build_info{version=\"0.1.3\"} 1\n"));
+        assert!(
+            !rendered.contains("almanac_build_info"),
+            "build_info is the kit's series since 3.0.0"
+        );
     }
 
     #[test]
@@ -269,7 +270,8 @@ mod tests {
                 "a series carries something that is not a number: {line}"
             );
         }
-        // And the only label anywhere is the version.
-        assert_eq!(rendered.matches('{').count(), 1);
+        // And no label anywhere: the one labelled series, build_info, is
+        // the kit's since 3.0.0.
+        assert_eq!(rendered.matches('{').count(), 0);
     }
 }

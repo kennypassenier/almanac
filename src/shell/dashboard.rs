@@ -91,48 +91,19 @@ const THEMES: [(&str, &str); 11] = [
 /// stylesheets in the order they must load: Bootstrap first, then the
 /// theme tokens, then the bridge that points Bootstrap at them.
 fn head_assets() -> String {
+    // 3.0.0: under the kit's CSP (script-src 'self') nothing inline runs,
+    // so the two head scripts are files served from /static, and the display
+    // faces come from the kit's vendored fonts instead of a CDN (font-src
+    // 'self'; works offline too). Order still matters: the no-flash script
+    // before any stylesheet, the Bootstrap bridge after the last one.
     String::from(
-        r#"<script>
-/* Before the first paint: the visitor's last theme, or the default.
-   Without this the page renders in `formal` and jumps to the chosen
-   theme — the flash the package's initializeTheme() exists to prevent.
-   Deliberately tiny, and deliberately ignorant: it copies a name and
-   knows nothing about which themes exist or which are dark. */
-(function () {
-  try {
-    var t = localStorage.getItem('theme');
-    if (t) document.documentElement.dataset.theme = t;
-  } catch (e) { /* blocked storage: the default stands */ }
-})();
-</script>
-<link rel="preconnect" href="https://fonts.bunny.net">
-<!-- Three themes carry their own face — formal wants Fraunces, cyberpunk
-     Chakra Petch, terminal Share Tech Mono, which also becomes that
-     theme's body font. Without this they fall back and cyberpunk in
-     particular reads as half-applied. -->
-<link rel="stylesheet"
-      href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600|fraunces:600,700|share-tech-mono:400|chakra-petch:500,600,700">
+        r#"<script src="/static/theme-boot.js"></script>
+<link rel="stylesheet" href="/static/fonts.css">
 <link rel="stylesheet" href="/static/bootstrap.min.css">
 <link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/kp-components.css">
 <link rel="stylesheet" href="/static/theme-bridge.css">
-<script>
-/* Bootstrap decides light or dark from data-bs-theme, which the package
-   knows nothing about and should not. Almanac has to set it, and the
-   answer is already in the stylesheet: every theme declares its own
-   color-scheme. So ask, rather than keep a list of dark theme names that
-   goes stale the day a palette changes sides.
-
-   This runs AFTER the stylesheets on purpose — that is the first moment
-   the declaration is readable — and still inside <head>, so nothing has
-   painted. theme-bootstrap.js keeps it in step from here on. */
-(function () {
-  var root = document.documentElement;
-  var dark = getComputedStyle(root).colorScheme.indexOf('dark') !== -1;
-  root.classList.toggle('dark', dark);
-  root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
-})();
-</script>"#,
+<script src="/static/almanac-head.js"></script>"#,
     )
 }
 
@@ -242,16 +213,7 @@ fn page(title: &str, active: &str, body: &str) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Almanac</title>
 {assets}
-<script type="module">
-/* Pure since kp-themes 3.0.0: importing theme-picker.js attaches
-   nothing by itself, so the call has to be made explicitly. Not
-   js/auto.js — that one script also wires up datatables, comboboxes,
-   date pickers and eight other components almanac's dashboard does
-   not use; attaching only the picker keeps what almanac ships in step
-   with what it actually shows. */
-import {{ attachThemePickers }} from '/static/theme-picker.js';
-attachThemePickers();
-</script>
+<script type="module" src="/static/almanac-picker.js"></script>
 <script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
@@ -297,16 +259,7 @@ fn login_page(error: Option<&str>) -> Html<String> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in — Almanac</title>
 {assets}
-<script type="module">
-/* Pure since kp-themes 3.0.0: importing theme-picker.js attaches
-   nothing by itself, so the call has to be made explicitly. Not
-   js/auto.js — that one script also wires up datatables, comboboxes,
-   date pickers and eight other components almanac's dashboard does
-   not use; attaching only the picker keeps what almanac ships in step
-   with what it actually shows. */
-import {{ attachThemePickers }} from '/static/theme-picker.js';
-attachThemePickers();
-</script>
+<script type="module" src="/static/almanac-picker.js"></script>
 <script src="/static/theme-bootstrap.js" defer></script>
 </head>
 <body class="bg-body">
@@ -570,8 +523,8 @@ async fn render_sources(
 <td><code>{id}</code></td>
 <td class="text-nowrap">{when}</td>
 <td class="text-end">
-  <button class="btn btn-sm btn-outline-secondary" onclick="reveal('{id}')">Reveal 10s</button>
-  <button class="btn btn-sm btn-outline-secondary" onclick="copyCmd('{id}')">Copy command</button>
+  <button class="btn btn-sm btn-outline-secondary" data-reveal="{id}">Reveal 10s</button>
+  <button class="btn btn-sm btn-outline-secondary" data-copy="{id}">Copy command</button>
   <form method="post" action="/dashboard/sources/{id}/issue" class="d-inline">
     <button class="btn btn-sm btn-outline-warning" type="submit">Re-issue</button>
   </form>
@@ -662,114 +615,7 @@ async fn render_sources(
     // The reveal and copy controls fetch the token only when clicked,
     // so a token never sits in the page source waiting to be read over
     // someone's shoulder or scraped out of a cached page.
-    let script = r#"<script>
-async function fetchToken(id) {
-  const r = await fetch(`/dashboard/sources/${encodeURIComponent(id)}/token`);
-  if (!r.ok) { throw new Error('could not fetch the token'); }
-  return (await r.json()).token;
-}
-async function reveal(id) {
-  const row = document.getElementById(`out-${id}`);
-  const pre = document.getElementById(`pre-${id}`);
-  try {
-    pre.textContent = await fetchToken(id);
-    row.classList.remove('d-none');
-    setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, 10000);
-  } catch (e) { pre.textContent = e.message; row.classList.remove('d-none'); }
-}
-// Two things every form that acts on the world gets, from one place.
-//
-// A confirmation when it destroys something: these buttons sit in table
-// rows next to each other, and the cost of a mis-click ranges from
-// re-issuing a token to losing a calendar and every event on it.
-//
-// And a busy state while it runs: several of these are a round trip to
-// Google, and a button that looks idle invites a second click. That is
-// not merely untidy — a second click on "Make calendar" used to make a
-// second calendar.
-//
-// Driven by attributes so a new button gets both by declaring them,
-// rather than by remembering to wire up JavaScript:
-//   data-confirm="…"   ask this before submitting
-//   data-busy="…"      say this while waiting
-function armForms() {
-  document.querySelectorAll('form[data-confirm], form[data-busy]').forEach(function (form) {
-    form.addEventListener('submit', function (event) {
-      const question = form.dataset.confirm;
-      if (question && !window.confirm(question)) {
-        event.preventDefault();
-        return;
-      }
-      const button = form.querySelector('button[type=submit]');
-      if (!button) { return; }
-      // Disabled AFTER the browser has read the button, so the form
-      // still submits: a disabled submit button is not sent.
-      window.setTimeout(function () { button.disabled = true; }, 0);
-      const spinner = button.querySelector('.spinner-border');
-      const label = button.querySelector('.label');
-      if (spinner) { spinner.classList.remove('d-none'); }
-      if (label && form.dataset.busy) { label.textContent = ' ' + form.dataset.busy; }
-    });
-  });
-}
-document.addEventListener('DOMContentLoaded', armForms);
-function selectAll(node) {
-  const range = document.createRange();
-  range.selectNodeContents(node);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-// Copies without assuming the page is in a secure context.
-//
-// navigator.clipboard exists ONLY in a secure context — https, or
-// localhost. This dashboard is served over plain HTTP on the LAN, which
-// is neither, so the object is simply absent and the button used to die
-// with "navigator.clipboard is undefined". It could never have worked in
-// the only way this page is ever opened, and nothing said so: the error
-// appeared in the browser console, not on the page.
-//
-// So: the modern API when it is really there, the deprecated but
-// http-friendly execCommand next, and failing both, put the command on
-// screen already selected so it can be copied by hand.
-function copyText(text) {
-  if (window.isSecureContext && navigator.clipboard) {
-    return navigator.clipboard.writeText(text).then(() => true, () => false);
-  }
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select();
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-  document.body.removeChild(ta);
-  return Promise.resolve(ok);
-}
-async function copyCmd(id) {
-  const pre = document.getElementById(`pre-${id}`);
-  const row = document.getElementById(`out-${id}`);
-  let hideAfter = 4000;
-  try {
-    const token = await fetchToken(id);
-    const cmd = `curl -X POST ${location.origin}/v1/ingest/${id} \\\n  -H 'Authorization: Bearer ${token}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"title":"test","start":"2026-01-01T09:00:00+00:00"}'`;
-    if (await copyText(cmd)) {
-      pre.textContent = 'Command copied to the clipboard (token not shown).';
-    } else {
-      // The token is on screen now, so it gets the same treatment as
-      // Reveal: visible long enough to use, then gone.
-      pre.textContent = cmd;
-      row.classList.remove('d-none');
-      selectAll(pre);
-      hideAfter = 20000;
-    }
-  } catch (e) { pre.textContent = e.message; }
-  row.classList.remove('d-none');
-  setTimeout(() => { pre.textContent = ''; row.classList.add('d-none'); }, hideAfter);
-}
-</script>"#;
+    let script = r#"<script src="/static/almanac-sources.js" defer></script>"#;
 
     let alert = error
         .map(|e| {
@@ -1479,6 +1325,62 @@ async fn token_json(
     }
 }
 
+/// One of the kit's vendored assets (3.0.0): the no-flash script and the
+/// display fonts, so the pages need neither inline scripts nor a CDN.
+fn kit_asset(name: &str) -> Response {
+    match chassis::shell::assets::ASSETS
+        .iter()
+        .find(|(asset, _, _)| *asset == name)
+    {
+        Some((_, content_type, bytes)) => (
+            [
+                (header::CONTENT_TYPE, *content_type),
+                (header::CACHE_CONTROL, "public, max-age=86400"),
+            ],
+            *bytes,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn theme_boot_js() -> Response {
+    kit_asset("theme-boot.js")
+}
+
+async fn fonts_css() -> Response {
+    kit_asset("fonts.css")
+}
+
+async fn font_file(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+    kit_asset(&format!("fonts/{file}"))
+}
+
+/// Almanac's own page scripts (3.0.0): what used to be inline.
+async fn almanac_head_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/almanac-head.js"),
+    )
+        .into_response()
+}
+
+async fn almanac_picker_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/almanac-picker.js"),
+    )
+        .into_response()
+}
+
+async fn almanac_sources_js() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../static/almanac-sources.js"),
+    )
+        .into_response()
+}
+
 /// Serves the vendored Bootstrap CSS. Compiled into the binary so a
 /// LAN-only service never needs the internet to render its own pages
 /// (Kenny's choice, 2026-08-28) and the file cannot go missing from a
@@ -1638,5 +1540,20 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/static/theme-bootstrap.js",
             axum::routing::get(theme_bootstrap_js),
+        )
+        .route("/static/theme-boot.js", axum::routing::get(theme_boot_js))
+        .route("/static/fonts.css", axum::routing::get(fonts_css))
+        .route("/static/fonts/{file}", axum::routing::get(font_file))
+        .route(
+            "/static/almanac-head.js",
+            axum::routing::get(almanac_head_js),
+        )
+        .route(
+            "/static/almanac-picker.js",
+            axum::routing::get(almanac_picker_js),
+        )
+        .route(
+            "/static/almanac-sources.js",
+            axum::routing::get(almanac_sources_js),
         )
 }

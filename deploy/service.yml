@@ -1,0 +1,27 @@
+# The homelab's stack file for a native service (AR18; `homelab adopt`).
+# almanac runs on CT 112 (hostname 112-app-almanac); the authoritative copy
+# lives in the homelab repo at stacks/almanac/service.yml — this is what
+# 3.0.0 asks that copy to become. The binary moves to /opt/almanac/bin (the
+# kit's layout); the state root stays /opt/almanac, so profiles/ and data/
+# do not move. update_cmd reproduces the unit line for line — same user,
+# working directory, EnvironmentFile and the latch wrapper that injects the
+# Google credentials — and waits for the result: "already current" is exit 0
+# without a restart, a failure carries its stderr. Self-update stays
+# supervised (ALMANAC_UPDATE_MODE=supervised; the 2.x ALMANAC_SELF_UPDATE=off
+# maps to off, which also works): the homelab owns the nightly.
+stack_name: almanac
+vmid: 112
+hostname: 112-app-almanac
+unit: almanac
+binary: /opt/almanac/bin/almanac
+env_file: /appdata/almanac/almanac-config/latch.env
+data_dirs:
+  - /appdata/almanac/almanac-config
+update_cmd: >-
+  systemd-run --wait --pipe --collect --uid=almanac --gid=almanac
+  --property=EnvironmentFile=/appdata/almanac/almanac-config/latch.env
+  --property=WorkingDirectory=/opt/almanac
+  --setenv=ALMANAC_STATE_DIR=/opt/almanac
+  /usr/local/bin/latch run -- /opt/almanac/bin/almanac update
+release_repo: kennypassenier/almanac
+release_asset: almanac

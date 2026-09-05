@@ -109,7 +109,7 @@ fn post(uri: &str, token: Option<&str>, body: &str) -> Request<Body> {
 async fn a_valid_home_assistant_payload_is_accepted_and_journalled() {
     let dir = scratch_dir("accept");
     let state = state(&dir).await;
-    let app = almanac::shell::build_router(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
 
     let response = app
         .oneshot(post(
@@ -135,7 +135,7 @@ async fn a_valid_home_assistant_payload_is_accepted_and_journalled() {
 async fn a_request_with_no_token_is_rejected_and_journals_nothing() {
     let dir = scratch_dir("no-token");
     let state = state(&dir).await;
-    let app = almanac::shell::build_router(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
 
     let response = app
         .oneshot(post("/v1/ingest/home-assistant", None, ha_payload()))
@@ -155,7 +155,7 @@ async fn a_request_with_no_token_is_rejected_and_journals_nothing() {
 async fn a_request_with_a_wrong_token_is_rejected() {
     let dir = scratch_dir("wrong-token");
     let state = state(&dir).await;
-    let app = almanac::shell::build_router(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
 
     let response = app
         .oneshot(post(
@@ -178,7 +178,7 @@ async fn one_sources_token_cannot_post_as_another_source() {
     // revoked one is contained to that source.
     let dir = scratch_dir("cross-source");
     let state = state(&dir).await;
-    let app = almanac::shell::build_router(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
 
     let response = app
         .oneshot(post("/v1/ingest/uptime-kuma", Some(HA_TOKEN), ha_payload()))
@@ -198,7 +198,7 @@ async fn an_unknown_source_answers_the_same_401_as_a_bad_token() {
     let dir = scratch_dir("unknown-source");
     let state = state(&dir).await;
 
-    let unknown = almanac::shell::build_router(Arc::clone(&state))
+    let unknown = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/no-such-source",
             Some(HA_TOKEN),
@@ -206,7 +206,7 @@ async fn an_unknown_source_answers_the_same_401_as_a_bad_token() {
         ))
         .await
         .unwrap();
-    let bad_token = almanac::shell::build_router(Arc::clone(&state))
+    let bad_token = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/home-assistant",
             Some("wrong"),
@@ -227,7 +227,7 @@ async fn an_idempotency_key_header_is_recorded_on_the_journal_entry() {
     // id have its retries converge instead of duplicating.
     let dir = scratch_dir("idempotency");
     let state = state(&dir).await;
-    let app = almanac::shell::build_router(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
 
     let request = Request::builder()
         .method("POST")
@@ -253,7 +253,7 @@ async fn two_accepted_payloads_both_survive_in_the_journal() {
     let state = state(&dir).await;
 
     for _ in 0..2 {
-        let response = almanac::shell::build_router(Arc::clone(&state))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
             .oneshot(post(
                 "/v1/ingest/home-assistant",
                 Some(HA_TOKEN),
@@ -318,7 +318,7 @@ async fn a_journal_that_cannot_be_written_answers_500_so_the_sender_retries() {
         std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o500)).unwrap();
     }
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/home-assistant",
             Some(HA_TOKEN),
@@ -365,7 +365,7 @@ async fn a_payload_using_every_option_is_accepted_at_the_http_layer() {
     ))
     .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post("/v1/ingest/uptime-kuma", Some(KUMA_TOKEN), &payload))
         .await
         .unwrap();
@@ -397,7 +397,7 @@ async fn a_payload_almanac_could_never_map_is_refused_at_the_door() {
     let dir = scratch_dir("unmappable");
     let state = state(&dir).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/home-assistant",
             Some(HA_TOKEN),
@@ -440,7 +440,7 @@ async fn a_misspelled_field_is_named_instead_of_answered_with_202() {
     let dir = scratch_dir("misspelled");
     let state = state(&dir).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/home-assistant",
             Some(HA_TOKEN),
@@ -472,7 +472,7 @@ async fn the_synchronous_path_refuses_an_unmappable_payload_before_journalling_i
     let dir = scratch_dir("sync-unmappable");
     let state = state(&dir).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/ingest/home-assistant/sync",
             Some(HA_TOKEN),

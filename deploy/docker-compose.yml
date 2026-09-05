@@ -20,7 +20,8 @@ services:
       # Podman image on its own and switches self-update off there.
       # Kept explicit anyway, so anyone reading this file can see who
       # owns updates without having to know that rule.
-      ALMANAC_SELF_UPDATE: "off"
+      ALMANAC_UPDATE_MODE: "off"        # 3.0.0: was ALMANAC_SELF_UPDATE (still honoured, with a warning)
+      ALMANAC_STATE_DIR: /var/lib/almanac
       ALMANAC_PROFILES_DIR: /etc/almanac/profiles
       ALMANAC_DATA_DIR: /var/lib/almanac
       ALMANAC_JOURNAL: /var/lib/almanac/journal.jsonl

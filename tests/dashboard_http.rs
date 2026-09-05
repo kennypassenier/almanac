@@ -99,7 +99,7 @@ async fn text(response: axum::response::Response) -> String {
 
 /// Logs in and returns the session cookie to reuse.
 async fn login(st: &Arc<AppState>) -> String {
-    let response = almanac::shell::build_router(Arc::clone(st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(st))
         .oneshot(post_form(
             "/login",
             None,
@@ -140,7 +140,7 @@ fn urlencode(s: &str) -> String {
 #[tokio::test]
 async fn the_login_page_renders_without_a_session() {
     let dir = scratch_dir("loginpage");
-    let response = almanac::shell::build_router(state(&dir))
+    let response = almanac::shell::build_router_with_probes(state(&dir))
         .oneshot(get("/login", None))
         .await
         .unwrap();
@@ -159,7 +159,7 @@ async fn the_login_page_renders_without_a_session() {
 #[tokio::test]
 async fn a_wrong_bootstrap_token_does_not_start_a_session() {
     let dir = scratch_dir("badlogin");
-    let response = almanac::shell::build_router(state(&dir))
+    let response = almanac::shell::build_router_with_probes(state(&dir))
         .oneshot(post_form("/login", None, "token=wrong"))
         .await
         .unwrap();
@@ -175,7 +175,7 @@ async fn a_wrong_bootstrap_token_does_not_start_a_session() {
 async fn the_dashboard_redirects_to_login_without_a_session() {
     let dir = scratch_dir("redirect");
     for path in ["/dashboard", "/dashboard/sources", "/dashboard/captures"] {
-        let response = almanac::shell::build_router(state(&dir))
+        let response = almanac::shell::build_router_with_probes(state(&dir))
             .oneshot(get(path, None))
             .await
             .unwrap();
@@ -206,7 +206,7 @@ async fn every_page_renders_with_seeded_state() {
         ("/dashboard/sources", "Token issued", true),
         ("/dashboard/captures", "Captured requests", false),
     ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get(path, Some(&cookie)))
             .await
             .unwrap();
@@ -242,7 +242,7 @@ async fn no_page_ever_contains_a_token_in_the_clear() {
         "/dashboard/captures",
         "/login",
     ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get(path, Some(&cookie)))
             .await
             .unwrap();
@@ -268,7 +268,7 @@ async fn issuing_a_token_from_the_dashboard_produces_a_working_one() {
     let st = state(&dir);
     let cookie = login(&st).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/home-assistant/issue",
             Some(&cookie),
@@ -285,7 +285,7 @@ async fn issuing_a_token_from_the_dashboard_produces_a_working_one() {
         .unwrap()
         .expect("a token was issued");
 
-    let ingest = almanac::shell::build_router(Arc::clone(&st))
+    let ingest = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -318,7 +318,7 @@ async fn a_revoked_token_stops_working_on_the_very_next_request() {
         .unwrap();
     let cookie = login(&st).await;
 
-    let ok = almanac::shell::build_router(Arc::clone(&st))
+    let ok = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -334,7 +334,7 @@ async fn a_revoked_token_stops_working_on_the_very_next_request() {
         .unwrap();
     assert_eq!(ok.status(), StatusCode::ACCEPTED);
 
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/home-assistant/revoke",
             Some(&cookie),
@@ -343,7 +343,7 @@ async fn a_revoked_token_stops_working_on_the_very_next_request() {
         .await
         .unwrap();
 
-    let after = almanac::shell::build_router(Arc::clone(&st))
+    let after = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -375,7 +375,7 @@ async fn the_reveal_endpoint_needs_a_session() {
         .await
         .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/dashboard/sources/home-assistant/token", None))
         .await
         .unwrap();
@@ -394,7 +394,7 @@ async fn the_reveal_endpoint_returns_the_real_token_to_a_logged_in_operator() {
         .unwrap();
     let cookie = login(&st).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get(
             "/dashboard/sources/home-assistant/token",
             Some(&cookie),
@@ -419,7 +419,7 @@ async fn a_session_survives_a_restart_or_a_self_update() {
     // A fresh AppState over the same store directory stands in for
     // the process that comes back after the update.
     let restarted = state(&dir);
-    let response = almanac::shell::build_router(Arc::clone(&restarted))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&restarted))
         .oneshot(get("/dashboard", Some(&cookie)))
         .await
         .unwrap();
@@ -441,13 +441,13 @@ async fn logging_out_still_really_revokes_across_a_restart() {
     let st = state(&dir);
     let cookie = login(&st).await;
 
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form("/logout", Some(&cookie), ""))
         .await
         .unwrap();
 
     let restarted = state(&dir);
-    let response = almanac::shell::build_router(Arc::clone(&restarted))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&restarted))
         .oneshot(get("/dashboard", Some(&cookie)))
         .await
         .unwrap();
@@ -467,12 +467,12 @@ async fn logging_out_ends_the_session() {
     let st = state(&dir);
     let cookie = login(&st).await;
 
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form("/logout", Some(&cookie), ""))
         .await
         .unwrap();
 
-    let after = almanac::shell::build_router(Arc::clone(&st))
+    let after = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/dashboard", Some(&cookie)))
         .await
         .unwrap();
@@ -494,7 +494,7 @@ async fn a_captured_script_tag_renders_inert() {
     let st = state(&dir);
     let cookie = login(&st).await;
 
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -506,7 +506,7 @@ async fn a_captured_script_tag_renders_inert() {
         .await
         .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/dashboard/captures", Some(&cookie)))
         .await
         .unwrap();
@@ -524,7 +524,7 @@ async fn a_captured_script_tag_renders_inert() {
 #[tokio::test]
 async fn the_vendored_stylesheet_is_served_locally() {
     let dir = scratch_dir("css");
-    let response = almanac::shell::build_router(state(&dir))
+    let response = almanac::shell::build_router_with_probes(state(&dir))
         .oneshot(get("/static/bootstrap.min.css", None))
         .await
         .unwrap();
@@ -544,7 +544,7 @@ async fn health_still_answers_without_a_session() {
     // The dashboard's arrival must not have closed the door monitoring
     // comes through.
     let dir = scratch_dir("health");
-    let response = almanac::shell::build_router(state(&dir))
+    let response = almanac::shell::build_router_with_probes(state(&dir))
         .oneshot(get("/healthz", None))
         .await
         .unwrap();
@@ -566,7 +566,7 @@ async fn the_endpoints_that_change_something_refuse_without_a_session() {
         "/dashboard/sources/home-assistant/issue",
         "/dashboard/sources/home-assistant/revoke",
     ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(post_form(uri, None, ""))
             .await
             .unwrap();
@@ -586,7 +586,7 @@ async fn the_endpoints_that_change_something_refuse_without_a_session() {
 
     // And nothing was actually issued.
     let cookie = login(&st).await;
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get(
             "/dashboard/sources/home-assistant/token",
             Some(&cookie),
@@ -612,7 +612,7 @@ async fn a_forged_or_stale_cookie_does_not_open_anything() {
     let forged = format!("{}x", real);
 
     for uri in ["/dashboard", "/dashboard/sources", "/dashboard/captures"] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get(uri, Some(&forged)))
             .await
             .unwrap();
@@ -623,7 +623,7 @@ async fn a_forged_or_stale_cookie_does_not_open_anything() {
         );
     }
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get(
             "/dashboard/sources/home-assistant/token",
             Some(&forged),
@@ -648,7 +648,7 @@ async fn the_session_cookie_carries_the_attributes_that_protect_it() {
     let dir = scratch_dir("cookie-attrs");
     let st = state(&dir);
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/login",
             None,
@@ -677,7 +677,7 @@ async fn the_root_and_logout_are_safe_without_a_session() {
     let dir = scratch_dir("root-logout");
     let st = state(&dir);
 
-    let root = almanac::shell::build_router(Arc::clone(&st))
+    let root = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/", None))
         .await
         .unwrap();
@@ -688,7 +688,7 @@ async fn the_root_and_logout_are_safe_without_a_session() {
     );
 
     // Logging out without a session must be harmless, not a 500.
-    let logout = almanac::shell::build_router(Arc::clone(&st))
+    let logout = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form("/logout", None, ""))
         .await
         .unwrap();
@@ -715,11 +715,24 @@ async fn the_copy_control_works_without_a_secure_context() {
     let st = state(&dir);
     let cookie = login(&st).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/dashboard/sources", Some(&cookie)))
         .await
         .unwrap();
-    let body = text(response).await;
+    let page = text(response).await;
+    // 3.0.0: the control's script is a file (the kit's CSP forbids inline
+    // scripts); the page must load it, and the guard lives in the file.
+    assert!(
+        page.contains("<script src=\"/static/almanac-sources.js\""),
+        "the sources page must load its script"
+    );
+    let body = text(
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
+            .oneshot(get("/static/almanac-sources.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
 
     assert!(
         body.contains("isSecureContext"),
@@ -809,7 +822,7 @@ async fn make_calendar(
     cal: &almanac::shell::testing::CalendarStub,
     name: &str,
 ) -> String {
-    let response = almanac::shell::build_router(Arc::clone(st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(st))
         .oneshot(post_form(
             "/dashboard/calendars",
             Some(cookie),
@@ -843,7 +856,7 @@ async fn k21_the_sources_page_asks_for_a_name_and_a_calendar() {
     let cookie = login(&st).await;
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -888,7 +901,7 @@ async fn k21_adding_a_source_puts_it_on_the_chosen_calendar_and_makes_it_issuabl
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -917,7 +930,7 @@ async fn k21_adding_a_source_puts_it_on_the_chosen_calendar_and_makes_it_issuabl
     assert_eq!(calendars.len(), 1, "the calendar should have been created");
     drop(calendars);
 
-    let issued = almanac::shell::build_router(Arc::clone(&st))
+    let issued = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/issue",
             Some(&cookie),
@@ -943,7 +956,7 @@ async fn k21_a_second_source_picks_the_existing_calendar_from_the_list() {
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
-    let created = almanac::shell::build_router(Arc::clone(&st))
+    let created = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -953,7 +966,7 @@ async fn k21_a_second_source_picks_the_existing_calendar_from_the_list() {
         .unwrap();
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
 
-    let picked = almanac::shell::build_router(Arc::clone(&st))
+    let picked = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -994,7 +1007,7 @@ async fn k21_a_rejected_source_keeps_what_was_typed_and_writes_nothing() {
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     let cookie = login(&st).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1033,7 +1046,7 @@ async fn k24_without_an_owner_no_calendar_is_created() {
     let (st, cal) = state_with_calendar(&dir, None).await;
     let cookie = login(&st).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/calendars",
             Some(&cookie),
@@ -1076,7 +1089,7 @@ async fn k23_an_unusable_profile_is_listed_and_can_be_deleted() {
     .unwrap();
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1091,7 +1104,7 @@ async fn k23_an_unusable_profile_is_listed_and_can_be_deleted() {
         "and deletable from the same page"
     );
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/profiles/wrecked.toml/delete",
             Some(&cookie),
@@ -1114,7 +1127,7 @@ async fn k23_deleting_an_unusable_profile_needs_a_session() {
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
     std::fs::write(dir.join("profiles/wrecked.toml"), "not toml\n").unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/profiles/wrecked.toml/delete",
             None,
@@ -1142,7 +1155,7 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_says_so() {
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Huishouden").await;
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1152,7 +1165,7 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_says_so() {
         .unwrap();
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1172,7 +1185,7 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_says_so() {
     );
 
     // The guard is repeated on arrival, not only drawn in the page.
-    let refused = almanac::shell::build_router(Arc::clone(&st))
+    let refused = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             &format!("/dashboard/calendars/{calendar_id}/delete"),
             Some(&cookie),
@@ -1204,7 +1217,7 @@ async fn k24_a_calendar_nothing_writes_to_can_be_deleted() {
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Leeg").await;
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1215,7 +1228,7 @@ async fn k24_a_calendar_nothing_writes_to_can_be_deleted() {
         "with no source writing to it, delete must be live"
     );
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             &format!("/dashboard/calendars/{calendar_id}/delete"),
             Some(&cookie),
@@ -1290,7 +1303,7 @@ async fn k24_a_deleted_calendar_leaves_the_list_at_once() {
     st.remember_deleted_calendar(&calendar_id);
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1338,7 +1351,7 @@ async fn k24_every_destructive_button_asks_first_and_shows_it_is_working() {
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1349,7 +1362,7 @@ async fn k24_every_destructive_button_asks_first_and_shows_it_is_working() {
     std::fs::write(dir.join("profiles/wrecked.toml"), "not toml\n").unwrap();
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1388,7 +1401,7 @@ async fn k24_making_a_calendar_needs_a_session() {
     let dir = scratch_dir("k24-auth");
     let (st, cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form("/dashboard/calendars", None, "name=Anything"))
         .await
         .unwrap();
@@ -1412,7 +1425,7 @@ async fn k25_the_picker_offers_every_theme_the_package_ships() {
     let cookie = login(&st).await;
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard", Some(&cookie)))
             .await
             .unwrap(),
@@ -1468,14 +1481,14 @@ async fn k25_the_picker_groups_light_and_dark_from_the_registry_not_a_copy() {
     let cookie = login(&st).await;
 
     let registry = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/static/theme-registry.js", None))
             .await
             .unwrap(),
     )
     .await;
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard", Some(&cookie)))
             .await
             .unwrap(),
@@ -1550,14 +1563,14 @@ async fn k25_the_rust_theme_list_matches_the_packages_own_registry() {
     let cookie = login(&st).await;
 
     let registry = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/static/theme-registry.js", None))
             .await
             .unwrap(),
     )
     .await;
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard", Some(&cookie)))
             .await
             .unwrap(),
@@ -1603,7 +1616,7 @@ async fn k25_the_stored_contract_is_the_one_the_shared_package_defines() {
     let (st, _cal) = state_with_calendar(&dir, Some("kenny@example.com")).await;
 
     let registry = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/static/theme-registry.js", None))
             .await
             .unwrap(),
@@ -1620,7 +1633,7 @@ async fn k25_the_stored_contract_is_the_one_the_shared_package_defines() {
     );
 
     let core = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/static/theme-core.js", None))
             .await
             .unwrap(),
@@ -1662,7 +1675,7 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
         ("/static/strings.js", "DEFAULT_STRINGS"),
         ("/static/theme-bootstrap.js", "data-bs-theme"),
     ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get(path, None))
             .await
             .unwrap();
@@ -1674,7 +1687,7 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
     }
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard", Some(&cookie)))
             .await
             .unwrap(),
@@ -1683,28 +1696,56 @@ async fn k25_the_theme_assets_are_served_and_the_page_asks_for_them() {
 
     // The three modules import each other by relative path, so they only
     // resolve while all of them are served from the same directory.
+    // 3.0.0: the picker is attached from a module file (the kit's CSP
+    // forbids inline module blocks); that file imports theme-picker.js.
     for asset in [
         "/static/themes.css",
         "/static/kp-components.css",
-        "/static/theme-picker.js",
+        "/static/almanac-picker.js",
         "/static/theme-bootstrap.js",
     ] {
         assert!(body.contains(asset), "the page must ask for {asset}");
     }
+    let picker = text(
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
+            .oneshot(get("/static/almanac-picker.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        picker.contains("from '/static/theme-picker.js'")
+            && picker.contains("attachThemePickers()"),
+        "the module file must attach the package's picker"
+    );
 
     // And nothing renders before the stored theme is applied: the
     // no-flash script has to be in the head, not after the body.
     let head = &body[..body.find("</head>").expect("a head")];
+    // 3.0.0: the snippet is the kit's theme-boot.js, loaded as a blocking
+    // script before the first stylesheet (the kit's CSP forbids inline).
     assert!(
-        head.contains("localStorage.getItem('theme')"),
+        head.contains("<script src=\"/static/theme-boot.js\">"),
         "the no-flash script must run before the page paints"
     );
-    // Bootstrap's own switch is set in that same breath. Without it the
-    // tokens go dark while every card and table stays light — the half
-    // -applied look this glue exists to prevent.
+    // Bootstrap's own switch is set in that same breath (3.0.0: from
+    // /static/almanac-head.js, after the stylesheets, still in <head>).
+    // Without it the tokens go dark while every card and table stays
+    // light — the half-applied look this glue exists to prevent.
     assert!(
-        head.contains("data-bs-theme"),
+        head.contains("<script src=\"/static/almanac-head.js\">"),
         "the first paint must settle Bootstrap's theme too, not only the tokens"
+    );
+    let head_js = text(
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
+            .oneshot(get("/static/almanac-head.js", None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        head_js.contains("data-bs-theme"),
+        "and that script sets data-bs-theme"
     );
 
     std::fs::remove_dir_all(&dir).ok();
@@ -1718,14 +1759,14 @@ async fn k21_reload_picks_up_a_profile_written_by_hand() {
 
     std::fs::write(dir.join("profiles/grafana.toml"), profile_toml("grafana")).unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form("/dashboard/sources/reload", Some(&cookie), ""))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1750,7 +1791,7 @@ async fn k21_deleting_a_source_removes_it_entirely() {
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1758,7 +1799,7 @@ async fn k21_deleting_a_source_removes_it_entirely() {
         ))
         .await
         .unwrap();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/issue",
             Some(&cookie),
@@ -1767,7 +1808,7 @@ async fn k21_deleting_a_source_removes_it_entirely() {
         .await
         .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/delete",
             Some(&cookie),
@@ -1788,7 +1829,7 @@ async fn k21_deleting_a_source_removes_it_entirely() {
     );
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1803,7 +1844,7 @@ async fn k21_deleting_a_source_removes_it_entirely() {
         "a deleted source must be off the page entirely"
     );
 
-    let posted = almanac::shell::build_router(Arc::clone(&st))
+    let posted = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -1842,7 +1883,7 @@ async fn k21_a_source_with_undelivered_events_is_not_deleted() {
         .await
         .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/home-assistant/delete",
             Some(&cookie),
@@ -1882,7 +1923,7 @@ async fn k21_changing_sources_needs_a_session() {
         ("/dashboard/sources/reload", String::new()),
         ("/dashboard/sources/home-assistant/delete", String::new()),
     ] {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(post_form(uri, None, &body))
             .await
             .unwrap();
@@ -1921,7 +1962,7 @@ async fn k21_dump_the_sources_page_for_review() {
     let cookie = login(&st).await;
 
     let calendar_id = make_calendar(&st, &cookie, &cal, "Almanac · Test").await;
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1929,7 +1970,7 @@ async fn k21_dump_the_sources_page_for_review() {
         ))
         .await
         .unwrap();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/kobo/issue",
             Some(&cookie),
@@ -1937,7 +1978,7 @@ async fn k21_dump_the_sources_page_for_review() {
         ))
         .await
         .unwrap();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources",
             Some(&cookie),
@@ -1945,7 +1986,7 @@ async fn k21_dump_the_sources_page_for_review() {
         ))
         .await
         .unwrap();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/sources/grafana/retire",
             Some(&cookie),
@@ -1961,7 +2002,7 @@ async fn k21_dump_the_sources_page_for_review() {
     .unwrap();
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -1990,7 +2031,7 @@ async fn k24_a_second_click_while_google_lags_does_not_make_a_second_calendar() 
     cal.lag_new_calendars();
 
     for _ in 0..2 {
-        let response = almanac::shell::build_router(Arc::clone(&st))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(post_form(
                 "/dashboard/calendars",
                 Some(&cookie),
@@ -2028,7 +2069,7 @@ async fn k24_a_calendar_google_has_not_listed_yet_still_shows_on_the_page() {
     let cookie = login(&st).await;
 
     cal.lag_new_calendars();
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/calendars",
             Some(&cookie),
@@ -2039,7 +2080,7 @@ async fn k24_a_calendar_google_has_not_listed_yet_still_shows_on_the_page() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -2064,7 +2105,7 @@ async fn k24_the_memory_of_a_created_calendar_clears_itself_and_never_doubles_a_
     let cookie = login(&st).await;
 
     cal.lag_new_calendars();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/calendars",
             Some(&cookie),
@@ -2075,7 +2116,7 @@ async fn k24_the_memory_of_a_created_calendar_clears_itself_and_never_doubles_a_
     cal.catch_up().await;
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),
@@ -2107,7 +2148,7 @@ async fn k24_a_calendar_created_and_deleted_inside_the_lag_stays_gone() {
     let cookie = login(&st).await;
 
     cal.lag_new_calendars();
-    almanac::shell::build_router(Arc::clone(&st))
+    almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             "/dashboard/calendars",
             Some(&cookie),
@@ -2126,7 +2167,7 @@ async fn k24_a_calendar_created_and_deleted_inside_the_lag_stays_gone() {
         .map(|(id, _)| id.clone())
         .expect("the stub recorded the calendar even while hiding it");
 
-    let response = almanac::shell::build_router(Arc::clone(&st))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post_form(
             &format!("/dashboard/calendars/{calendar_id}/delete"),
             Some(&cookie),
@@ -2137,7 +2178,7 @@ async fn k24_a_calendar_created_and_deleted_inside_the_lag_stays_gone() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
     let body = text(
-        almanac::shell::build_router(Arc::clone(&st))
+        almanac::shell::build_router_with_probes(Arc::clone(&st))
             .oneshot(get("/dashboard/sources", Some(&cookie)))
             .await
             .unwrap(),

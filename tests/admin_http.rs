@@ -108,7 +108,7 @@ async fn health_answers_without_a_token() {
     // M1: a monitoring stack that fails closed lies to you during an
     // outage, so this must never require credentials.
     let dir = scratch_dir("health");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app.oneshot(get("/healthz", None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -120,7 +120,7 @@ async fn health_answers_without_a_token() {
 #[tokio::test]
 async fn health_still_answers_when_no_admin_token_is_configured() {
     let dir = scratch_dir("health-noadmin");
-    let app = almanac::shell::build_router(state(&dir, None));
+    let app = almanac::shell::build_router_with_probes(state(&dir, None));
 
     let response = app.oneshot(get("/healthz", None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -133,13 +133,13 @@ async fn the_debug_status_needs_the_admin_token() {
     let dir = scratch_dir("status-auth");
     let st = state(&dir, Some(ADMIN_TOKEN));
 
-    let no_token = almanac::shell::build_router(Arc::clone(&st))
+    let no_token = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/v1/debug/status", None))
         .await
         .unwrap();
     assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
 
-    let wrong = almanac::shell::build_router(Arc::clone(&st))
+    let wrong = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/v1/debug/status", Some("nope")))
         .await
         .unwrap();
@@ -151,7 +151,7 @@ async fn the_debug_status_needs_the_admin_token() {
 #[tokio::test]
 async fn the_debug_status_reports_profiles_and_the_journal() {
     let dir = scratch_dir("status");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(get("/v1/debug/status", Some(ADMIN_TOKEN)))
@@ -172,7 +172,7 @@ async fn an_unconfigured_admin_surface_refuses_rather_than_opening_up() {
     // Fail-closed: a forgotten ALMANAC_BOOTSTRAP_TOKEN must not leave
     // the debug views readable by anyone on the LAN.
     let dir = scratch_dir("noadmin");
-    let app = almanac::shell::build_router(state(&dir, None));
+    let app = almanac::shell::build_router_with_probes(state(&dir, None));
 
     let response = app
         .oneshot(get("/v1/debug/status", Some("anything")))
@@ -200,7 +200,7 @@ async fn a_captured_request_reads_back_verbatim() {
     let st = state(&dir, Some(ADMIN_TOKEN));
     let payload = r#"{"weird":{"nested":[1,2,3]},"unicode":"héllo"}"#;
 
-    let posted = almanac::shell::build_router(Arc::clone(&st))
+    let posted = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post(
             "/v1/debug/capture/unknown-app",
             Some(ADMIN_TOKEN),
@@ -210,7 +210,7 @@ async fn a_captured_request_reads_back_verbatim() {
         .unwrap();
     assert_eq!(posted.status(), StatusCode::OK);
 
-    let listed = almanac::shell::build_router(Arc::clone(&st))
+    let listed = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
         .await
         .unwrap();
@@ -234,13 +234,13 @@ async fn a_captured_authorization_header_is_redacted() {
     let dir = scratch_dir("capture-redact");
     let st = state(&dir, Some(ADMIN_TOKEN));
 
-    let posted = almanac::shell::build_router(Arc::clone(&st))
+    let posted = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(post("/v1/debug/capture/x", Some(ADMIN_TOKEN), "{}"))
         .await
         .unwrap();
     assert_eq!(posted.status(), StatusCode::OK);
 
-    let listed = almanac::shell::build_router(Arc::clone(&st))
+    let listed = almanac::shell::build_router_with_probes(Arc::clone(&st))
         .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
         .await
         .unwrap();
@@ -261,7 +261,7 @@ async fn a_captured_authorization_header_is_redacted() {
 #[tokio::test]
 async fn capturing_needs_the_admin_token_too() {
     let dir = scratch_dir("capture-auth");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post("/v1/debug/capture/x", None, "{}"))
@@ -277,7 +277,7 @@ async fn dry_run_shows_the_event_without_writing_it() {
     // M9: check a profile against a real payload before letting it
     // near a calendar.
     let dir = scratch_dir("dryrun");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post(
@@ -307,7 +307,7 @@ async fn dry_run_shows_the_event_without_writing_it() {
 #[tokio::test]
 async fn dry_run_explains_a_payload_the_profile_cannot_map() {
     let dir = scratch_dir("dryrun-bad");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post(
@@ -329,7 +329,7 @@ async fn dry_run_explains_a_payload_the_profile_cannot_map() {
 #[tokio::test]
 async fn dry_run_on_an_unknown_source_says_where_to_look() {
     let dir = scratch_dir("dryrun-unknown");
-    let app = almanac::shell::build_router(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app
         .oneshot(post("/v1/debug/dry-run/nope", Some(ADMIN_TOKEN), "{}"))
@@ -356,7 +356,7 @@ async fn the_capture_token_can_post_a_capture() {
     let dir = scratch_dir("capture-token");
     let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
             "/v1/debug/capture/unknown-app",
             Some(CAPTURE_TOKEN),
@@ -376,7 +376,7 @@ async fn the_capture_token_cannot_read_captures_back() {
     let dir = scratch_dir("capture-token-read");
     let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(get("/v1/debug/capture", Some(CAPTURE_TOKEN)))
         .await
         .unwrap();
@@ -391,7 +391,7 @@ async fn the_capture_token_opens_nothing_else_on_the_admin_surface() {
     let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
 
     for uri in ["/v1/debug/status", "/v1/debug/capture"] {
-        let response = almanac::shell::build_router(Arc::clone(&state))
+        let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
             .oneshot(get(uri, Some(CAPTURE_TOKEN)))
             .await
             .unwrap();
@@ -412,7 +412,7 @@ async fn the_admin_token_still_posts_captures() {
     let dir = scratch_dir("capture-admin-still");
     let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post("/v1/debug/capture/x", Some(ADMIN_TOKEN), "{}"))
         .await
         .unwrap();
@@ -426,7 +426,7 @@ async fn a_wrong_capture_token_is_still_refused() {
     let dir = scratch_dir("capture-token-wrong");
     let state = state_with_capture_token(&dir, Some(ADMIN_TOKEN), CAPTURE_TOKEN);
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(post("/v1/debug/capture/x", Some("not-the-token"), "{}"))
         .await
         .unwrap();
@@ -445,7 +445,7 @@ async fn captures_past_the_capacity_drop_the_oldest_through_the_real_endpoints()
     let state = state(&dir, Some(ADMIN_TOKEN));
 
     for i in 0..105 {
-        almanac::shell::build_router(Arc::clone(&state))
+        almanac::shell::build_router_with_probes(Arc::clone(&state))
             .oneshot(post(
                 &format!("/v1/debug/capture/label-{i}"),
                 Some(ADMIN_TOKEN),
@@ -455,7 +455,7 @@ async fn captures_past_the_capacity_drop_the_oldest_through_the_real_endpoints()
             .unwrap();
     }
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
         .await
         .unwrap();
@@ -499,12 +499,12 @@ async fn every_credential_header_a_webhook_might_send_is_redacted() {
         .body(Body::from("{}"))
         .unwrap();
 
-    almanac::shell::build_router(Arc::clone(&state))
+    almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(request)
         .await
         .unwrap();
 
-    let response = almanac::shell::build_router(Arc::clone(&state))
+    let response = almanac::shell::build_router_with_probes(Arc::clone(&state))
         .oneshot(get("/v1/debug/capture", Some(ADMIN_TOKEN)))
         .await
         .unwrap();
@@ -541,7 +541,7 @@ async fn metrics_answer_without_a_token_so_monitoring_cannot_fail_closed() {
     // *is* configured here, so this proves the endpoint is deliberately
     // open rather than merely open by accident.
     let dir = scratch_dir("metrics-open");
-    let app = almanac::shell::admin::routes().with_state(state(&dir, Some(ADMIN_TOKEN)));
+    let app = almanac::shell::build_router_with_probes(state(&dir, Some(ADMIN_TOKEN)));
 
     let response = app.oneshot(get("/metrics", None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -594,7 +594,7 @@ async fn a_scrape_never_carries_a_token_a_calendar_id_or_payload_content() {
         .unwrap();
     assert_eq!(accepted.status(), StatusCode::ACCEPTED);
 
-    let app = almanac::shell::admin::routes().with_state(Arc::clone(&state));
+    let app = almanac::shell::build_router_with_probes(Arc::clone(&state));
     let body = body_text(app.oneshot(get("/metrics", None)).await.unwrap()).await;
 
     assert!(
@@ -628,7 +628,7 @@ async fn an_unreadable_journal_is_reported_as_unreadable_not_as_empty() {
     let state = state(&dir, Some(ADMIN_TOKEN));
     std::fs::create_dir_all(dir.join("journal.jsonl")).unwrap();
 
-    let app = almanac::shell::admin::routes().with_state(state);
+    let app = almanac::shell::build_router_with_probes(state);
     let body = body_text(app.oneshot(get("/metrics", None)).await.unwrap()).await;
 
     assert!(body.contains("almanac_journal_readable 0\n"));

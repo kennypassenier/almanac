@@ -219,7 +219,7 @@ tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value almanac)/environ
 latch run --env dev -- sh -c 'echo $ALMANAC_CALENDAR_OWNER'
 ```
 
-`latch.env` holds only `LATCH_KEY_ALMANAC` and `ALMANAC_SELF_UPDATE`;
+`latch.env` holds only `LATCH_KEY_ALMANAC` and `ALMANAC_UPDATE_MODE` (3.0.0; the 2.x `ALMANAC_SELF_UPDATE` still works with a warning);
 everything else arrives from Latch at startup. Measured from both sides
 on 2026-09-03 — this session via `latch run`, the homelab via the
 child's `/proc/<pid>/environ` — after the homelab's first two checks

@@ -323,6 +323,20 @@ impl AppState {
         captures
     }
 
+    /// How many captures are still within their TTL right now, without
+    /// waiting on the lock (3.0.0: the kit's update gate asks this from a
+    /// synchronous closure). `None` while a reader holds the buffer — the
+    /// caller treats that as "busy", which is also a reason not to restart.
+    pub fn captures_retained_now(&self) -> Option<usize> {
+        let mut captures = self.captures.try_lock().ok()?;
+        crate::core::observability::expire_captures(
+            &mut captures,
+            (self.now_unix)(),
+            crate::shell::admin::CAPTURE_TTL_SECS,
+        );
+        Some(captures.len())
+    }
+
     /// Sets the capture-only token (S2). A builder method rather than
     /// another constructor argument: only `main` supplies it, and
     /// reading the environment from inside the constructor would give

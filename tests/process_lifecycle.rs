@@ -71,6 +71,9 @@ const BLACKHOLED_TOKEN_URL: &str = "http://127.0.0.1:1/token";
 fn spawn(dir: &std::path::Path, key: &str, token_url: &str, extra: &[(&str, &str)]) -> Child {
     let mut command = Command::new(env!("CARGO_BIN_EXE_almanac"));
     command
+        .env("ALMANAC_STATE_DIR", dir)
+        // 3.0.0: the kit binds; `0` picks a free port so parallel tests never collide.
+        .env("ALMANAC_LISTEN", "127.0.0.1:0")
         .env("ALMANAC_PROFILES_DIR", dir)
         .env("ALMANAC_DATA_DIR", dir)
         .env("ALMANAC_JOURNAL", dir.join("journal.jsonl"))
@@ -230,6 +233,8 @@ fn check_mode_runs_against_a_live_instance_without_disturbing_it() {
 
     let check = Command::new(env!("CARGO_BIN_EXE_almanac"))
         .arg("--check")
+        .env("ALMANAC_STATE_DIR", &dir)
+        .env("ALMANAC_LISTEN", "127.0.0.1:0")
         .env("ALMANAC_PROFILES_DIR", &dir)
         .env("ALMANAC_DATA_DIR", &dir)
         .env("ALMANAC_JOURNAL", dir.join("journal.jsonl"))
@@ -303,7 +308,7 @@ async fn sigterm_stops_it_cleanly_after_it_is_serving() {
         &dir,
         &key,
         &token_url,
-        &[("ALMANAC_BIND", &format!("127.0.0.1:{port}"))],
+        &[("ALMANAC_LISTEN", &format!("127.0.0.1:{port}"))],
     );
 
     let health = format!("http://127.0.0.1:{port}/healthz");
@@ -349,9 +354,11 @@ async fn sigterm_stops_it_cleanly_after_it_is_serving() {
         "a graceful stop must exit zero, got {:?}:\n{printed}",
         output.status
     );
+    // 3.0.0: the kit logs the stop ("stopped drained=true"); almanac's own
+    // lines below still prove the drain ran and finished.
     assert!(
-        printed.contains("received SIGTERM"),
-        "the signal should be visible in the log:\n{printed}"
+        printed.contains("stopped"),
+        "the stop should be visible in the log:\n{printed}"
     );
     assert!(
         printed.contains("draining the worker"),

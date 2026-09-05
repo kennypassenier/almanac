@@ -25,5 +25,4 @@ pub mod request;
 pub mod retry;
 pub mod secrets;
 pub mod token;
-pub mod update;
 pub mod upsert;

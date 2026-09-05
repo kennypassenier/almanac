@@ -44,10 +44,17 @@ target_calendar_id = "primary"
 fn run_with(dir: &std::path::Path, extra: &[(&str, &str)]) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_almanac"));
     command
+        .env("ALMANAC_STATE_DIR", dir)
+        // 3.0.0: the kit binds; `0` picks a free port so parallel tests never collide.
+        .env("ALMANAC_LISTEN", "127.0.0.1:0")
         .env("ALMANAC_PROFILES_DIR", dir)
         .env("ALMANAC_DATA_DIR", dir)
         .env("ALMANAC_JOURNAL", dir.join("journal.jsonl"))
         .env("ALMANAC_TOKEN_STORE", dir.join("tokens.json"))
+        // 3.0.0: the token store is opened before the Google credentials are
+        // tried, so the key that seals it must be present for the auth
+        // failure to be the failure under test.
+        .env("ALMANAC_SECRET_KEY", "1".repeat(64))
         .env("CLIENT_EMAIL", "test@example.iam.gserviceaccount.com")
         .env("PRIVATE_KEY", "not-a-key")
         .env("TOKEN_URI", "https://oauth2.googleapis.com/token");
@@ -133,33 +140,5 @@ fn the_bootstrap_token_never_reaches_the_output() {
     assert!(
         !printed.contains(marker),
         "the bootstrap token leaked into process output:\n{printed}"
-    );
-}
-
-#[test]
-fn no_secret_is_passed_as_a_command_line_argument() {
-    // K12 says "never in process arguments" as well as never in logs,
-    // and that half was asserted nowhere. Anything on argv is readable
-    // by every user on the box through /proc, so this is a different
-    // exposure from logging and needs its own check.
-    //
-    // Almanac takes exactly one argument, `--check`, and never
-    // constructs a command line carrying a secret. The `--check` probe
-    // in the self-updater is the only place it spawns anything, and it
-    // passes credentials through the inherited environment.
-    let dir = scratch("argv");
-    let source =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shell/update.rs"))
-            .unwrap();
-    std::fs::remove_dir_all(&dir).ok();
-
-    // The one spawn site: assert it passes only the check flag.
-    assert!(
-        source.contains(".arg(CHECK_ARG)"),
-        "the probe must pass only --check"
-    );
-    assert!(
-        !source.contains(".arg(&token") && !source.contains(".arg(key"),
-        "no secret may be handed to a child process on its command line"
     );
 }

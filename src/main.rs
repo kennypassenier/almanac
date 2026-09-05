@@ -1,383 +1,249 @@
-//! Almanac — event-to-calendar hub.
+//! Almanac — event-to-calendar hub. On chassis since 3.0.0: the kit owns
+//! the command line, the transport knobs, logging, `/healthz`, `/metrics`,
+//! readiness, the graceful stop and signed self-update. This file assembles
+//! Almanac on top of it.
 //!
-//! Startup order matters: everything that can be checked without side
-//! effects is checked before the listener binds, so a misconfigured
-//! process fails immediately and visibly rather than accepting traffic
-//! it cannot serve.
+//! Startup order still matters: everything that can be checked without
+//! side effects — profiles, the credentials Latch injects, the key that
+//! opens the token store, the journal — is checked before the kit binds, so
+//! a misconfigured process fails immediately and visibly. What needs the
+//! network (authenticating against Google, AR21) runs AFTER the bind, so a
+//! power cut that starts Almanac before the network settles never parks
+//! the unit: it serves, the journal accepts events, and delivery starts
+//! the moment Google answers.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
+use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
-use almanac::core::paths::Paths;
+use almanac::core::paths::{self, Paths};
 use almanac::core::token::hash_token;
 use almanac::shell;
-use almanac::shell::admin::BOOTSTRAP_TOKEN_ENV;
+use almanac::shell::admin::{BOOTSTRAP_TOKEN_ENV, CAPTURE_TOKEN_ENV};
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
 use almanac::shell::datadir::DataDirLock;
 use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::kit::{AlmanacMetrics, JournalSubsystem};
 use almanac::shell::notify::Notifier;
 use almanac::shell::token_store::TokenStore;
-use almanac::shell::update::{self, Startup, Updater};
+use axum::Router;
+use chassis::{App, AppSpec, Control};
 use tokio::sync::watch;
-use tracing_subscriber::EnvFilter;
-
-/// How long a freshly-installed version has to stay up before the
-/// update is confirmed and the previous binary stops being a fallback
-/// (AR23). Long enough to cover a panic on the first request or a
-/// worker that dies on its first drain; short enough that an ordinary
-/// update is settled within a minute.
-const HEALTH_CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Backoff between startup authentication attempts, in seconds; the
 /// last value repeats. Never gives up: a wedged unit that nobody
 /// restarts is worse than one that keeps trying quietly (AR21).
 const STARTUP_RETRY_WAITS: [u64; 5] = [2, 5, 15, 60, 300];
 
-/// Where the listener binds. Configurable because it had to be
-/// hardcoded to test the graceful shutdown at all — and because a
-/// fixed port means two instances cannot coexist even briefly, and
-/// changing it needs a rebuild. The default is unchanged.
-const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
+/// What `--help` says beyond the kit's knobs: Almanac's own environment.
+const HELP_EXTRA: &str = "Almanac's own environment (read next to the knobs above):
+  ALMANAC_SECRET_KEY            64 hex chars; seals the token store (mandatory)
+  ALMANAC_BOOTSTRAP_TOKEN       dashboard login and admin bearer; unset = admin surface refuses
+  ALMANAC_CAPTURE_TOKEN         capture-only credential for a system under investigation (S2)
+  ALMANAC_NOTIFY_WEBHOOK        Home Assistant webhook for almanac's own notifications
+  ALMANAC_HEARTBEAT_INTERVAL_SECS  one heartbeat line per interval (default 3600, 0 = off)
+  ALMANAC_CALENDAR_OWNER        who new calendars are shared with
+  ALMANAC_PROFILES_DIR, _DATA_DIR, _JOURNAL, _TOKEN_STORE  2.x per-path overrides of the
+                                state root (deprecated; derived from ALMANAC_STATE_DIR)
+  CLIENT_EMAIL, PRIVATE_KEY, TOKEN_URI  the Google service account, injected by `latch run --`
+  ALMANAC_BIND, ALMANAC_SELF_UPDATE, RUST_LOG  2.x names of ALMANAC_LISTEN, ALMANAC_UPDATE_MODE
+                                and ALMANAC_LOG; still honoured, with a warning";
 
-fn bind_address() -> String {
-    std::env::var("ALMANAC_BIND").unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string())
-}
-
-fn die(e: impl std::fmt::Display) -> ! {
+fn die(e: impl std::fmt::Display) -> ExitCode {
     eprintln!("{e}");
-    std::process::exit(1);
+    ExitCode::FAILURE
 }
 
-/// K20. Every path, from one place. Resolved on each call rather than
-/// cached, because the callers are a handful of one-shot startup paths
-/// and a stale copy of "where my state lives" is a worse bargain than
-/// re-reading four environment variables.
-fn paths() -> Paths {
-    Paths::resolve(|key| std::env::var(key).ok())
-}
-
-fn profiles_dir() -> PathBuf {
-    paths().profiles_dir
-}
-
-fn data_dir() -> PathBuf {
-    paths().data_dir
-}
-
-fn token_store_path() -> PathBuf {
-    paths().token_store
-}
-
-/// `--check` (AR22): prove this binary can start on this machine, then
-/// exit, without claiming the port or the data-directory lock that the
-/// running process still holds.
-///
-/// It deliberately checks everything that can differ between versions
-/// on one machine — profiles, the secrets Latch injects, the key that
-/// opens the token store — and deliberately touches no network, so the
-/// answer is about this build and this configuration rather than about
-/// whether Google happens to be reachable this second.
-async fn check_mode() -> ! {
-    let version = env!("CARGO_PKG_VERSION");
-
-    // Reported, not fatal: --check answers "can this binary run here",
-    // and an unusable profile is a source that will not be served, not
-    // a reason the process cannot start. It says so and carries on.
-    for unusable in shell::profiles::load_all(&profiles_dir()).unusable {
-        eprintln!(
-            "--check: profile not usable: {} — {}",
-            unusable.path.display(),
-            unusable.reason
+/// The 2.x names, mapped onto the kit's knobs on the environment snapshot
+/// (never `set_var`, which is unsound once threads exist). Returns what to
+/// say about it once logging is up — standing rule 12: no silent
+/// substitution.
+fn compat(env: &mut BTreeMap<String, String>) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !env.contains_key("ALMANAC_LISTEN")
+        && let Some(bind) = env.get("ALMANAC_BIND").cloned()
+    {
+        env.insert("ALMANAC_LISTEN".to_string(), bind);
+        warnings.push(
+            "ALMANAC_BIND is the 2.x name of ALMANAC_LISTEN; it still works, rename it in the \
+             environment file — the alias goes away in 4.0"
+                .to_string(),
         );
     }
-    if let Err(e) = load_credentials() {
-        die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
+    if !env.contains_key("ALMANAC_UPDATE_MODE")
+        && let Some(raw) = env.get("ALMANAC_SELF_UPDATE").cloned()
+    {
+        let mode = match raw.trim().to_ascii_lowercase().as_str() {
+            "on" | "true" | "1" | "yes" => "autonomous",
+            _ => "off",
+        };
+        env.insert("ALMANAC_UPDATE_MODE".to_string(), mode.to_string());
+        warnings.push(format!(
+            "ALMANAC_SELF_UPDATE={raw} is the 2.x knob; it now means ALMANAC_UPDATE_MODE={mode} \
+             (off | supervised | autonomous) — set that instead, the alias goes away in 4.0"
+        ));
     }
-    match TokenStore::load(token_store_path()) {
-        Ok(store) => {
-            if let Err(e) = store.verify_key_opens_store().await {
-                die(format!("--check failed: {e}\n  remedy: {}", e.remedy()));
-            }
-        }
-        Err(e) => die(format!("--check failed: {e}\n  remedy: {}", e.remedy())),
-    }
-
-    println!("almanac {version} --check: ok");
-    std::process::exit(0);
-}
-
-/// K19 — `almanac update`: one update, no restart, for a supervisor
-/// that owns both.
-///
-/// Exits 0 when there was nothing to do AND when a new version was
-/// installed, because neither is a failure and the caller decides what
-/// happens next by looking at the binary. Exits 1 only when the attempt
-/// itself failed, which is the homelab's signal to leave the service on
-/// the version it is already running.
-async fn supervised_update() {
-    let http = reqwest::Client::new();
-    let notifier = Notifier::from_env(http.clone());
-
-    let updater = match Updater::for_command(http, notifier, data_dir()) {
-        Ok(updater) => updater,
-        Err(e) => {
-            eprintln!("almanac update: {e}");
-            eprintln!("  remedy: {}", e.remedy());
-            std::process::exit(1)
-        }
-    };
-
-    match updater.supervised().check_once().await {
-        Ok(update::Outcome::UpToDate(version)) => {
-            println!("almanac update: already on {version}");
-            std::process::exit(0)
-        }
-        Ok(update::Outcome::Skipped(reason)) => {
-            println!("almanac update: an update was available but not installed — {reason}");
-            std::process::exit(0)
-        }
-        Ok(update::Outcome::Installed { from, to }) => {
-            println!(
-                "almanac update: installed {from} -> {to}; the binary changed, restart when ready"
-            );
-            std::process::exit(0)
-        }
-        Err(e) => {
-            eprintln!("almanac update failed: {e}");
-            eprintln!("  remedy: {}", e.remedy());
-            std::process::exit(1)
+    if let Some(url) = env.get("ALMANAC_UPDATE_URL").cloned() {
+        let trimmed = url.trim_end_matches('/');
+        if trimmed.ends_with("/releases") {
+            let fixed = format!("{trimmed}/latest/download");
+            env.insert("ALMANAC_UPDATE_URL".to_string(), fixed.clone());
+            warnings.push(format!(
+                "ALMANAC_UPDATE_URL={url} has the 2.x shape; the kit wants the directory holding \
+                 VERSION and SHA256SUMS, so {fixed} is used — set that, or unset it to derive it \
+                 from the repository"
+            ));
         }
     }
-}
-
-/// `--version` / `-V`: print the compiled version and exit, touching
-/// nothing else.
-///
-/// Every other special mode — `--check`, `update` — needs the full
-/// production configuration, on purpose: they answer "can this binary
-/// run here", which is a question about this machine. "What version is
-/// this" is not, and answering it should not need `latch run`, a
-/// working directory next to `profiles/`, or `ALMANAC_NOTIFY_WEBHOOK`
-/// set. Before this existed, asking required starting the whole
-/// process — the homelab session hit exactly that running the binary
-/// by hand to sanity-check a deploy.
-///
-/// Answers about the file, not the process: under a supervised update
-/// (R12b) `almanac update` replaces this binary before the homelab
-/// restarts the unit, so for that window `--version` and `/healthz`
-/// can correctly disagree — `--version` already sees the new file,
-/// `/healthz` still reports the version actually serving traffic until
-/// the restart happens. Verifying what is running wants `/healthz`;
-/// this is for the file on disk.
-fn version_mode() -> ! {
-    println!("almanac {}", env!("CARGO_PKG_VERSION"));
-    std::process::exit(0);
+    if !env.contains_key("ALMANAC_LOG")
+        && let Some(filter) = env.get("RUST_LOG").cloned()
+    {
+        // A convention rather than an Almanac knob until 3.0.0; honoured quietly.
+        env.insert("ALMANAC_LOG".to_string(), filter);
+    }
+    warnings
 }
 
 #[tokio::main]
-async fn main() {
-    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
-        version_mode();
+async fn main() -> ExitCode {
+    let mut env: BTreeMap<String, String> = std::env::vars().collect();
+    let warnings = compat(&mut env);
+
+    let spec = AppSpec {
+        name: "almanac",
+        version: env!("CARGO_PKG_VERSION"),
+        repository: Some("kennypassenier/almanac"),
+        help_extra: Some(HELP_EXTRA),
+        ..Default::default()
+    };
+    let args: Vec<String> = std::env::args().collect();
+    // The routes need the state, which needs the paths the kit resolves —
+    // so the router is attached below, as public routes with Almanac's own
+    // door policy (bearer tokens, the session cookie) inside them.
+    let mut app = match App::from_args_with_env(spec, args, env.clone(), Router::new()) {
+        Ok(app) => app,
+        Err(e) => return die(e),
+    };
+    if !app.needs_project_config() {
+        // --version, --help, --healthcheck, --print-config, gen-secret,
+        // update, rekey: the kit's alone, and they must work without
+        // Latch, a token store or a profiles directory.
+        return app.run().await;
+    }
+    let checking = matches!(app.control, Some(Control::Check));
+    let state_dir = app
+        .loaded
+        .as_ref()
+        .expect("a start or --check loads configuration")
+        .state_dir
+        .clone();
+    // K20: every path from one place — the kit's root — with the 2.x
+    // per-path overrides still honoured (deprecated, see --help).
+    let paths = Paths::resolve(|key| {
+        if key == paths::STATE_DIR_ENV {
+            Some(state_dir.display().to_string())
+        } else {
+            env.get(key).cloned()
+        }
+    });
+
+    // The pre-flight `--check` and a start share (AR22): everything that
+    // can differ between versions on one machine, and nothing that needs
+    // the network or disturbs a running instance (no lock, no port).
+    let loaded = shell::profiles::load_all(&paths.profiles_dir);
+    if checking {
+        // Reported, not fatal: an unusable profile is a source that will
+        // not be served, not a reason the process cannot start.
+        for unusable in &loaded.unusable {
+            eprintln!(
+                "--check: profile not usable: {} — {}",
+                unusable.path.display(),
+                unusable.reason
+            );
+        }
+    }
+    let credentials = match load_credentials() {
+        Ok(credentials) => credentials,
+        Err(e) => return die(format!("{e}\n  remedy: {}", e.remedy())),
+    };
+    // The encrypted token store is the only authority on who may post
+    // (AR17 as amended). It refuses to load without its key rather than
+    // falling back to something unencrypted, and the key is proven to open
+    // it before anything is served (L3): a wrong key otherwise surfaces as
+    // every source getting a 401 against a store that looks intact.
+    let token_store = match TokenStore::load(paths.token_store.clone()) {
+        Ok(store) => store,
+        Err(e) => return die(format!("{e}\n  remedy: {}", e.remedy())),
+    };
+    if let Err(e) = token_store.verify_key_opens_store().await {
+        return die(format!("{e}\n  remedy: {}", e.remedy()));
+    }
+    if checking {
+        app.on_check(|| {
+            println!("almanac {} --check: ok", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        });
+        return app.run().await;
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
-
-    if std::env::args().any(|arg| arg == update::CHECK_ARG) {
-        check_mode().await;
-    }
-
-    // K19. Before the data-directory lock, deliberately: this runs
-    // while the service is up, and taking the lock would make it refuse
-    // to start against its own running instance. Nothing here touches
-    // the journal — it reads a release, verifies it, and replaces a
-    // file on disk.
-    if std::env::args().any(|arg| arg == update::UPDATE_ARG) {
-        supervised_update().await;
-    }
-
-    let data_dir = data_dir();
-
-    // AR22: take the data-directory lock before anything reads or
-    // writes the journal, and before the startup work that can take
-    // minutes — a self-update handover must not run two workers over
-    // one journal, and the second process should say so at once
-    // rather than after retrying Google for five minutes.
-    let _data_lock = match DataDirLock::acquire(&data_dir) {
+    // A real start. AR22: take the data-directory lock before anything
+    // reads or writes the journal — two processes over one journal is the
+    // one thing a supervised update handover must never produce.
+    let _data_lock = match DataDirLock::acquire(&paths.data_dir) {
         Ok(lock) => lock,
-        Err(e) => die(e),
+        Err(e) => return die(e),
     };
 
     let http = reqwest::Client::new();
     let notifier = Notifier::from_env(http.clone());
-
-    // AR23: settle a pending self-update before doing anything else.
-    // This start counts as the new version's attempt, and it is
-    // recorded now rather than later, so a version that dies in the
-    // next few lines is still reverted on the following start.
-    match update::handle_pending_update(
-        &data_dir,
-        &std::env::current_exe().unwrap_or_else(|_| PathBuf::from("almanac")),
-        &notifier,
-    )
-    .await
-    {
-        Startup::Reverted => {
-            tracing::error!(
-                "the previous binary is back in place; exiting so the supervisor starts it"
-            );
-            std::process::exit(0);
-        }
-        Startup::OnProbation | Startup::Continue => {}
-    }
-
-    // Profiles first: a typo in a profile should stop the process
-    // before it has authenticated against anything (M4).
-    let profiles_dir = profiles_dir();
-    let loaded = shell::profiles::load_all(&profiles_dir);
-
-    // Reported one line per file, at error level: an unusable profile
-    // is a source that is NOT being served, and the quietest possible
-    // failure would be a count that simply came out lower than
-    // expected. They are also listed on the dashboard, where they can
-    // be deleted — which is why refusing to start over one would be
-    // exactly the wrong move: the way to fix it is the thing that
-    // would not have started.
-    for unusable in &loaded.unusable {
-        tracing::error!(
-            path = %unusable.path.display(),
-            reason = %unusable.reason,
-            "a profile could not be used; this source is not being served"
-        );
-    }
-
-    let profiles = loaded.profiles;
-    if profiles.is_empty() {
-        // Serving nothing is a legitimate state, not a failure: it is
-        // what a fresh machine looks like before anyone has added a
-        // source, and the dashboard is how they add one.
-        tracing::warn!(
-            directory = %profiles_dir.display(),
-            unusable = loaded.unusable.len(),
-            "no usable mapping profiles — almanac is serving no sources; add one from /dashboard/sources"
-        );
-    } else {
-        tracing::info!(
-            count = profiles.len(),
-            unusable = loaded.unusable.len(),
-            sources = ?profiles.iter().map(|p| p.source_id.as_str()).collect::<Vec<_>>(),
-            "loaded mapping profiles"
-        );
-    }
-    let profiles: HashMap<String, _> = profiles
+    let unusable = loaded.unusable;
+    let profile_names: Vec<String> = loaded
+        .profiles
+        .iter()
+        .map(|p| p.source_id.clone())
+        .collect();
+    let profiles: HashMap<String, _> = loaded
+        .profiles
         .into_iter()
         .map(|p| (p.source_id.clone(), p))
         .collect();
 
-    let credentials = match load_credentials() {
-        Ok(credentials) => credentials,
-        Err(e) => die(e),
-    };
-
-    // One set of counters for the whole process: the token manager is
-    // built here, well before the shared state exists, and both have to
-    // count into the same place (M13).
+    // One set of counters for the whole process (M13).
     let metrics = Arc::new(almanac::core::metrics::Metrics::default());
     let tokens = TokenManager::with_metrics(http.clone(), credentials, Arc::clone(&metrics));
+    let tokens = Arc::new(tokens);
 
-    // AR21: distinguish a broken key from an unreachable Google. A
-    // malformed key never fixes itself, so exit. A transient failure —
-    // which is exactly what a power cut produces, when the LXC starts
-    // Almanac before the network settles — must not park the unit in
-    // `failed` forever with nobody watching. Keep trying instead.
-    let mut attempt = 0u32;
-    loop {
-        match tokens.token().await {
-            Ok(_) => {
-                tracing::info!("authenticated against Google");
-                break;
-            }
-            Err(e) if !e.is_transient() => die(e),
-            Err(e) => {
-                attempt += 1;
-                let wait =
-                    STARTUP_RETRY_WAITS[(attempt as usize - 1).min(STARTUP_RETRY_WAITS.len() - 1)];
-                tracing::warn!(
-                    attempt,
-                    wait_seconds = wait,
-                    error = %e,
-                    "could not reach Google yet; retrying — the service stays up and the journal \
-                     accepts events meanwhile"
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-            }
-        }
-    }
-
-    let journal_path = paths().journal;
-    // Absent means the admin surface (K11/M11/M9) refuses every
-    // request rather than opening up; the ingest paths are unaffected.
-    let bootstrap_token_hash = match std::env::var(BOOTSTRAP_TOKEN_ENV) {
-        Ok(token) if !token.trim().is_empty() => Some(hash_token(token.trim())),
-        _ => {
-            tracing::warn!(
-                "{BOOTSTRAP_TOKEN_ENV} is not set — the debug and capture surfaces will refuse \
-                 every request. Set it via `latch run --` to use them."
-            );
-            None
-        }
-    };
-
-    // The encrypted token store is the only authority on who may post
-    // (AR17 as amended). It refuses to load without its key rather than
-    // falling back to something unencrypted.
-    let token_store = match TokenStore::load(token_store_path()) {
-        Ok(store) => store,
-        Err(e) => die(e),
-    };
-
-    // Prove the key opens the store before serving anything (L3): a
-    // wrong key otherwise surfaces as every source getting a 401
-    // against a store that looks intact.
-    if let Err(e) = token_store.verify_key_opens_store().await {
-        die(e);
-    }
-
-    // S2: a capture-only credential, so learning what an unknown
-    // webhook sends never requires handing that system the token that
-    // also logs into the dashboard.
-    let capture_token_hash = match std::env::var(almanac::shell::admin::CAPTURE_TOKEN_ENV) {
-        Ok(token) if !token.trim().is_empty() => Some(hash_token(token.trim())),
-        _ => {
-            tracing::info!(
-                "{} is not set — posting a capture needs the bootstrap token, which is also the \
-                 dashboard login. Set a capture token before pointing a third-party system at the \
-                 capture endpoint.",
-                almanac::shell::admin::CAPTURE_TOKEN_ENV
-            );
-            None
-        }
-    };
+    // Absent means the admin surface (K11/M11/M9) refuses every request
+    // rather than opening up; the ingest paths are unaffected.
+    let bootstrap_token_hash = env
+        .get(BOOTSTRAP_TOKEN_ENV)
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(hash_token);
+    // S2: a capture-only credential, so learning what an unknown webhook
+    // sends never requires handing that system the dashboard token.
+    let capture_token_hash = env
+        .get(CAPTURE_TOKEN_ENV)
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(hash_token);
+    let bootstrap_set = bootstrap_token_hash.is_some();
+    let capture_set = capture_token_hash.is_some();
 
     let state = Arc::new(
         AppState::new(
             profiles,
-            Journal::new(journal_path.clone(), DEFAULT_MAX_BYTES),
-            GoogleCalendarClient::new(http.clone(), tokens),
+            Journal::new(paths.journal.clone(), DEFAULT_MAX_BYTES),
+            GoogleCalendarClient::new(http.clone(), Arc::clone(&tokens)),
             bootstrap_token_hash,
             token_store,
         )
         .with_capture_token(capture_token_hash)
-        .with_profiles_dir(profiles_dir.clone())
+        .with_profiles_dir(paths.profiles_dir.clone())
         .with_calendar_owner(
-            std::env::var("ALMANAC_CALENDAR_OWNER")
-                .ok()
+            env.get("ALMANAC_CALENDAR_OWNER")
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty()),
         )
@@ -386,117 +252,163 @@ async fn main() {
 
     // Surface a damaged journal before binding rather than letting the
     // worker discover it a few seconds later.
-    match state.journal.pending() {
-        Ok(pending) if !pending.is_empty() => {
-            tracing::info!(
-                count = pending.len(),
-                journal = %journal_path.display(),
-                "journal holds undelivered entries from a previous run; they go out first"
-            );
-        }
-        Ok(_) => {}
-        Err(e) => die(e),
+    let pending = match state.journal.pending() {
+        Ok(pending) => pending.len(),
+        Err(e) => return die(e),
+    };
+
+    app.subsystem(JournalSubsystem(Arc::clone(&state)));
+    app.metrics_source(AlmanacMetrics(Arc::clone(&state)));
+    // AR25: never restart under an investigation. The kit's autonomous
+    // loop asks before every check; a retained capture defers it.
+    {
+        let state = Arc::clone(&state);
+        app.update_gate(move || match state.captures_retained_now() {
+            Some(0) => None,
+            Some(n) => Some(format!("{n} capture(s) still retained (AR25)")),
+            None => Some("the capture buffer is in use (AR25)".to_string()),
+        });
     }
+    // Public as far as the kit is concerned: ingest carries per-source
+    // bearer tokens, admin the bootstrap token, the dashboard its cookie.
+    app.api_routes(shell::build_router(Arc::clone(&state)));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let worker = tokio::spawn(shell::worker::run(
-        Arc::clone(&state),
-        shutdown_rx.clone(),
-        notifier.clone(),
-    ));
-
-    // M14: one line per interval, so a silent almanac and a wedged one
-    // are distinguishable. Started before the listener so the first
-    // interval is measured from the same moment the rest of the process
-    // begins, not from whenever binding happened to finish.
-    match shell::heartbeat::interval_from(|key| std::env::var(key).ok()) {
-        Some(every) => {
-            tokio::spawn(shell::heartbeat::run(
-                Arc::clone(&state),
-                shutdown_rx.clone(),
-                every,
-            ));
-        }
-        None => tracing::info!(
-            "{} is 0 — no heartbeat line will be written",
-            shell::heartbeat::INTERVAL_ENV
-        ),
-    }
-
-    let bind_address = bind_address();
-    let listener = match tokio::net::TcpListener::bind(&bind_address).await {
-        Ok(listener) => listener,
-        Err(e) => die(format!(
-            "failed to bind {bind_address}: {e} — is another process already using this port?"
-        )),
-    };
-    tracing::info!(address = %bind_address, "almanac listening");
-
-    // AR23: the listener is up, so a freshly-installed version has
-    // done the one thing a broken one cannot. Confirm it after a
-    // settling period rather than immediately, so a version that binds
-    // and then panics on its first request is still reverted.
-    let confirm_dir = data_dir.clone();
-    let confirm_notifier = notifier.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(HEALTH_CONFIRM_DELAY).await;
-        update::confirm_healthy(&confirm_dir, &confirm_notifier).await;
-    });
-
-    // M10: check for new releases in the background. Configuration
-    // decides whether this does anything at all — no URL, no compiled
-    // release key, or ALMANAC_SELF_UPDATE=off and it never runs.
-    if let Some(updater) = Updater::from_env(http, notifier.clone(), data_dir.clone()) {
-        tokio::spawn(shell::update::run(
-            updater,
-            Arc::clone(&state),
-            shutdown_rx.clone(),
-        ));
-    }
-
-    let router = shell::build_router(state);
-    let server = axum::serve(listener, router).with_graceful_shutdown(shutdown_signal());
-
-    if let Err(e) = server.await {
-        tracing::error!(error = %e, "server terminated unexpectedly");
-    }
-
-    // M2: the listener has stopped accepting and in-flight requests
-    // have finished. Tell the worker to drain what they journalled
-    // before the process exits.
-    tracing::info!("http server stopped; draining the worker");
-    let _ = shutdown_tx.send(true);
-    if let Err(e) = worker.await {
-        tracing::warn!(error = %e, "worker did not shut down cleanly");
-    }
-    tracing::info!("almanac stopped");
-}
-
-/// Resolves on SIGTERM (what systemd and `docker stop` send) or
-/// SIGINT (Ctrl-C), so a restart or redeploy finishes in-flight
-/// requests instead of cutting them off mid-write (M2).
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        if let Err(e) = tokio::signal::ctrl_c().await {
-            tracing::warn!(error = %e, "failed to listen for Ctrl-C");
-        }
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => {
-                signal.recv().await;
+    let worker: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
+    {
+        let state = Arc::clone(&state);
+        let worker = Arc::clone(&worker);
+        let notifier = notifier.clone();
+        let shutdown_rx = shutdown_rx.clone();
+        let profiles_dir = paths.profiles_dir.clone();
+        let journal_path = paths.journal.clone();
+        let heartbeat_env = env.clone();
+        app.on_start(move || {
+            for warning in warnings {
+                tracing::warn!("{warning}");
             }
-            Err(e) => tracing::warn!(error = %e, "failed to listen for SIGTERM"),
-        }
-    };
+            // One line per unusable file, at error level: the quietest
+            // possible failure would be a count that simply came out lower
+            // than expected. They are also listed on the dashboard, where
+            // they can be deleted — which is why refusing to start over one
+            // would be exactly the wrong move.
+            for unusable in &unusable {
+                tracing::error!(
+                    path = %unusable.path.display(),
+                    reason = %unusable.reason,
+                    "a profile could not be used; this source is not being served"
+                );
+            }
+            if profile_names.is_empty() {
+                tracing::warn!(
+                    directory = %profiles_dir.display(),
+                    unusable = unusable.len(),
+                    "no usable mapping profiles — almanac is serving no sources; add one from /dashboard/sources"
+                );
+            } else {
+                tracing::info!(
+                    count = profile_names.len(),
+                    unusable = unusable.len(),
+                    sources = ?profile_names,
+                    "loaded mapping profiles"
+                );
+            }
+            if pending > 0 {
+                tracing::info!(
+                    count = pending,
+                    journal = %journal_path.display(),
+                    "journal holds undelivered entries from a previous run; they go out first"
+                );
+            }
+            if !bootstrap_set {
+                tracing::warn!(
+                    "{BOOTSTRAP_TOKEN_ENV} is not set — the debug and capture surfaces will refuse \
+                     every request. Set it via `latch run --` to use them."
+                );
+            }
+            if !capture_set {
+                tracing::info!(
+                    "{CAPTURE_TOKEN_ENV} is not set — posting a capture needs the bootstrap token, \
+                     which is also the dashboard login. Set a capture token before pointing a \
+                     third-party system at the capture endpoint."
+                );
+            }
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+            // M14: one line per interval, so a silent almanac and a wedged
+            // one are distinguishable.
+            match shell::heartbeat::interval_from(|key| heartbeat_env.get(key).cloned()) {
+                Some(every) => {
+                    tokio::spawn(shell::heartbeat::run(
+                        Arc::clone(&state),
+                        shutdown_rx.clone(),
+                        every,
+                    ));
+                }
+                None => tracing::info!(
+                    "{} is 0 — no heartbeat line will be written",
+                    shell::heartbeat::INTERVAL_ENV
+                ),
+            }
 
-    tokio::select! {
-        _ = ctrl_c => tracing::info!("received Ctrl-C"),
-        _ = terminate => tracing::info!("received SIGTERM"),
+            // AR21: distinguish a broken key from an unreachable Google. A
+            // malformed key never fixes itself, so exit (the supervisor
+            // restarts and the log says why). A transient failure — which
+            // is exactly what a power cut produces — must not park the
+            // unit: keep trying, and start delivering once it works. The
+            // listener is already up, so the journal accepts events
+            // meanwhile.
+            tokio::spawn(async move {
+                let mut attempt = 0u32;
+                loop {
+                    match tokens.token().await {
+                        Ok(_) => {
+                            tracing::info!("authenticated against Google");
+                            break;
+                        }
+                        Err(e) if !e.is_transient() => {
+                            tracing::error!(
+                                error = %e,
+                                remedy = %e.remedy(),
+                                "the Google credentials are unusable; exiting so the supervisor's log shows it"
+                            );
+                            eprintln!("{e}\n  remedy: {}", e.remedy());
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            attempt += 1;
+                            let wait = STARTUP_RETRY_WAITS
+                                [(attempt as usize - 1).min(STARTUP_RETRY_WAITS.len() - 1)];
+                            tracing::warn!(
+                                attempt,
+                                wait_seconds = wait,
+                                error = %e,
+                                "could not reach Google yet; retrying — the service stays up and the journal \
+                                 accepts events meanwhile"
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                        }
+                    }
+                }
+                let handle = tokio::spawn(shell::worker::run(state, shutdown_rx, notifier));
+                *worker.lock().expect("worker slot") = Some(handle);
+            });
+        });
     }
+    // M2: the listener has stopped accepting and in-flight requests have
+    // finished. Tell the worker to drain what they journalled before the
+    // process exits; the kit bounds this by its shutdown budget.
+    app.on_flush(move || {
+        tracing::info!("http server stopped; draining the worker");
+        let _ = shutdown_tx.send(true);
+        let handle = worker.lock().expect("worker slot").take();
+        if let Some(handle) = handle {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = handle.await {
+                    tracing::warn!(error = %e, "worker did not shut down cleanly");
+                }
+            });
+        }
+        tracing::info!("almanac stopped");
+    });
+    app.run().await
 }

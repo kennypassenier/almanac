@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
@@ -126,55 +125,6 @@ fn authorize_capture(state: &AppState, headers: &HeaderMap) -> Result<(), Reply>
              because it cannot do anything else",
         )
     })
-}
-
-/// `GET /healthz` (M1) — deliberately unauthenticated and dependency-
-/// free. It answers "this process is alive and serving", nothing more:
-/// reporting Google's reachability here would make the health check go
-/// red during an outage Almanac is designed to ride out via the
-/// journal, which would be a lie about Almanac's own state.
-async fn healthz() -> Reply {
-    (
-        StatusCode::OK,
-        Json(json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")})),
-    )
-}
-
-/// `GET /metrics` (M13) — the Prometheus scrape target.
-///
-/// Unauthenticated, like `/healthz` and for the same reason M12 gives:
-/// monitoring must not fail closed. A scraper that cannot authenticate
-/// reports the service as down, which is a lie that costs an evening.
-/// The output is numbers only — see the tests in `core::metrics` — so
-/// there is nothing here a token would protect.
-///
-/// The journal depth is read per scrape rather than tracked, because a
-/// counter of "how many are pending" drifts from the file the moment a
-/// replay, a compaction or a restart touches it, and the number is only
-/// worth having if it is true.
-async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let pending = match state.journal.pending() {
-        Ok(entries) => Some(entries.len() as u64),
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "could not read the journal for a metrics scrape; reporting it as unreadable                  rather than as empty"
-            );
-            None
-        }
-    };
-
-    (
-        StatusCode::OK,
-        // The exposition format's own content type. Prometheus is
-        // forgiving about it, but Grafana Agent and the textfile
-        // collectors are not.
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
-        )],
-        state.metrics.render(pending, env!("CARGO_PKG_VERSION")),
-    )
 }
 
 /// `GET /v1/debug/status` (K11) — what is loaded, what is waiting, and
@@ -333,8 +283,6 @@ async fn dry_run(
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/healthz", axum::routing::get(healthz))
-        .route("/metrics", axum::routing::get(metrics))
         .route("/v1/debug/status", axum::routing::get(debug_status))
         .route(
             "/v1/debug/capture/{label}",

@@ -42,7 +42,8 @@ COPY --from=builder /app/target/release/almanac /usr/local/bin/almanac
 RUN mkdir -p /var/lib/almanac /etc/almanac/profiles
 WORKDIR /var/lib/almanac
 
-ENV ALMANAC_PROFILES_DIR=/etc/almanac/profiles \
+ENV ALMANAC_STATE_DIR=/var/lib/almanac \
+    ALMANAC_PROFILES_DIR=/etc/almanac/profiles \
     ALMANAC_DATA_DIR=/var/lib/almanac \
     ALMANAC_JOURNAL=/var/lib/almanac/journal.jsonl \
     ALMANAC_TOKEN_STORE=/var/lib/almanac/tokens.json
