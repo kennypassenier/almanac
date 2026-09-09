@@ -17,9 +17,9 @@ Phase 5.)
 
 | Field | Value |
 |---|---|
-| Current phase | done — **4.0.2 live on CT 112 since 2026-09-06 19:01 UTC** (chassis-rs 1.7.0): one Sources page on the kit (name + calendar in the issue form, profile and token in one go), Calendars page at `/calendars`, scaffold synced, three reviewed `deny_ignore` advisories. 4.0.1 kept as `/opt/almanac/bin/almanac.4.0.1`, 3.0.0 as `almanac.3.0.0` |
-| Last completed gate | chassis-rs form S1/S2 (2026-09-06 21:30): one Sources page via the kit's issue-form fields and hooks, no schema column; kit 1.7.0 first, then this 4.0.2 — run from the chassis-rs session with Kenny's rule 7a suspension |
-| Next gate | Kenny's CF-8 measurement from Chrome on almanac.kp-soft.dev: one Sources page (calendar column by name), Calendars page with the id behind a toggle, no horizontal scroll; then the chassis-rs report form. Open: `latch push` of the almanac secrets from a machine with a PAT; replacing `backoff`; theming with kp-themes |
+| Current phase | done — **v4.0.3 tagged and published unsigned 2026-09-09** (chassis-rs 1.8.0): `App::vocabulary("source", "sources")` replaces `clients_label`, the "Reload profiles from disk" form is now a `SectionAction` on the status page, `tests/common` wraps `chassis::testing::TestApp`, kp-themes 5.0.0 vendored with no template changes needed. 4.0.2 (chassis-rs 1.7.0) still live on CT 112 until the homelab's supervised update runs. |
+| Last completed gate | Release-report form (2026-09-09): tests/drill/choices agreed, R1's runbook fixed to describe `chassis release` (not the pre-3.0.0 flow), "Claude doet de keten, Kenny signeert" chosen — Claude ran the chain through the unsigned GitHub release, `scripts/sign-release.sh v4.0.3` is Kenny's |
+| Next gate | Kenny runs `scripts/sign-release.sh v4.0.3` (uploads `SHA256SUMS.minisig` + `VERSION`); then Homelab Rust's supervised `almanac update` on CT 112, and a chassis-rs correction about `TestApp::start_with_env`'s login-token caching — both queued as prompts for Kenny to hand to those sessions |
 | AFK mode | off since 2026-08-28 |
 | Updates | **the homelab owns them** since 2026-08-30. `ALMANAC_SELF_UPDATE=off` on CT 112; `stacks/almanac/service.yml` carries `update_cmd: runuser -u almanac -- /opt/almanac/almanac update`. Exactly one of the two may ever be armed |
 | Open, gated on Kenny | the reboot and self-update drills, the Traefik route (deliberately not assumed — every source is on the LAN), the service account's `cal-stacean` display name, and who owns updates once the homelab supervises CT 112 |
