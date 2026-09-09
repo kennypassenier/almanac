@@ -11,6 +11,16 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`deploy/service.yml`'s `update_cmd`** did not reproduce the two
+  `Environment=` lines the unit itself declares (`ALMANAC_STATE_DIR`,
+  `ALMANAC_TIMEOUT_STOP_SECS`), so a supervised `almanac update --check`
+  ran without them and misreported "the new version cannot start with
+  this machine's configuration" as a likely missing secret. Found live
+  on CT 112 during the 4.0.3 rollout (Homelab Rust); `update_cmd` now
+  sets both explicitly, matching the unit.
+
 ## [4.0.3] - 2026-09-09
 
 ### Changed

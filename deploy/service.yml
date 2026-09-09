@@ -1,9 +1,19 @@
 # The homelab's stack file for a native service (AR18; `homelab adopt`).
 # vmid and hostname are filled in at adoption: the hostname MUST be
 # <vmid>-app-<stack>, the homelab validates it. update_cmd reproduces the
-# unit line for line — same user, working directory and EnvironmentFile —
-# and waits for the result (critic #7), so "already current" is exit 0
-# without a restart and a failure carries its stderr.
+# unit line for line — same user, working directory, EnvironmentFile AND
+# every Environment= the unit declares — and waits for the result
+# (critic #7), so "already current" is exit 0 without a restart and a
+# failure carries its stderr.
+#
+# Found live on CT 112 (2026-09-09, Homelab Rust): update_cmd used to omit
+# the unit's own Environment= lines (ALMANAC_STATE_DIR,
+# ALMANAC_TIMEOUT_STOP_SECS — see deploy/almanac.service), so a supervised
+# `almanac update --check` ran with neither set, looked for profiles in the
+# binary's compiled-in default instead of this deployment's real state
+# root, and reported "the new version cannot start with this machine's
+# configuration" — a message that reads as a Latch/secrets problem and
+# is not. Fixed by listing them here explicitly, same as the unit does.
 stack_name: almanac
 vmid: 112
 hostname: 112-app-almanac
@@ -16,6 +26,8 @@ update_cmd: >-
   systemd-run --wait --pipe --collect --uid=almanac --gid=almanac
   --property=EnvironmentFile=/appdata/almanac/almanac-config/latch.env
   --property=WorkingDirectory=/appdata/almanac/almanac-config
+  --property=Environment=ALMANAC_STATE_DIR=/appdata/almanac/almanac-config
+  --property=Environment=ALMANAC_TIMEOUT_STOP_SECS=60
   /opt/almanac/bin/almanac update
 release_repo: kennypassenier/almanac
 release_asset: almanac
