@@ -12,34 +12,40 @@ exactly one way: self-update is off and homelab v2 owns updates.
 
 ## R1 · Cut a release
 
+Since the chassis-rs migration (3.0.0) this is the kit's own chain
+(standing rule 36's verified publish chain, built in), not a hand-run
+sequence of `make` targets and scripts:
+
 ```bash
-make tag-minor          # bumps Cargo.toml, commits, tags
-git push && git push --tags
-cargo build --release
-./scripts/sign-release.sh
-gh release create v<version> dist/v<version>/* --title v<version> --generate-notes
+chassis release <version>          # e.g. chassis release 4.0.3
 ```
 
-**`make tag-*` refuses to tag a commit whose CI is not green.** It runs
-`scripts/check-ci.sh` before touching anything — before the version
-bump, before the commit, before the tag. Red exits 1 and stops there;
-"still running", "no run found" and "cannot reach GitHub" all exit 2 and
-say which, because a guard that treats every network hiccup as a failure
-gets deleted and then guards nothing. To release anyway, deliberately:
-`ALMANAC_ALLOW_RED_CI=1 make tag-minor`.
+It bumps `Cargo.toml`, dates a `## [<version>]` section in
+`CHANGELOG.md` under `## [Unreleased]`, commits `chore(release): <version>
+[meta]`, pushes to a throwaway `release-<version>` branch (branch
+protection on `main` requires status checks that only exist once CI has
+run on a SHA — a direct push of a brand-new commit is refused, which is
+why the chain lands on a branch first: standing rule 6b), waits for that
+branch's CI, fast-forwards `main` to it and deletes the branch, tags the
+merge commit, pushes the tag, and waits for the `Release` workflow
+(`.github/workflows/release.yml`) to build the binary, write
+`SHA256SUMS`, push the container image and publish the (still unsigned)
+GitHub release. It then calls `scripts/sign-release.sh <tag>` itself,
+which asks for the minisign key's password on the terminal and uploads
+`SHA256SUMS.minisig` and `VERSION` once it has it.
 
-That exists because CI was red from 2026-08-29 to 2026-09-02 — seven
-releases — and nobody read it. The `gates` job was green throughout,
-which is what made the red `container` job easy to keep not seeing.
-Branch protection on `main` allows a bypass and every push used it, so
-looking was the only thing that could have caught it.
+**Two ways to run it**, both fine, chosen per release: run `chassis
+release <version>` yourself, start to finish, in one sitting — or have
+Claude run everything up to the point `sign-release.sh` would ask for
+the password (that step is always Kenny's; Claude never has the
+password and never should), then run `scripts/sign-release.sh
+v<version>` yourself when it suits you. `chassis release <version>
+--dry-run` prints the exact external commands either way runs, without
+touching anything — worth running first when it matters.
 
-`make tag-*` bumps `Cargo.toml` and tags in one step deliberately: the
-version in the binary and the version in the tag have to agree, and
-`scripts/check-version.sh` fails the build if they ever do not. That is
-not pedantry — an updater that compares its own version against the
-latest release either never updates or updates on every poll when those
-two disagree.
+**The version in the tag and the version in `Cargo.toml` must agree**;
+the Release workflow refuses the tag otherwise. `chassis release`
+enforces this by construction — it is the same command that bumps both.
 
 Signing happens on your machine, never in CI. A checksum served from
 the same host as the binary proves nothing; the signature is the only
@@ -47,7 +53,8 @@ thing standing between an unattended updater and a compromised release
 host.
 
 **The release is invisible until `VERSION` is attached to it.** That
-one asset is how running instances discover a new version.
+one asset is how running instances discover a new version — which is
+exactly the asset `sign-release.sh` uploads last.
 
 ## R2 · First install on a fresh machine
 

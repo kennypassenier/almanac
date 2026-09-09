@@ -37,6 +37,13 @@ against before it installs anything.
   headless alternative to the Sources page's issue form, for a script or a
   shell on CT 112 itself.
 
+### Fixed
+
+- **`docs/OPERATIONS_RUNBOOK.md` R1** described the pre-3.0.0 release
+  procedure (`make tag-minor` + a hand-run `sign-release.sh`); it now
+  documents `chassis release <version>`, the kit's own verified chain,
+  which has actually been in use since the chassis-rs migration.
+
 ## [4.0.2] - 2026-09-06
 
 ### Changed
