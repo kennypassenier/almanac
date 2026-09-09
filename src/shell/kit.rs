@@ -204,6 +204,18 @@ pub fn remove_source(state: &AppState, source_id: &str) -> Result<(), chassis::E
 pub struct ProfilesSection(pub Arc<AppState>);
 
 impl chassis::StatusSection for ProfilesSection {
+    // K29 (chassis-rs 1.8.0): the standalone "Reload profiles from disk"
+    // form on /calendars is now this section's own action — same route,
+    // same handler, but through the kit's button mechanism, so it gets the
+    // arm-before-act and busy-label treatment every other kit button has
+    // instead of being the one exception.
+    fn actions(&self) -> Vec<chassis::SectionAction> {
+        vec![
+            chassis::SectionAction::post("Reload profiles from disk", "/sources/reload")
+                .busy_label("Reloading…"),
+        ]
+    }
+
     fn render(&self) -> chassis::Section {
         let loaded = self.0.profiles();
         let mut profiles: Vec<_> = loaded.values().collect();
@@ -299,8 +311,11 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
     app.dashboard_routes(crate::shell::pages(Arc::clone(&state)));
     // S1 (4.0.2): one Sources page — the kit's clients page with a calendar
     // field on the issue form, a Calendar column, and Almanac's profile
-    // written and removed through the kit's hooks.
-    app.clients_label("Sources");
+    // written and removed through the kit's hooks. `vocabulary` (chassis-rs
+    // 1.8.0) replaces the narrower `clients_label`: every kit sentence that
+    // used to say "client" — the login page, refusals from the clients API,
+    // not only the page heading — now says "source"/"sources".
+    app.vocabulary("source", "sources");
     let options = Arc::clone(&state);
     app.client_form_field(chassis::shell::dashboard::ClientFormField::select(
         "calendar",

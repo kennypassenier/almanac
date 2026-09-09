@@ -39,10 +39,7 @@
 {% endif %}
 
 <h2>Profile files</h2>
-<p class="explain">Every source has a mapping profile in <code>{{ profiles_dir }}</code>; the Sources page writes it when a source is added. A profile placed there by hand is picked up on reload.</p>
-<form method="post" action="/sources/reload" style="margin: 0 0 0.5rem">
-  <button type="submit" class="kp-button">Reload profiles from disk</button>
-</form>
+<p class="explain">Every source has a mapping profile in <code>{{ profiles_dir }}</code>; the Sources page writes it when a source is added. A profile placed there by hand is picked up on reload — the <a href="/">status page</a>'s Sources section has the button.</p>
 {% if unusable %}
 <h3>Not being served</h3>
 <p class="explain">These files are in the profiles directory and Almanac cannot use them, so the sources they describe receive nothing — a post to one answers 401, the same as an unknown source.</p>

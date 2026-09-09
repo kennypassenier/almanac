@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{KitHub, TOKEN, body_json, spawn_kit, spawn_kit_with, urlencode};
+use common::{KitHub, body_json, spawn_kit, spawn_kit_with, urlencode};
 
 async fn sources(hub: &KitHub) -> String {
     hub.page("/clients").await
@@ -28,7 +28,7 @@ fn first_calendar_id(page: &str) -> String {
 /// Add a source the 4.0.2 way: one issue on the Sources page with the
 /// calendar, as the admin.
 async fn add_source(hub: &KitHub, name: &str, calendar: &str) -> reqwest::Response {
-    hub.bearer(reqwest::Method::POST, "/api/clients", TOKEN)
+    hub.bearer(reqwest::Method::POST, "/api/clients", hub.token())
         .header("content-type", "application/json")
         .body(serde_json::json!({ "name": name, "calendar": calendar }).to_string())
         .send()
@@ -121,6 +121,52 @@ async fn the_sources_page_is_the_kits_with_a_calendar_field_and_column() {
     assert!(
         !page.contains(&token),
         "the token never appears in the page"
+    );
+    hub.shutdown().await;
+}
+
+/// K28 (chassis-rs 1.8.0): `vocabulary("source", "sources")` replaces
+/// `clients_label`, so every kit sentence — not only the page heading —
+/// uses Almanac's word. A refusal is the clearest place a leftover
+/// "client" would still show up.
+#[tokio::test]
+async fn the_kits_own_refusals_say_source_not_client() {
+    let hub = spawn_kit().await;
+    let response = hub.get("/api/clients/does-not-exist/token").await;
+    assert_eq!(response.status(), 404);
+    let body = body_json(response).await;
+    let message = body["error"].as_str().expect("an error message");
+    assert!(
+        message.contains("no source with id"),
+        "the kit's own wording should say source: {message}"
+    );
+    assert!(!message.contains("client"), "no leftover client: {message}");
+    hub.shutdown().await;
+}
+
+/// K29 (chassis-rs 1.8.0): the former standalone "Reload profiles from
+/// disk" form on /calendars is now a `SectionAction` on the status
+/// page's Sources section, through the kit's button mechanism.
+#[tokio::test]
+async fn the_reload_action_moved_to_the_status_pages_sources_section() {
+    let hub = spawn_kit().await;
+    let status = hub.page("/").await;
+    assert!(
+        status.contains(r#"data-post="/sources/reload""#)
+            && status.contains("Reload profiles from disk")
+            && status.contains(r#"data-busy-label="Reloading…""#),
+        "the status page's Sources section carries the action: {status}"
+    );
+    let calendars = calendars(&hub).await;
+    assert!(
+        !calendars.contains("Reload profiles from disk"),
+        "the standalone form on /calendars is gone: {calendars}"
+    );
+    let reloaded = hub.form("/sources/reload", "").await;
+    assert_eq!(
+        reloaded.status(),
+        303,
+        "the route the button posts to still works"
     );
     hub.shutdown().await;
 }
@@ -236,7 +282,7 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_an_unused_one_can() {
         .bearer(
             reqwest::Method::DELETE,
             &format!("/api/clients/{werk}"),
-            TOKEN,
+            hub.token(),
         )
         .send()
         .await
@@ -272,7 +318,7 @@ async fn k21_deleting_a_source_removes_its_profile_and_its_token() {
         .bearer(
             reqwest::Method::DELETE,
             &format!("/api/clients/{printer}"),
-            TOKEN,
+            hub.token(),
         )
         .send()
         .await
@@ -301,7 +347,7 @@ async fn k21_deleting_a_source_removes_its_profile_and_its_token() {
         .bearer(
             reqwest::Method::DELETE,
             &format!("/api/clients/{printer}"),
-            TOKEN,
+            hub.token(),
         )
         .send()
         .await

@@ -1,11 +1,20 @@
-//! The in-process kit harness (4.0.0): Almanac assembled exactly as the
-//! binary assembles it — `almanac::shell::kit::mount` on a real
-//! `chassis::App` — started on a free port with the kit's door in front,
-//! Google and its token endpoint stubbed. Tests about the dashboard, the
-//! door and the debug surfaces go through here.
+//! The in-process kit harness: Almanac assembled exactly as the binary
+//! assembles it — `almanac::shell::kit::mount` on a real `chassis::App` —
+//! started on a free port with the kit's door in front, Google and its
+//! token endpoint stubbed. Tests about the dashboard, the door and the
+//! debug surfaces go through here.
+//!
+//! Wraps `chassis::testing::TestApp` (chassis-rs 1.8.0) since [meta]: the
+//! kit now ships the harness this file used to hand-write — starting the
+//! app, logging in, issuing a client, sending JSON, shutting down cleanly.
+//! What stays Almanac's own: building `AppState` (the journal, the Google
+//! stub, the profiles directory), seeding profile files and a 3.x token
+//! store on disk before the app ever starts, and the calendar owner. The
+//! public shape of `KitHub` is unchanged — every test file that calls it
+//! still does.
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -17,9 +26,15 @@ use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use almanac::shell::kit::{import_source_tokens, mount};
 use almanac::shell::testing::{CalendarStub, TokenStub, stub_credentials};
 use axum::Router;
-use chassis::{App, AppSpec, Running};
+use chassis::AppSpec;
+use chassis::testing::TestApp;
+use reqwest::Method;
 
-pub const TOKEN: &str = "a-login-token-that-is-long-enough";
+// No fixed TOKEN constant (unlike KEY below): `TestApp` generates its own
+// `ALMANAC_TOKEN` per spawn and remembers it for `login()` — overriding
+// the value it hands the app without also updating what it remembers for
+// itself leaves the two disagreeing, so a spawned hub's actual login
+// token is read back with `KitHub::token()` instead of assumed fixed.
 pub const KEY: &str = "abababababababababababababababababababababababababababababababab";
 
 pub fn profile_toml(source_id: &str) -> String {
@@ -37,15 +52,19 @@ pub struct KitHub {
     pub state: Arc<AppState>,
     pub calendar: CalendarStub,
     pub dir: tempfile::TempDir,
-    /// The admin session cookie, `name=value`, from one login.
-    pub cookie: String,
-    running: Option<Running>,
+    app: TestApp,
     _tokens: TokenStub,
 }
 
 impl KitHub {
     pub fn url(&self, path: &str) -> String {
-        format!("http://{}{path}", self.addr)
+        self.app.url(path)
+    }
+
+    /// This hub's actual `ALMANAC_TOKEN` — generated fresh per spawn by
+    /// the kit's test harness, never the fixed `KEY`.
+    pub fn token(&self) -> &str {
+        self.app.token()
     }
 
     fn http() -> reqwest::Client {
@@ -57,9 +76,8 @@ impl KitHub {
 
     /// A browser with the admin session.
     pub async fn get(&self, path: &str) -> reqwest::Response {
-        Self::http()
-            .get(self.url(path))
-            .header("cookie", &self.cookie)
+        self.app
+            .request(Method::GET, path)
             .send()
             .await
             .expect("a response")
@@ -81,9 +99,8 @@ impl KitHub {
 
     /// One of the dashboard's own forms, posted by the admin's browser.
     pub async fn form(&self, path: &str, body: &str) -> reqwest::Response {
-        Self::http()
-            .post(self.url(path))
-            .header("cookie", &self.cookie)
+        self.app
+            .request(Method::POST, path)
             .header("content-type", "application/x-www-form-urlencoded")
             .body(body.to_string())
             .send()
@@ -92,15 +109,8 @@ impl KitHub {
     }
 
     /// A script with a bearer token.
-    pub fn bearer(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-        token: &str,
-    ) -> reqwest::RequestBuilder {
-        Self::http()
-            .request(method, self.url(path))
-            .header("authorization", format!("Bearer {token}"))
+    pub fn bearer(&self, method: Method, path: &str, token: &str) -> reqwest::RequestBuilder {
+        self.app.bearer(method, path, token)
     }
 
     pub async fn post_json(
@@ -122,29 +132,16 @@ impl KitHub {
     /// Issue a client token on the kit's Sources page (as the admin) and
     /// return the token, the way a person would with Reveal.
     pub async fn issue_client(&self, name: &str) -> String {
-        let issued = Self::http()
-            .post(self.url("/api/clients"))
-            .header("cookie", &self.cookie)
-            .header("content-type", "application/json")
-            // 4.0.2: the issue form carries the calendar; a source with a
-            // profile on disk keeps it, a new one gets this test calendar.
-            .body(format!(r#"{{"name":"{name}","calendar":"cal-test"}}"#))
-            .send()
+        // 4.0.2: the issue form carries the calendar; a source with a
+        // profile on disk keeps it, a new one gets this test calendar.
+        self.app
+            .issue_client(name, &[("calendar", "cal-test")])
             .await
-            .expect("a response");
-        assert_eq!(issued.status(), 201, "issuing {name}");
-        let view: serde_json::Value = issued.json().await.expect("a client view");
-        let id = view["id"].as_str().expect("an id").to_string();
-        let revealed = self.get(&format!("/api/clients/{id}/token")).await;
-        assert_eq!(revealed.status(), 200);
-        let body: serde_json::Value = revealed.json().await.expect("json");
-        body["token"].as_str().expect("the token").to_string()
+            .token
     }
 
     pub async fn shutdown(mut self) {
-        if let Some(running) = self.running.take() {
-            running.stop().await;
-        }
+        self.app.shutdown().await;
     }
 }
 
@@ -188,26 +185,6 @@ pub async fn spawn_kit_with(sources: &[&str], owner: Option<&str>) -> KitHub {
 pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub {
     let profiles_dir = dir.path().join("profiles");
     std::fs::create_dir_all(&profiles_dir).unwrap();
-    let mut env: BTreeMap<String, String> = BTreeMap::new();
-    env.insert("ALMANAC_STATE_DIR".into(), dir.path().display().to_string());
-    env.insert("ALMANAC_TOKEN".into(), TOKEN.into());
-    env.insert("ALMANAC_SECRET_KEY".into(), KEY.into());
-    env.insert("ALMANAC_LISTEN".into(), "127.0.0.1:0".into());
-    env.insert("ALMANAC_LOG".into(), "warn".into());
-    let spec = AppSpec {
-        name: "almanac",
-        version: env!("CARGO_PKG_VERSION"),
-        repository: Some("kennypassenier/almanac"),
-        ..Default::default()
-    };
-    let mut app = App::from_args_with_env(spec, vec!["almanac".into()], env, Router::new())
-        .expect("the kit accepts the test configuration");
-    let state_dir = app
-        .loaded
-        .as_ref()
-        .expect("a start loads configuration")
-        .state_dir
-        .clone();
     let calendar = CalendarStub::start().await;
     let tokens = TokenStub::start(3600).await;
     let http = reqwest::Client::new();
@@ -226,38 +203,46 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
         .with_calendar_owner(owner.map(str::to_string)),
     );
     // The 3.x token store, when a test seeded one, is imported like the
-    // binary does it on the first start of 4.0.0.
-    import_source_tokens(&state_dir, &dir.path().join("tokens.json"), KEY)
+    // binary does it on the first start of 4.0.0. `dir.path()` is the
+    // state directory this function is about to hand the kit via
+    // ALMANAC_STATE_DIR below, so there is nothing to read back out of
+    // the App for it.
+    import_source_tokens(dir.path(), &dir.path().join("tokens.json"), KEY)
         .await
         .expect("the import runs");
-    mount(&mut app, Arc::clone(&state));
-    let running = app.start().await.expect("the kit starts");
-    let addr = running.addr;
-    let login = KitHub::http()
-        .post(format!("http://{addr}/login"))
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(format!("token={}", urlencode(TOKEN)))
-        .send()
-        .await
-        .expect("a login response");
-    assert_eq!(login.status(), 303, "the right token logs in");
-    let cookie = login
-        .headers()
-        .get("set-cookie")
-        .expect("a session cookie")
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_string();
+
+    let spec = AppSpec {
+        name: "almanac",
+        version: env!("CARGO_PKG_VERSION"),
+        repository: Some("kennypassenier/almanac"),
+        ..Default::default()
+    };
+    // ALMANAC_TOKEN is deliberately not overridden here: the kit's harness
+    // generates its own and remembers it for login() (see KitHub::token).
+    // ALMANAC_SECRET_KEY has no such caching, so KEY — fixed, because a
+    // 3.x token store may have been sealed with it before this call — is
+    // safe to override.
+    let state_dir = dir.path().display().to_string();
+    let for_mount = Arc::clone(&state);
+    let mut app = TestApp::start_with_env(
+        spec,
+        Router::new(),
+        &[
+            ("ALMANAC_STATE_DIR", state_dir.as_str()),
+            ("ALMANAC_SECRET_KEY", KEY),
+        ],
+        move |app| mount(app, for_mount),
+    )
+    .await;
+    app.login().await;
+    let addr = app.addr();
+
     KitHub {
         addr,
         state,
         calendar,
         dir,
-        cookie,
-        running: Some(running),
+        app,
         _tokens: tokens,
     }
 }

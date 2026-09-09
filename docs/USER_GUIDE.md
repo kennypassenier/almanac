@@ -80,6 +80,15 @@ writes the profile and issues the token — the row shows both, with the
 calendar by name. Live immediately, no restart. A source that already has a
 profile on disk keeps it when its token is issued again.
 
+**Without opening the dashboard:** `chassis clients issue <name> --url
+http://127.0.0.1:8080 --token-env ALMANAC_TOKEN --field calendar=<calendar
+id>` (chassis-rs 1.8.0) issues a token from the machine running Almanac,
+printed once on stdout — useful from a script or a shell on CT 112 itself.
+The `--field` carries the same calendar the dashboard's dropdown would have
+sent; a source that already has a profile on disk keeps it, exactly as on
+the dashboard. `chassis clients list|reissue|revoke|delete|reveal` cover
+the rest of the row's buttons the same way.
+
 To make a calendar, use the **Calendars** page: it lists every calendar with
 the sources that write to it (the id sits behind an *id* toggle), offers
 *Make and share it*, and a delete for the ones nothing writes to — deleting

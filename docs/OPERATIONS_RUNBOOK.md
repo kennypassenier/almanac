@@ -128,20 +128,11 @@ machine that is already serving.
 
 ## R3 · What self-update does
 
-Every six hours, and never within five minutes of a start:
-
-1. fetch `latest/download/VERSION`; stop if it is not newer;
-2. fetch `SHA256SUMS` and its `.minisig`, and verify the signature
-   **before downloading the binary**;
-3. download the binary and check it against the signed manifest;
-4. run the new binary with `--check`;
-5. move the running binary to `almanac.prev`, put the new one in place,
-   record that an update is unproven, and SIGTERM itself so systemd
-   restarts into it.
-
-It skips a cycle entirely while captured requests are still retained —
-restarting mid-investigation would discard exactly the requests you
-were looking at.
+The fetch → verify → download → `--check` → swap → probation sequence is
+the kit's own since the chassis-rs migration (3.0.0); `docs/KIT.md`'s
+"Self-update" section describes it for the kit version this deployment
+runs. (The capture store that once deferred a cycle mid-investigation was
+Almanac's own and retired in 4.0.1 — nothing defers a cycle any more.)
 
 Watch it with:
 

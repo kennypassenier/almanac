@@ -119,26 +119,10 @@ existing.
 
 ## 5 · Self-update (M10)
 
-```
-every 6h, and 5 min after each start
-   ↓
-fetch latest/download/VERSION           plain file, no API, no token
-   ↓  newer?
-fetch SHA256SUMS + SHA256SUMS.minisig
-   ↓  minisign signature valid?         ← the only real trust anchor
-fetch the binary, check it against the manifest hash
-   ↓
-run it once with --check                does it start on this machine?
-   ↓
-rename old → almanac.prev, new → almanac, restart
-   ↓
-serving for 60s?  → clear the probation
-not serving?      → put almanac.prev back, and say so
-```
-
-The signature is what matters. A checksum served from the same host as
-the binary proves nothing about the binary; the manifest is signed
-offline, by hand, on Kenny's machine, and CI never holds the key.
+The fetch → verify → swap → probation mechanism is the kit's own since
+the chassis-rs migration (3.0.0) — `docs/KIT.md`'s "Self-update" section
+describes it precisely for the version pinned in `.chassis.toml`, and is
+the current source rather than a copy kept here by hand.
 
 **It refuses to run where it would be pointless or harmful.** Inside a
 Docker or Podman image it switches itself off, because a binary

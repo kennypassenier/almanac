@@ -12,7 +12,7 @@ tokio = { version = "1", features = ["full"] }
 
 # Web framework for the HTTP API server layer
 axum = { version = "0.8", features = ["form"] }
-chassis = { git = "https://github.com/kennypassenier/chassis-rs", tag = "v1.7.0", version = "1.7.0", default-features = false, features = ["core", "self-update", "dashboard"] } # the shared service kit (3.0.0; dashboard since 4.0.0; 1.5.1 = CF-7 fix)
+chassis = { git = "https://github.com/kennypassenier/chassis-rs", tag = "v1.8.0", version = "1.8.0", default-features = false, features = ["core", "self-update", "dashboard"] } # the shared service kit (3.0.0; dashboard since 4.0.0; 1.5.1 = CF-7 fix)
 
 # Structured, leveled logging facade
 tracing = "0.1"
@@ -97,6 +97,11 @@ chrono-tz = { version = "0.10.4", default-features = false }
 # (auth, status codes, journalling) is exercised as real HTTP without
 # binding a port.
 [dev-dependencies]
+# The kit's own in-process test harness (tests/common), replacing a
+# hand-written copy of the same thing since chassis-rs 1.8.0 (K25 there).
+# Same dependency as [dependencies] above, one more feature unioned in for
+# test builds only — the harness never reaches the release binary.
+chassis = { git = "https://github.com/kennypassenier/chassis-rs", tag = "v1.8.0", version = "1.8.0", default-features = false, features = ["testing"] }
 # `start_paused` — lets a test drive the six-hour update interval in
 # milliseconds instead of waiting it out.
 tokio = { version = "1", features = ["test-util"] }

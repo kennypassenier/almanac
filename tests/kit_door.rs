@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{KEY, TOKEN, body_json, spawn_kit, spawn_kit_in, spawn_kit_with};
+use common::{KEY, body_json, spawn_kit, spawn_kit_in, spawn_kit_with};
 
 fn ha_payload() -> &'static str {
     r#"{"external_id":"switch.wasmachine","title":"Wasmachine klaar","start":"2026-08-28T09:00:00+00:00"}"#
@@ -63,7 +63,7 @@ async fn a_source_posts_with_its_own_client_token_and_nothing_else() {
     assert_eq!(pending[0].source_id, "home-assistant");
     // The admin's login token may post as any source (Kenny's scripts).
     let admin = hub
-        .post_json("/v1/ingest/uptime-kuma", Some(TOKEN), ha_payload())
+        .post_json("/v1/ingest/uptime-kuma", Some(hub.token()), ha_payload())
         .await;
     assert_eq!(admin.status(), 202);
     hub.shutdown().await;
@@ -130,7 +130,7 @@ async fn the_debug_views_need_the_admin_and_the_ping_takes_any_client() {
         .unwrap();
     assert_eq!(as_client.status(), 403, "a client token is not the admin");
     let as_admin = hub
-        .bearer(reqwest::Method::GET, "/v1/debug/status", TOKEN)
+        .bearer(reqwest::Method::GET, "/v1/debug/status", hub.token())
         .send()
         .await
         .unwrap();
