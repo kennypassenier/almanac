@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.0.3] - 2026-09-09
+
 ### Changed
 
 - **Scaffold synced to chassis 1.8.0** (kit batch 3): `chassis::testing::TestApp`
