@@ -115,8 +115,12 @@ async fn the_sources_page_is_the_kits_with_a_calendar_field_and_column() {
     let token = hub.issue_client("home-assistant").await;
     let page = sources(&hub).await;
     assert!(
-        page.contains("home-assistant") && page.contains("<th>Calendar</th>"),
-        "the row and the calendar column: {page}"
+        page.contains("home-assistant") && page.contains("<th>Calendar name</th>"),
+        "the row and Almanac's own calendar-by-name column: {page}"
+    );
+    assert!(
+        page.contains("<th>Calendar</th>"),
+        "the kit's own field-derived column too (feat-clients-2, chassis-rs 2.0.0): {page}"
     );
     assert!(
         !page.contains(&token),
@@ -216,8 +220,10 @@ async fn k21_adding_a_source_writes_its_profile_on_the_chosen_calendar() {
     );
     assert_eq!(
         page.matches(&id).count(),
-        1,
-        "the calendar id appears once — as the dropdown's value, never on the row: {page}"
+        2,
+        "the calendar id appears twice — the dropdown's value, and the kit's own \
+         field-derived \"Calendar\" column (feat-clients-2, chassis-rs 2.0.0); Almanac's \
+         own \"Calendar name\" column never shows the id, only the name: {page}"
     );
     // A rejected name issues nothing and writes nothing.
     let rejected = add_source(&hub, ".bad name", &id).await;

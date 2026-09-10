@@ -11,6 +11,22 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 2.0.0** (a major): `chassis::core::clients::Client` is now
+  `#[non_exhaustive]`, so the one place Almanac builds one — importing 3.x
+  tokens into the kit's client store — uses `Client::adopted(...)` instead
+  of a struct literal. `ALMANAC_TOKEN` is a fixed constant again in
+  `tests/common` (CF-12 fixed `TestApp`'s `extra_env` to win for
+  `token()`/`login()` too, not only for what the app itself receives — the
+  1.8.0 workaround of reading it back is gone). The Sources page's own
+  "Calendar" column is renamed **Calendar name**: the kit now renders a
+  column for every declared client-issue-form field automatically
+  (feat-clients-2), so the `calendar` field Almanac already declared
+  produces its own `<th>Calendar</th>` showing the raw calendar id —
+  Almanac's own column, showing the name, needed a different header or the
+  two would have been indistinguishable.
+
 ### Fixed
 
 - **`deploy/service.yml`'s `update_cmd`** did not reproduce the two
