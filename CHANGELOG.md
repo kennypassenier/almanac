@@ -11,6 +11,16 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 2.0.2** (no public-API change over 2.0.0 — 823 items
+  unchanged per the kit's own consumer contract check): `chassis sync`
+  no longer overwrites the three hooks dev-procedure distributes when
+  they already exist (it only writes one back if it is missing), so the
+  ID-scheme hand-restore this project needed after the 2.0.0 sync is not
+  needed again. `docs/KIT.md` regenerated for the version banner only —
+  no other content changed.
+
 ## [4.0.4] - 2026-09-10
 
 ### Changed
