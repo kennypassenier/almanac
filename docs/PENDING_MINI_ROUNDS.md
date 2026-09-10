@@ -4,6 +4,51 @@ Things decided but not yet finished, kept here rather than in a
 conversation — a conversation gets summarised and then the point is
 gone. Each entry says what is waiting, and what closes it.
 
+## Measurement owed: does a cross-project message check the live source first?
+
+**Opened** 2026-09-10, by the correction form `ct112-stale-status`
+(standing rule 29, ratified by Kenny: "Klopt").
+
+**The fault.** A handoff message to Homelab Rust ↳ the sibling session
+that manages CT 112 (10.10.10.12:8080) claimed CT 112 was still on
+4.0.2 and that v4.0.3/v4.0.4 were "superseded unsigned, never installed
+anywhere" — both taken from this project's own `CLAUDE.md` without
+checking the live host. Homelab Rust had already installed 4.0.3 and
+4.0.4 on CT 112 on its own initiative; it caught the claim only because
+it verified `/healthz` (`{"status":"ok","version":"4.0.5"}`) instead of
+trusting what was said.
+
+**The gate that let it through.** None — there is no step in this
+project that checks a claim about another project's live deployment
+state against that live source before repeating it in a message or in
+`CLAUDE.md`. This is standing rule 6a ("a choice may not rest on an
+unmeasured assumption about someone else's system"), applied here to
+an ordinary message rather than a form item, which is why it was not
+recognised as in scope.
+
+**Also present in**, measured 2026-09-10: `grep -rn "still live on\|never installed anywhere\|CT 112" CLAUDE.md docs/*.md`
+and `grep -n "4\.0\.[0-9]" CLAUDE.md docs/OPERATIONS_RUNBOOK.md
+docs/PENDING_MINI_ROUNDS.md` — only the one line in `CLAUDE.md`,
+already corrected; no other place asserts a specific Almanac version as
+currently running on CT 112.
+
+**The measure.** Before a message to another project's session, or an
+update to this project's own `CLAUDE.md`, states what is currently
+running on a machine that session manages, check the live source first
+if it is reachable (here: `curl 10.10.10.12:8080/healthz`) — otherwise
+mark the claim explicitly as an assumption rather than a fact.
+Enforcement is discipline, not code: nothing can check the content of a
+message before it is sent.
+
+**What closes this entry.** At the next message from this project to
+another session's that states a version number for a machine that
+other session manages: was the live source checked first? Write the
+answer here and close it. If it was not, the fallback is already
+decided: the claim gets an explicit "as far as known, last checked
+<moment>" qualifier instead of being stated as fact.
+
+**Review of the measure:** at this project's next retrospective.
+
 ## Measurement owed: does norm N4 hold without a reminder?
 
 **Opened** 2026-09-02, by the correction form for the latch key loss
