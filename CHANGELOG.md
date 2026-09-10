@@ -26,6 +26,24 @@ against before it installs anything.
   produces its own `<th>Calendar</th>` showing the raw calendar id —
   Almanac's own column, showing the name, needed a different header or the
   two would have been indistinguishable.
+- **The rest of the chassis-rs 2.0.0 scaffold**, closed via a full
+  `chassis sync --write` (kp-themes 5.1.0, `docs/KIT.md` regenerated,
+  `tests/kit_smoke.rs` added): the release binary is now a static
+  `x86_64-unknown-linux-musl` build on `gcr.io/distroless/static`
+  (feat-build-1), so a host's glibc version can no longer keep it from
+  starting; `.github/workflows/ci.yml` runs on every branch push again
+  (feat-ci-1, chassis-rs hit the same protected-branch push rejection
+  Almanac worked around this session with a pull-request flow, and fixed
+  it the other way); `passkeys` is dropped from this build's features
+  (it needs OpenSSL, which a static build does not vendor), so
+  `docs/KIT.md` no longer documents `/passkeys` or the `notify` feature
+  Almanac never enabled. `.githooks/commit-msg` and
+  `.claude/hooks/check-commit.sh` were restored to Almanac's own newer
+  copies straight after the sync: chassis-rs's vendored scaffold still
+  ships the pre-2026-09-10 hooks (no ID-gate delegation, no
+  `HOOK_VERSION`, only the old ID shape), and a plain sync would have
+  silently blocked every future commit using the new short-word IDs
+  (`[fix-1]`, `[meta]` only survives by coincidence).
 
 ### Fixed
 

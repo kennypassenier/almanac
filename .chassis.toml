@@ -6,7 +6,7 @@ repo = "kennypassenier/almanac"
 toolchain = "1.97"
 chassis_tag = "v2.0.0"
 chassis_repo = "https://github.com/kennypassenier/chassis-rs"
-kp_themes = "5.0.0"
+kp_themes = "5.1.0"
 # Measured on CT 112 (2026-09-06, CF-6 d): the state root and the env file
 # live in the homelab's config dir; latch runs without --env.
 state_dir = "/appdata/almanac/almanac-config"
