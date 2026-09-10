@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.0.4] - 2026-09-10
+
 ### Changed
 
 - **chassis-rs 2.0.0** (a major): `chassis::core::clients::Client` is now
