@@ -110,7 +110,7 @@ async fn the_3x_source_tokens_are_imported_once_and_keep_working() {
     );
     let page = hub.page("/clients").await;
     assert!(
-        page.contains("job-tracker") && page.contains("<th>Calendar</th>"),
+        page.contains("job-tracker") && page.contains("<th>Calendar name</th>"),
         "the imported source sits on the one Sources page with its calendar column: {page}"
     );
     assert!(hub.dir.path().join("clients.json.enc").exists());

@@ -12,6 +12,11 @@
 //! store on disk before the app ever starts, and the calendar owner. The
 //! public shape of `KitHub` is unchanged — every test file that calls it
 //! still does.
+//!
+//! chassis-rs 2.0.0 (fix from CF-12): `extra_env` now wins for
+//! `TestApp::token()`/`login()` too, not only for what the App itself
+//! receives — so `ALMANAC_TOKEN` is a fixed constant again below, the way
+//! it read before the 1.8.0 workaround.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -30,11 +35,7 @@ use chassis::AppSpec;
 use chassis::testing::TestApp;
 use reqwest::Method;
 
-// No fixed TOKEN constant (unlike KEY below): `TestApp` generates its own
-// `ALMANAC_TOKEN` per spawn and remembers it for `login()` — overriding
-// the value it hands the app without also updating what it remembers for
-// itself leaves the two disagreeing, so a spawned hub's actual login
-// token is read back with `KitHub::token()` instead of assumed fixed.
+pub const TOKEN: &str = "a-login-token-that-is-long-enough";
 pub const KEY: &str = "abababababababababababababababababababababababababababababababab";
 
 pub fn profile_toml(source_id: &str) -> String {
@@ -217,11 +218,10 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
         repository: Some("kennypassenier/almanac"),
         ..Default::default()
     };
-    // ALMANAC_TOKEN is deliberately not overridden here: the kit's harness
-    // generates its own and remembers it for login() (see KitHub::token).
-    // ALMANAC_SECRET_KEY has no such caching, so KEY — fixed, because a
-    // 3.x token store may have been sealed with it before this call — is
-    // safe to override.
+    // ALMANAC_TOKEN and ALMANAC_SECRET_KEY are both fixed: chassis-rs
+    // 2.0.0 fixed extra_env to win for TestApp::token()/login() too (CF-12),
+    // so the override reaches both the app and the harness's own idea of
+    // what to log in with.
     let state_dir = dir.path().display().to_string();
     let for_mount = Arc::clone(&state);
     let mut app = TestApp::start_with_env(
@@ -229,6 +229,7 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
         Router::new(),
         &[
             ("ALMANAC_STATE_DIR", state_dir.as_str()),
+            ("ALMANAC_TOKEN", TOKEN),
             ("ALMANAC_SECRET_KEY", KEY),
         ],
         move |app| mount(app, for_mount),

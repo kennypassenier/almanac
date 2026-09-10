@@ -124,7 +124,13 @@ pub struct TargetCalendar(pub Arc<AppState>);
 
 impl chassis::shell::dashboard::ClientColumn for TargetCalendar {
     fn title(&self) -> String {
-        "Calendar".into()
+        // Not "Calendar": chassis-rs 2.0.0 (feat-clients-2) renders the
+        // "calendar" form field's own raw stored value under that header
+        // automatically now, so a second "Calendar" column would sit next
+        // to it with nothing but the header to tell them apart. This one
+        // stays because it is the friendly name (K16); the kit's shows
+        // the id, mirroring the Calendars page's own id-behind-a-toggle.
+        "Calendar name".into()
     }
     fn cell(&self, client: &chassis::shell::clients_api::ClientView) -> String {
         match self.0.profiles().get(&client.name) {
@@ -268,15 +274,16 @@ pub async fn import_source_tokens(
     let mut clients = Vec::new();
     for (source_id, issued_at) in store.list().await {
         if let Some(token) = store.reveal(&source_id).await.map_err(|e| e.to_string())? {
-            clients.push(Client {
-                id: format!("source-{source_id}"),
-                name: source_id,
-                token: Some(token),
+            // chassis-rs 2.0.0: Client is #[non_exhaustive], so a struct
+            // literal from outside the kit no longer compiles — build with
+            // Client::adopted instead, which fills every field the kit adds
+            // later with its own default.
+            clients.push(Client::adopted(
+                format!("source-{source_id}"),
+                source_id,
+                token,
                 issued_at,
-                revoked_at: None,
-                last_used_at: None,
-                uses: 0,
-            });
+            ));
         }
     }
     if clients.is_empty() {
