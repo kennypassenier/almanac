@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-09-10
+
 ### Changed
 
 - **chassis-rs 2.0.2** (no public-API change over 2.0.0 — 823 items
