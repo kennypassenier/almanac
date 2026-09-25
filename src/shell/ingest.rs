@@ -539,8 +539,17 @@ async fn ingest_sync(
 
     state.metrics.accepted();
 
-    match deliver(&entry, &profile, &state.client, &state.locks).await {
+    // Counted and recorded exactly as the worker does, so a source that
+    // only ever posts here still shows up on /metrics and the debug
+    // surface. Without this, JobTracker's deliveries left
+    // `almanac_events_delivered_total` at 0 while its events sat on the
+    // calendar (homelab ask-6).
+    let result = deliver(&entry, &profile, &state.client, &state.locks).await;
+    crate::shell::worker::record_route(&state, &entry, &result).await;
+
+    match result {
         Ok(delivered) => {
+            state.metrics.delivered(1);
             if let Err(e) = state.journal.mark_done(&entry.id).await {
                 // The event IS on the calendar; only the bookkeeping
                 // failed. Replay would redeliver it, which upsert makes
@@ -564,6 +573,7 @@ async fn ingest_sync(
             // The entry stays pending in the journal, so the worker
             // retries it later — the caller's payload is not lost even
             // though this response reports the failure.
+            state.metrics.failed(1);
             tracing::error!(source_id = %profile.source_id, error = %e, "synchronous delivery failed; left pending for retry");
             error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy())
         }
@@ -909,6 +919,21 @@ target_calendar_id = "primary"
             state.journal.pending().unwrap().is_empty(),
             "a delivered entry must be marked done"
         );
+
+        // homelab ask-6: this path delivered without counting it, so a
+        // source that only posts here read as accepted 2, delivered 0.
+        let counts = state.metrics.snapshot();
+        assert_eq!(counts.accepted, 1);
+        assert_eq!(
+            counts.delivered, 1,
+            "a synchronous delivery must be counted"
+        );
+        assert_eq!(counts.failed, 0);
+        assert_eq!(
+            state.routes.lock().await.len(),
+            1,
+            "and must show on the debug surface like a worker delivery"
+        );
     }
 
     #[tokio::test]
@@ -962,6 +987,12 @@ target_calendar_id = "primary"
             state.journal.pending().unwrap().len(),
             1,
             "the payload must survive for the worker to retry"
+        );
+        let counts = state.metrics.snapshot();
+        assert_eq!(counts.delivered, 0);
+        assert_eq!(
+            counts.failed, 1,
+            "a failed attempt is counted like the worker's"
         );
     }
 
