@@ -238,7 +238,11 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
     .await;
     // CF-12's Almanac half, held as a check rather than a comment: the
     // harness logs in with the token the app was given, not one it made.
-    assert_eq!(app.token(), TOKEN, "extra_env must win for TestApp::token()");
+    assert_eq!(
+        app.token(),
+        TOKEN,
+        "extra_env must win for TestApp::token()"
+    );
     app.login().await;
     let addr = app.addr();
 
