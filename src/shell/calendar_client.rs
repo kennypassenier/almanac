@@ -9,8 +9,7 @@
 
 use std::sync::Arc;
 
-use backoff::ExponentialBackoff;
-use backoff::future::retry;
+use backon::{ExponentialBuilder, Retryable};
 use reqwest::{Client, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 
@@ -30,21 +29,29 @@ const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me
 
 /// How long one call may spend retrying before it gives up.
 ///
-/// `ExponentialBackoff::default()` allows fifteen minutes, which is
-/// wrong in both directions here. A synchronous caller (K8 — a Claude
-/// session waiting on `/sync`) would hang for a quarter of an hour,
-/// and the worker would sit inside one delivery while every other
-/// pending entry waited behind it.
+/// A long retry budget is wrong in both directions here. A synchronous
+/// caller (K8 — a Claude session waiting on `/sync`) would hang for
+/// minutes, and the worker would sit inside one delivery while every
+/// other pending entry waited behind it.
 ///
 /// A minute is the right shape because retrying here is only meant to
 /// absorb blips. Anything longer is what the journal is for: the entry
 /// stays pending, the worker backs off (AR26), and it goes out when
 /// Google comes back — durably, and without holding anything open.
-fn in_call_backoff() -> ExponentialBackoff {
-    ExponentialBackoff {
-        max_elapsed_time: Some(std::time::Duration::from_secs(60)),
-        ..ExponentialBackoff::default()
-    }
+///
+/// The ladder keeps the shape the unmaintained `backoff` crate used to
+/// give (RUSTSEC-2025-0012): half a second, growing by 1.5, jittered.
+/// `backon`'s budget counts the time spent sleeping between attempts,
+/// not the attempts themselves, so a call whose every request times
+/// out can run past the minute by the requests' own timeouts.
+fn in_call_backoff() -> ExponentialBuilder {
+    ExponentialBuilder::default()
+        .with_min_delay(std::time::Duration::from_millis(500))
+        .with_factor(1.5)
+        .with_max_delay(std::time::Duration::from_secs(60))
+        .with_jitter()
+        .without_max_times()
+        .with_total_delay(Some(std::time::Duration::from_secs(60)))
 }
 
 pub struct GoogleCalendarClient {
@@ -120,14 +127,8 @@ impl GoogleCalendarClient {
     where
         F: Fn(&Client, &str) -> RequestBuilder,
     {
-        retry(in_call_backoff(), || async {
-            let token = self.tokens.token().await.map_err(|e| {
-                if e.is_transient() {
-                    backoff::Error::transient(e)
-                } else {
-                    backoff::Error::Permanent(e)
-                }
-            })?;
+        let attempt = || async {
+            let token = self.tokens.token().await?;
 
             let response = build(&self.http, &token).send().await.map_err(|e| {
                 // A connection that never completed has no status code,
@@ -139,11 +140,11 @@ impl GoogleCalendarClient {
                 // while `shell::auth` retried the very same class of
                 // failure against the token endpoint. The two now
                 // agree.
-                backoff::Error::transient(AlmanacError::GoogleApi {
+                AlmanacError::GoogleApi {
                     message: format!("request to the Calendar API failed: {e}"),
                     remedy: "transient network failure — retrying automatically".to_string(),
                     transient: true,
-                })
+                }
             })?;
 
             let status = response.status();
@@ -164,13 +165,13 @@ impl GoogleCalendarClient {
                 transient,
             };
 
-            if transient {
-                Err(backoff::Error::transient(err))
-            } else {
-                Err(backoff::Error::Permanent(err))
-            }
-        })
-        .await
+            Err(err)
+        };
+
+        attempt
+            .retry(in_call_backoff())
+            .when(AlmanacError::is_transient)
+            .await
     }
 
     async fn parse_event(response: Response) -> Result<GoogleEvent, AlmanacError> {

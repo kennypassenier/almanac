@@ -63,7 +63,7 @@ uuid = { version = "1", features = ["v4"] }
 # L1 (M3/AR9): exponential backoff for transient Google API failures —
 # jitter, max-tries and transient-vs-permanent handling are exactly
 # what this crate exists for; AR11 judged hand-rolling it a net loss.
-backoff = { version = "0.4", features = ["tokio"] }
+backon = "1.6"
 
 # L3 (K6/AR17): OS randomness for minting per-source bearer tokens.
 getrandom = "0.4"

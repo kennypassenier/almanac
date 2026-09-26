@@ -18,8 +18,8 @@ latch = true
 #   RUSTSEC-2023-0071  rsa "Marvin" timing side channel, via jsonwebtoken. Almanac
 #                      only SIGNS the service-account JWT with its own key; no
 #                      decryption oracle is exposed. Drops when jsonwebtoken moves.
-#   RUSTSEC-2024-0384  `instant` unmaintained, pulled in by `backoff`.
-#   RUSTSEC-2025-0012  `backoff` unmaintained; replacing it is an Almanac item.
-deny_ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2024-0384", "RUSTSEC-2025-0012"]
+# `instant` (RUSTSEC-2024-0384) and `backoff` (RUSTSEC-2025-0012) left with the
+# switch to `backon` (2026-09-26), and their exceptions with them.
+deny_ignore = ["RUSTSEC-2023-0071"]
 # Adopted by the homelab as stack almanac on CT 112 (2026-08-29).
 vmid = 112
