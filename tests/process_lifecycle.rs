@@ -64,9 +64,23 @@ fn generate_key(dir: &std::path::Path) -> String {
 }
 
 /// A token endpoint that never answers, so the first token fetch fails
-/// the way an unreachable Google does. Port 1 is reserved and refuses
-/// immediately, which is a connection failure rather than a hang.
-const BLACKHOLED_TOKEN_URL: &str = "http://127.0.0.1:1/token";
+/// the way an unreachable Google does: a port this test bound and let go
+/// of again, which refuses immediately — a connection failure rather
+/// than a hang.
+///
+/// It used to be port 1, on the assumption that a reserved port always
+/// refuses. Under WSL2's mirrored networking it does not: the connect
+/// hangs until the client's timeout, so no retry line appeared inside
+/// the four seconds `an_unreachable_google_makes_it_retry_rather_than_exit`
+/// waits, and the test failed there while CI stayed green (measured
+/// 2026-09-26: `curl http://127.0.0.1:1/` timed out after 10 s, a
+/// released high port refused in 0 ms).
+fn blackholed_token_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let port = listener.local_addr().expect("its address").port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}/token")
+}
 
 fn spawn(dir: &std::path::Path, key: &str, token_url: &str, extra: &[(&str, &str)]) -> Child {
     let mut command = Command::new(env!("CARGO_BIN_EXE_almanac"));
@@ -117,7 +131,7 @@ fn an_unreachable_google_makes_it_retry_rather_than_exit() {
     // doing nothing. This is the transient half, which nothing covered.
     let dir = scratch("startup-retry");
     let key = generate_key(&dir);
-    let mut child = spawn(&dir, &key, BLACKHOLED_TOKEN_URL, &[]);
+    let mut child = spawn(&dir, &key, &blackholed_token_url(), &[]);
 
     // The first backoff step is 2s; give it room and then some.
     std::thread::sleep(Duration::from_secs(4));
@@ -148,7 +162,7 @@ fn a_broken_private_key_exits_instead_of_retrying_forever() {
     // retrying it forever would leave Almanac looking alive while
     // delivering nothing.
     let dir = scratch("startup-permanent");
-    let mut child = spawn(&dir, "not-a-pem", BLACKHOLED_TOKEN_URL, &[]);
+    let mut child = spawn(&dir, "not-a-pem", &blackholed_token_url(), &[]);
 
     wait_until(
         Duration::from_secs(10),
@@ -180,7 +194,7 @@ fn a_second_process_on_the_same_data_directory_refuses_to_start() {
     let dir = scratch("two-processes");
     let key = generate_key(&dir);
 
-    let mut first = spawn(&dir, &key, BLACKHOLED_TOKEN_URL, &[]);
+    let mut first = spawn(&dir, &key, &blackholed_token_url(), &[]);
     // Let it take the lock before the second one tries.
     wait_until(
         Duration::from_secs(10),
@@ -189,7 +203,7 @@ fn a_second_process_on_the_same_data_directory_refuses_to_start() {
     );
     std::thread::sleep(Duration::from_millis(500));
 
-    let second = spawn(&dir, &key, BLACKHOLED_TOKEN_URL, &[])
+    let second = spawn(&dir, &key, &blackholed_token_url(), &[])
         .wait_with_output()
         .unwrap();
     let printed = format!(
@@ -224,7 +238,7 @@ fn check_mode_runs_against_a_live_instance_without_disturbing_it() {
     let dir = scratch("check-against-live");
     let key = generate_key(&dir);
 
-    let mut running = spawn(&dir, &key, BLACKHOLED_TOKEN_URL, &[]);
+    let mut running = spawn(&dir, &key, &blackholed_token_url(), &[]);
     wait_until(
         Duration::from_secs(10),
         || dir.join(".lock").exists(),
@@ -244,7 +258,7 @@ fn check_mode_runs_against_a_live_instance_without_disturbing_it() {
         .env("ALMANAC_TOKEN", "a-login-token-for-the-tests")
         .env("CLIENT_EMAIL", "test@example.iam.gserviceaccount.com")
         .env("PRIVATE_KEY", &key)
-        .env("TOKEN_URI", BLACKHOLED_TOKEN_URL)
+        .env("TOKEN_URI", blackholed_token_url())
         .output()
         .unwrap();
 
