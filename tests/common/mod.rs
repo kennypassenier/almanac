@@ -62,8 +62,9 @@ impl KitHub {
         self.app.url(path)
     }
 
-    /// This hub's actual `ALMANAC_TOKEN` — generated fresh per spawn by
-    /// the kit's test harness, never the fixed `KEY`.
+    /// This hub's `ALMANAC_TOKEN` — the fixed `TOKEN` pinned through
+    /// `extra_env`, which the kit's harness honours since chassis-rs
+    /// 2.0.0 (CF-12). Never the fixed `KEY`.
     pub fn token(&self) -> &str {
         self.app.token()
     }
@@ -235,6 +236,9 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
         move |app| mount(app, for_mount),
     )
     .await;
+    // CF-12's Almanac half, held as a check rather than a comment: the
+    // harness logs in with the token the app was given, not one it made.
+    assert_eq!(app.token(), TOKEN, "extra_env must win for TestApp::token()");
     app.login().await;
     let addr = app.addr();
 
