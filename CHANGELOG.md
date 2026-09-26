@@ -11,6 +11,26 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Deliveries made through the sync endpoint are counted.**
+  `POST /v1/ingest/{source}/sync` delivered to Google and marked the
+  entry done, but never incremented `almanac_events_delivered_total`
+  and never added the route to the debug surface — only the worker did.
+  JobTracker posts only to this endpoint, so the live counters read
+  accepted 2, delivered 0. A failed sync attempt now also counts
+  towards `almanac_deliveries_failed_total`.
+
+### Security
+
+- **rustls 0.23.45** for RUSTSEC-2026-0285 (TLS 1.3 handshake messages
+  accepted across encryption-level boundaries). Lockfile-only.
+- **`backoff` replaced by `backon`.** The Calendar client's retry loop
+  no longer depends on the unmaintained `backoff` crate
+  (RUSTSEC-2025-0012) and the `instant` crate it pulled in
+  (RUSTSEC-2024-0384); both cargo-deny exceptions are gone. Same
+  ladder: 500 ms, growing by 1.5, jittered, a one-minute budget.
+
 ## [4.0.5] - 2026-09-10
 
 ### Changed
