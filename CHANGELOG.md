@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.0.6] - 2026-09-27
+
 ### Changed
 
 - **chassis-rs 2.2.1** (from 2.0.2; nothing on the kit's Rust surface
