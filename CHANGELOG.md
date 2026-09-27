@@ -11,6 +11,17 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 2.2.1** (from 2.0.2; nothing on the kit's Rust surface
+  moved). The kit's dashboard now serves **kp-themes 7.2.0** (from 5.1.0):
+  `academia`, `mono`, `ticker` and `woodblock` are gone and a stored one
+  falls back to `formal`. From `chassis sync --write`: the release workflow
+  no longer marks a release `latest` until `sign-release.sh` has signed it
+  and uploaded `VERSION` (so the updater never reads a 404 in between), the
+  unit file's install line sets the binary's owner, and `gates.sh` carries
+  the kit's current gate-cache wording.
+
 ### Fixed
 
 - **Deliveries made through the sync endpoint are counted.**

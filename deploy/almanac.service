@@ -8,8 +8,10 @@
 # the binary's directory too, or self-update verifies, downloads and then
 # fails at the swap.
 #
-# Install: install -D -m755 almanac /opt/almanac/bin/almanac (the
-# service owns that directory: chown -R almanac: /opt/almanac), copy
+# Install: install -D -m755 -o almanac -g almanac almanac /opt/almanac/bin/almanac
+# (the service must own the binary itself, not only its directory: Linux
+# refuses a hard link to a file another user owns, so a root-owned binary
+# stops the self-update at the swap — fix-12, kyu on CT 109), copy
 # this file to /etc/systemd/system/almanac.service, create the user
 # (almanac), the state dir (/appdata/almanac/almanac-config) and the env file
 # (/appdata/almanac/almanac-config/latch.env, 0640 root:almanac), then
