@@ -85,8 +85,12 @@ define require_version
 	esac
 endef
 
+# Kenny, 2026-09-29 ("Bij elke release"): the live suites no longer run
+# nightly on GitHub, so every release runs them first, against the real
+# calendar, before anything is tagged or built.
 release:
 	$(require_version)
+	$(MAKE) live-test
 	chassis release $(VERSION)
 
 release-dry:
