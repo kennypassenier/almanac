@@ -2,13 +2,12 @@
 # Makefile — almanac
 # =============================================================================
 #
-# Walking-skeleton scope only (milestone L0): build/run/clean/tag.
-# Secrets wiring via Latch (`latch run --`) lands in milestone L1 — see
-# docs/REALIZATION_PLAN.md.
+# Build/run/clean plus the release entry point. Secrets reach the
+# binary through Latch (`latch run --`), never through this file.
 
 BINARY_NAME = almanac
 
-.PHONY: build run clean tag-major tag-minor tag-patch help
+.PHONY: build run clean release release-dry help
 
 help:
 	@echo ""
@@ -18,9 +17,10 @@ help:
 	@echo "  run         Build and run the binary"
 	@echo "  clean       Remove build artifacts"
 	@echo ""
-	@echo "  tag-patch   Bump Cargo.toml + tag (0.1.0 -> 0.1.1)"
-	@echo "  tag-minor   Bump Cargo.toml + tag (0.1.0 -> 0.2.0)"
-	@echo "  tag-major   Bump Cargo.toml + tag (1.2.3 -> 2.0.0)"
+	@echo "  release     make release VERSION=x.y.z — gate, bump, build and"
+	@echo "              publish locally (chassis release; needs chassis >= 3.0.0)"
+	@echo "  release-dry make release-dry VERSION=x.y.z — the same gate and builds,"
+	@echo "              stops before any commit, tag, push or upload"
 	@echo ""
 
 build:
@@ -33,41 +33,34 @@ clean:
 	cargo clean
 
 # -----------------------------------------------------------------------------
-# Versioning helpers — create the next git tag locally without pushing.
-# Run 'git push --tags' to publish it.
+# Releasing — `chassis release <version>` (chassis-rs >= 3.0.0) does the
+# whole chain on this machine: the gate, the Cargo.toml + CHANGELOG bump
+# and commit, the local tag, the static musl binary + SHA256SUMS, the
+# image, and only then the push, `docker push`, `gh release create` and
+# scripts/sign-release.sh. Nothing is built on GitHub Actions.
+#
+# M8: Cargo.toml is the single source of the version, and the tag
+# follows it. The old tag-* targets once created a tag without touching
+# Cargo.toml, which is how the binary ended up reporting 0.1.0 while the
+# only tag said v0.0.1 — harmless until a self-updater has to compare
+# its own version against the latest release. `chassis release` bumps
+# both in one step, and scripts/check-version.sh still fails the build
+# on any disagreement.
 # -----------------------------------------------------------------------------
 
-# M8: Cargo.toml is the single source of the version, and the tag
-# follows it. These targets used to create a tag without touching
-# Cargo.toml, which is how the binary ended up reporting 0.1.0 while
-# the only tag said v0.0.1 — harmless until a self-updater has to
-# compare its own version against the latest release, at which point it
-# either never updates or updates on every poll. check-version.sh now
-# fails the build on any disagreement, so the bump has to happen here.
-CURRENT_VERSION = $(shell grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-_VER_PARTS      = $(subst ., ,$(CURRENT_VERSION))
-_MAJOR          = $(word 1,$(_VER_PARTS))
-_MINOR          = $(word 2,$(_VER_PARTS))
-
-define bump
-	@if ! git diff --quiet || ! git diff --cached --quiet; then \
-		echo "working tree is dirty — commit or stash before tagging" >&2; exit 1; \
-	fi
-	./scripts/check-ci.sh
-	sed -i '0,/^version = /s/^version = .*/version = "$(1)"/' Cargo.toml
-	cargo update --workspace --quiet
-	git add Cargo.toml Cargo.lock
-	git commit -m "chore(release): v$(1) [M8, meta]"
-	git tag v$(1)
-	@echo "Cargo.toml is now $(1) and tag v$(1) exists locally."
-	@echo "Run 'git push && git push --tags' to publish, then ./scripts/sign-release.sh"
+define require_version
+	@test -n "$(VERSION)" || { echo "usage: make $@ VERSION=x.y.z" >&2; exit 1; }
+	@case "$(VERSION)" in \
+		[0-9]*.[0-9]*.[0-9]*) ;; \
+		*) echo "VERSION must be plain x.y.z (no leading v), got '$(VERSION)'" >&2; exit 1 ;; \
+	esac
 endef
 
-tag-major:
-	$(call bump,$(shell echo $$(($(_MAJOR) + 1))).0.0)
+release:
+	$(require_version)
+	./scripts/check-ci.sh
+	chassis release $(VERSION)
 
-tag-minor:
-	$(call bump,$(_MAJOR).$(shell echo $$(($(_MINOR) + 1))).0)
-
-tag-patch:
-	$(call bump,$(_MAJOR).$(_MINOR).$(shell echo $$(($(word 3,$(_VER_PARTS)) + 1))))
+release-dry:
+	$(require_version)
+	chassis release $(VERSION) --dry-run

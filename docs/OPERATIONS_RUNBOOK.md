@@ -12,42 +12,66 @@ exactly one way: self-update is off and homelab v2 owns updates.
 
 ## R1 · Cut a release
 
-Since the chassis-rs migration (3.0.0) this is the kit's own chain
-(standing rule 36's verified publish chain, built in), not a hand-run
-sequence of `make` targets and scripts:
+Since chassis-rs 3.0.0 the whole release is built and published on
+this machine by the kit's own chain (standing rule 36's verified
+publish chain, built in); nothing is built on GitHub Actions any more:
 
 ```bash
-chassis release <version>          # e.g. chassis release 4.0.3
+make release VERSION=<version>        # e.g. make release VERSION=4.0.7
+make release-dry VERSION=<version>    # the same gate and builds, publishes nothing
 ```
 
-It bumps `Cargo.toml`, dates a `## [<version>]` section in
-`CHANGELOG.md` under `## [Unreleased]`, commits `chore(release): <version>
-[meta]`, pushes to a throwaway `release-<version>` branch (branch
-protection on `main` requires status checks that only exist once CI has
-run on a SHA — a direct push of a brand-new commit is refused, which is
-why the chain lands on a branch first: standing rule 6b), waits for that
-branch's CI, fast-forwards `main` to it and deletes the branch, tags the
-merge commit, pushes the tag, and waits for the `Release` workflow
-(`.github/workflows/release.yml`) to build the binary, write
-`SHA256SUMS`, push the container image and publish the (still unsigned)
-GitHub release. It then calls `scripts/sign-release.sh <tag>` itself,
-which asks for the minisign key's password on the terminal and uploads
-`SHA256SUMS.minisig` and `VERSION` once it has it.
+`make release` refuses a missing or malformed `VERSION`, refuses a
+commit whose GitHub CI run is not green (`scripts/check-ci.sh`), and
+then runs `chassis release <version>`, which, in this order:
 
-**Two ways to run it**, both fine, chosen per release: run `chassis
-release <version>` yourself, start to finish, in one sitting — or have
-Claude run everything up to the point `sign-release.sh` would ask for
-the password (that step is always Kenny's; Claude never has the
+1. runs the gate — `cargo fmt --all -- --check`, `cargo clippy
+   --all-targets -- -D warnings`, `cargo test`,
+   `.claude/hooks/gates.project.sh`, `cargo run -q -- --version`,
+   `cargo deny check all`, `docker build -t almanac:ci .` with
+   `--version` and a `--healthcheck` against a closed port that must
+   fail, and `cargo llvm-cov --summary-only` (informational, skipped
+   when absent);
+2. bumps `Cargo.toml`, dates a `## [<version>]` section in
+   `CHANGELOG.md` under `## [Unreleased]`, commits
+   `chore(release): <version> [meta]` through the repository's hooks and
+   tags `v<version>` locally;
+3. builds the static musl binary in `rust:1.97-slim-trixie`, refuses it
+   if `ldd` shows a resolved shared library (a `=>` line), writes
+   `dist/almanac` and `dist/SHA256SUMS`, and builds the image
+   `ghcr.io/kennypassenier/almanac:v<version>` + `:latest`, checked to
+   answer `--version` with the new version;
+4. only then pushes `main` and the tag, pushes both image tags, runs
+   `gh release create v<version> --verify-tag --latest=false` with the
+   binary and `SHA256SUMS`, and calls `scripts/sign-release.sh
+   v<version>`, which asks for the minisign key's password on the
+   terminal and uploads `SHA256SUMS.minisig` and then `VERSION`
+   (marking the release `latest`).
+
+`--dry-run` (`make release-dry`) stops after step 3: every asset is
+built and checked, nothing is committed, tagged, pushed or uploaded.
+`chassis release <version> --plan` prints the steps without running
+them. There is no release branch and no wait for CI.
+
+**Needs chassis >= 3.0.0.** The pin in this repository is still older;
+once chassis-rs 3.0.0 is released, run `chassis upgrade 3.0.0` and
+`chassis sync --write` before the first release this way. The release
+machine needs docker logged in to `ghcr.io` with `write:packages`,
+`cargo-deny`, `gh` and `minisign`.
+
+**Two ways to run it**, both fine, chosen per release: run `make
+release VERSION=<version>` yourself, start to finish, in one sitting —
+or have Claude run everything up to the point `sign-release.sh` would
+ask for the password (that step is always Kenny's; Claude never has the
 password and never should), then run `scripts/sign-release.sh
-v<version>` yourself when it suits you. `chassis release <version>
---dry-run` prints the exact external commands either way runs, without
-touching anything — worth running first when it matters.
+v<version>` yourself when it suits you.
 
 **The version in the tag and the version in `Cargo.toml` must agree**;
-the Release workflow refuses the tag otherwise. `chassis release`
-enforces this by construction — it is the same command that bumps both.
+`chassis release` enforces this by construction — it is the same
+command that bumps both, and `scripts/check-version.sh` fails the build
+on any disagreement (M8).
 
-Signing happens on your machine, never in CI. A checksum served from
+Signing happens on your machine, like the build. A checksum served from
 the same host as the binary proves nothing; the signature is the only
 thing standing between an unattended updater and a compromised release
 host.

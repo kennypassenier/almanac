@@ -23,7 +23,7 @@ Phase 5.)
 | Next action | nothing open for Kenny. **v4.0.6 signed 2026-09-27 08:57 local** (minisign OK, VERSION 4.0.6, now `latest`) and **live on CT 112** via `homelab release-update-native almanac` (armed rollback); `/healthz` reports 4.0.6 (measured 2026-09-27 08:57) |
 | AFK mode | off since 2026-08-28 |
 | Updates | **the homelab owns them** since 2026-08-30. `ALMANAC_SELF_UPDATE=off` on CT 112; `stacks/almanac/service.yml` carries `update_cmd: runuser -u almanac -- /opt/almanac/almanac update`. Exactly one of the two may ever be armed |
-| Open, gated on Kenny | nothing (4.0.6 signed and live 2026-09-27). Blocked elsewhere: `ALMANAC_TRUSTED_PROXIES` on CT 112 (Homelab Rust) |
+| Open, gated on Kenny | nothing (4.0.6 signed and live 2026-09-27). Blocked elsewhere: `ALMANAC_TRUSTED_PROXIES` on CT 112 (Homelab Rust). Release path (2026-09-29): `make release VERSION=x.y.z` → `chassis release`, built and published locally, no GitHub Actions; needs chassis-rs >= 3.0.0 — the pin is older, so `chassis upgrade 3.0.0` + `chassis sync --write` come first once the kit is released |
 
 **Live since 2026-08-29:** CT 112 on Proxmox, `10.10.10.12:8080`, systemd
 under `latch run`, self-update armed against GitHub Releases. Two real

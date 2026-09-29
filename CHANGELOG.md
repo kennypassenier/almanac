@@ -11,6 +11,18 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **Releases are built and published locally.** `make release
+  VERSION=x.y.z` runs `chassis release` (chassis-rs >= 3.0.0), which
+  runs the gate, bumps and tags, builds the static musl binary,
+  `SHA256SUMS` and the image on this machine, and only then pushes,
+  uploads and signs; `make release-dry VERSION=x.y.z` rehearses it
+  without publishing anything. `.github/workflows/release.yml` and the
+  `tag-major`/`tag-minor`/`tag-patch` targets are gone. The chassis pin
+  is still older: `chassis upgrade 3.0.0` + `chassis sync --write` come
+  first once the kit is released.
+
 ## [4.0.6] - 2026-09-27
 
 ### Changed

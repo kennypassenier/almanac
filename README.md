@@ -118,7 +118,8 @@ The code splits into `src/core` (pure logic, no I/O) and `src/shell`
 by convention, because a single crate gives the compiler no way to
 enforce it.
 
-Releases are cut and signed locally, never in CI — see the runbook.
+Releases are built, published and signed locally (`make release
+VERSION=x.y.z`), never on GitHub Actions — see the runbook.
 
 ## Deployment
 
