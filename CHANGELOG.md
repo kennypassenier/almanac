@@ -22,6 +22,12 @@ against before it installs anything.
   `tag-major`/`tag-minor`/`tag-patch` targets are gone. The chassis pin
   is still older: `chassis upgrade 3.0.0` + `chassis sync --write` come
   first once the kit is released.
+- **No GitHub Actions CI.** `.github/workflows/ci.yml` and
+  `live-tests.yml` are gone, and so is `scripts/check-ci.sh`: the gate
+  CI ran now runs inside `chassis release` (rehearse it with
+  `make release-dry VERSION=x.y.z`). The live suites run by hand with
+  `make live-test` under `latch run --`; nothing runs them nightly any
+  more.
 
 ## [4.0.6] - 2026-09-27
 

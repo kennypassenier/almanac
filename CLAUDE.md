@@ -86,5 +86,8 @@ runs `.claude/hooks/gates.sh`: fmt, clippy -D warnings, tests, AR13
 core/shell boundary check) and `.githooks/commit-msg` (requires
 bracketed IDs, e.g. `[K5]` or `[meta]`) from any session or terminal.
 The Claude Code PreToolUse hook (`.claude/hooks/check-commit.sh`) is a
-second layer. CI re-runs the same gates on every push; branch
-protection on `main` requires the `gates` check.
+second layer. There is no GitHub Actions CI: the full gate (plus
+cargo-deny, the image smoke test and informational coverage) runs
+locally inside `chassis release`, and `make release-dry VERSION=x.y.z`
+runs it without releasing. The live suites run only by hand
+(`make live-test`); nothing runs them nightly any more.

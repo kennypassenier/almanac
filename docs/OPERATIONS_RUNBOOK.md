@@ -21,9 +21,8 @@ make release VERSION=<version>        # e.g. make release VERSION=4.0.7
 make release-dry VERSION=<version>    # the same gate and builds, publishes nothing
 ```
 
-`make release` refuses a missing or malformed `VERSION`, refuses a
-commit whose GitHub CI run is not green (`scripts/check-ci.sh`), and
-then runs `chassis release <version>`, which, in this order:
+`make release` refuses a missing or malformed `VERSION` and then runs
+`chassis release <version>`, which, in this order:
 
 1. runs the gate — `cargo fmt --all -- --check`, `cargo clippy
    --all-targets -- -D warnings`, `cargo test`,
@@ -51,7 +50,15 @@ then runs `chassis release <version>`, which, in this order:
 `--dry-run` (`make release-dry`) stops after step 3: every asset is
 built and checked, nothing is committed, tagged, pushed or uploaded.
 `chassis release <version> --plan` prints the steps without running
-them. There is no release branch and no wait for CI.
+them. There is no release branch and no wait for CI: there is no
+GitHub Actions CI any more. The gate in step 1 is what CI used to run;
+to run it without releasing, use `make release-dry VERSION=<next>`
+(`chassis release <next> --dry-run`). The pre-commit hook still runs
+fmt, clippy, tests and the project gates on every commit.
+
+The live suites (`make live-test`) are not part of the gate and nothing
+runs them on a schedule any more — the nightly workflow is gone. Run
+them by hand before a release.
 
 **Needs chassis >= 3.0.0.** The pin in this repository is still older;
 once chassis-rs 3.0.0 is released, run `chassis upgrade 3.0.0` and
@@ -615,7 +622,7 @@ latch run -- cargo run --example create_test_calendar  # for the live tests
 latch edit .env      # point ALMANAC_TEST_CALENDAR_ID at the new one
 latch commit .env && latch push
 latch run -- cargo test --test calendar_e2e -- --ignored   # prove it before touching the deployment
-gh secret set CLIENT_EMAIL PRIVATE_KEY ALMANAC_TEST_CALENDAR_ID   # the nightly live tests
+make live-test                                             # both live suites, same account
 ```
 
 **Then, on the deployment:** the LXC has a ciphertext-only clone with no

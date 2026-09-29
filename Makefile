@@ -7,7 +7,7 @@
 
 BINARY_NAME = almanac
 
-.PHONY: build run clean release release-dry help
+.PHONY: build run clean live-test release release-dry help
 
 help:
 	@echo ""
@@ -16,6 +16,7 @@ help:
 	@echo "  build       Compile release binary"
 	@echo "  run         Build and run the binary"
 	@echo "  clean       Remove build artifacts"
+	@echo "  live-test   Run the live suites (real calendar) under latch run --"
 	@echo ""
 	@echo "  release     make release VERSION=x.y.z — gate, bump, build and"
 	@echo "              publish locally (chassis release; needs chassis >= 3.0.0)"
@@ -31,6 +32,34 @@ run: build
 
 clean:
 	cargo clean
+
+# -----------------------------------------------------------------------------
+# Live tests (T19) — the two #[ignore]d suites are the only proof that
+# the Google Calendar round-trip (K1), the upsert that stops a
+# redelivery duplicating (K2) and both power-loss drills (AR16) work.
+# They write to the throwaway calendar ALMANAC_TEST_CALENDAR_ID (never
+# the household one) with the service account's real credentials, all
+# of which come from Latch's default environment, like every other
+# local run of them. Run from a checkout linked to Latch (`latch init`).
+#
+# Nothing runs these unattended any more: the nightly GitHub Actions
+# schedule is gone with the rest of the workflows. Run this by hand,
+# before a release and after anything touching the Calendar client,
+# the upsert key or the journal.
+#
+# Refuses rather than passing vacuously when the calendar id is
+# missing: a green run that tested nothing is worse than a red one.
+# -----------------------------------------------------------------------------
+
+live-test:
+	@latch run -- sh -c 'test -n "$$ALMANAC_TEST_CALENDAR_ID"' || { \
+		echo "ALMANAC_TEST_CALENDAR_ID is not set in Latch (or this checkout is not linked to it)." >&2; \
+		echo "What now: 'latch edit .env' and set it to the throwaway test calendar" >&2; \
+		echo "(cargo run --example create_test_calendar makes one), then" >&2; \
+		echo "'latch commit .env && latch push'. Never the household calendar." >&2; \
+		exit 1; }
+	latch run -- cargo test --test calendar_e2e -- --ignored --nocapture
+	latch run -- cargo test --test power_loss_drill -- --ignored --nocapture
 
 # -----------------------------------------------------------------------------
 # Releasing — `chassis release <version>` (chassis-rs >= 3.0.0) does the
@@ -58,7 +87,6 @@ endef
 
 release:
 	$(require_version)
-	./scripts/check-ci.sh
 	chassis release $(VERSION)
 
 release-dry:

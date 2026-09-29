@@ -5,10 +5,9 @@
 //! Requires `ALMANAC_TEST_CALENDAR_ID` plus the usual `CLIENT_EMAIL` /
 //! `PRIVATE_KEY` / `TOKEN_URI` service-account credentials (normally
 //! supplied by `latch run --`) in the process environment. Marked
-//! `#[ignore]` so a plain `cargo test` — and CI, until the scratch
-//! calendar and its credentials are wired in as secrets — stays green
-//! without them; run explicitly with:
-//!   ALMANAC_TEST_CALENDAR_ID=... latch run -- cargo test --test calendar_e2e -- --ignored
+//! `#[ignore]` so a plain `cargo test` — and the release gate — stays
+//! green without them; run explicitly with `make live-test`, or:
+//!   latch run -- cargo test --test calendar_e2e -- --ignored
 
 use std::collections::HashMap;
 

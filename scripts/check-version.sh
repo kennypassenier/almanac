@@ -7,8 +7,8 @@
 # therefore either never update or update on every poll.
 #
 # Cargo.toml is the single source. This script fails when a tag exists
-# that does not match it, and is run by CI on every push and by the
-# release flow before anything is published.
+# that does not match it, and is run by the project gates on every
+# commit and by `chassis release` before anything is published.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 

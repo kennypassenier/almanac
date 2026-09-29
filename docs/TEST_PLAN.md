@@ -22,7 +22,7 @@ decision, written down. A gap nobody decided about is a hole.**
 | `tests/process_lifecycle.rs` | The real binary as a process: SIGTERM draining cleanly, the startup retry after an unreachable Google, a broken key exiting, two processes on one data directory, `--check` against a live instance. |
 | `tests/mapping_regression.rs` | Each source's real payload byte-compared against a pinned event, so a mapping change that alters output is visible in the diff. |
 | `tests/no_secrets_in_logs.rs` | Every one of the secrets, plus process arguments. |
-| `tests/calendar_e2e.rs`, `tests/power_loss_drill.rs` | **Live**, against a real calendar. `#[ignore]`d locally; run by the `live-tests` workflow. |
+| `tests/calendar_e2e.rs`, `tests/power_loss_drill.rs` | **Live**, against a real calendar. `#[ignore]`d in a plain `cargo test`; run by hand with `make live-test` (under `latch run --`). Nothing runs them unattended any more: the nightly GitHub Actions schedule is gone, so rot in K1, K2 or the power-loss drills shows up only when someone runs them. |
 
 ## Where each Essential feature is proven
 

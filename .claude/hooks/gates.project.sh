@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Almanac's own gates (chassis 1.6.0, M1): run by the kit's gates.sh and CI
-# after fmt, clippy and the tests. This file is project-owned; `chassis
+# Almanac's own gates (chassis 1.6.0, M1): run by the kit's gates.sh (every
+# commit) and by `chassis release`'s gate, after fmt, clippy and the tests. This file is project-owned; `chassis
 # sync` never touches it.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
