@@ -13,6 +13,8 @@ against before it installs anything.
 
 ## [4.1.0] - 2026-10-01
 
+## [4.1.0] - 2026-10-01
+
 ### Changed
 
 - **chassis-rs 3.1.0** (from 3.0.0; kp-themes 8.1.0, from 8.0.0 — no
