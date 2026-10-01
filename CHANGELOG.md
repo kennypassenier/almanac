@@ -11,23 +11,47 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-01
+
 ### Changed
 
+- **chassis-rs 3.1.0** (from 3.0.0; kp-themes 8.1.0, from 8.0.0 — no
+  further change over 3.0.2's vendoring). `chassis sync --write` added
+  `RuntimeDirectory=almanac` / `RuntimeDirectoryMode=0700` to both unit
+  variants, so `/run/almanac/backup.sock` has a home outside the state
+  root. No change on the Rust surface Almanac calls; the kit's `WebApp`
+  now mounts at `/` by default, but Almanac does not use the `webapp`
+  feature (it runs on `dashboard`), so nothing moved.
 - **Releases are built and published locally.** `make release
   VERSION=x.y.z` runs `chassis release` (chassis-rs >= 3.0.0), which
   runs the gate, bumps and tags, builds the static musl binary,
   `SHA256SUMS` and the image on this machine, and only then pushes,
   uploads and signs; `make release-dry VERSION=x.y.z` rehearses it
   without publishing anything. `.github/workflows/release.yml` and the
-  `tag-major`/`tag-minor`/`tag-patch` targets are gone. The chassis pin
-  is still older: `chassis upgrade 3.0.0` + `chassis sync --write` come
-  first once the kit is released.
+  `tag-major`/`tag-minor`/`tag-patch` targets are gone.
 - **No GitHub Actions CI.** `.github/workflows/ci.yml` and
   `live-tests.yml` are gone, and so is `scripts/check-ci.sh`: the gate
   CI ran now runs inside `chassis release` (rehearse it with
   `make release-dry VERSION=x.y.z`). The live suites run by hand with
   `make live-test` under `latch run --`; nothing runs them nightly any
   more.
+
+### Added
+
+- **Almanac's own state writes drain for a backup pause** (feat-backup-1).
+  The journal's append and compact, and the token store's persist, each
+  hold a `chassis::shell::backup::writing()` ticket for the duration of
+  their write, so `almanac backup-pause --for <secs>` (run from the
+  Proxmox host, or by the homelab as a 60 s heartbeat) makes them stand
+  still like the kit's own `clients.json.enc`/`sessions.json.enc`
+  without almanac having to be stopped first. A new mapping profile
+  (the Sources page, K21/S1) joins the same way with the blocking
+  variant — an infrequent admin action, not a hot path. Almanac does not
+  declare `App::backup_mode(Mode::Full)`: the default `writes` mode is
+  enough (nothing here needs to stop answering requests, only writing),
+  so the kit falls back to stopping the unit only when the in-process
+  pause cannot be reached at all (older binary, hung process, or the
+  writes do not drain within the kit's 30 s).
 
 ## [4.0.6] - 2026-09-27
 

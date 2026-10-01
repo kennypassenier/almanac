@@ -213,6 +213,12 @@ pub fn save_new(dir: &Path, contents: &str) -> Result<Profile, AlmanacError> {
         });
     }
 
+    // feat-backup-1 (chassis-rs 3.1.0): waits out a backup pause before
+    // writing a new profile file, so a nightly `tar` of the state root
+    // never races this. Infrequent admin action, so the unbounded
+    // `writing_blocking` is fine here (contrast the journal's hot path,
+    // which uses the async, lock-held `writing`).
+    let _ticket = chassis::shell::backup::writing_blocking();
     write_atomically(&path, contents)?;
     Ok(profile)
 }

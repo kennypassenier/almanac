@@ -60,6 +60,10 @@ impl Journal {
         line.push('\n');
 
         let _guard = self.write_lock.lock().await;
+        // feat-backup-1 (chassis-rs 3.1.0): waits out a backup pause before
+        // touching the file, so a nightly `tar` of the state root never
+        // races this append. Held until the fsync below returns.
+        let _ticket = chassis::shell::backup::writing().await;
 
         if let Some(parent) = self.path.parent()
             && !parent.as_os_str().is_empty()
@@ -221,6 +225,9 @@ impl Journal {
     /// fully intact (standing rule 12).
     pub async fn compact(&self) -> Result<usize, AlmanacError> {
         let _guard = self.write_lock.lock().await;
+        // feat-backup-1: see the comment in `append` — compaction rewrites
+        // the same file a backup archives.
+        let _ticket = chassis::shell::backup::writing().await;
 
         let records = self.read_records()?;
         let mut pending: Vec<Record> = crate::core::journal::pending(&records)

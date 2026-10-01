@@ -30,6 +30,10 @@ User=almanac
 Group=almanac
 EnvironmentFile=/appdata/almanac/almanac-config/latch.env
 WorkingDirectory=/appdata/almanac/almanac-config
+# feat-backup-1: /run/almanac/backup.sock, where `almanac backup-pause`
+# reaches the running service; outside the state root, so never archived.
+RuntimeDirectory=almanac
+RuntimeDirectoryMode=0700
 ExecStartPre=/opt/almanac/bin/almanac --check
 ExecStart=/opt/almanac/bin/almanac
 Restart=always

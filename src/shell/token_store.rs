@@ -120,6 +120,11 @@ impl TokenStore {
         tokens: &BTreeMap<String, TokenRecord>,
         sessions: &BTreeMap<String, SessionRecord>,
     ) -> Result<(), AlmanacError> {
+        // feat-backup-1 (chassis-rs 3.1.0): waits out a backup pause before
+        // the temp-file-plus-rename below, so a nightly `tar` of the state
+        // root never races this write.
+        let _ticket = chassis::shell::backup::writing().await;
+
         let file = StoreFile {
             tokens: tokens.clone(),
             sessions: sessions.clone(),
