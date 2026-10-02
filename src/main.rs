@@ -124,6 +124,10 @@ async fn main() -> ExitCode {
         Ok(app) => app,
         Err(e) => return die(e),
     };
+    // fix-15 (chassis-rs 3.2.0): without this the kit's dashboard pages and
+    // layout show the binary name ("almanac") as the brand; this is the
+    // name the service already uses everywhere else (README, templates).
+    app.brand_title("Almanac");
     if !app.needs_project_config() {
         // --version, --help, --healthcheck, --print-config, gen-secret,
         // update, rekey: the kit's alone, and they must work without
