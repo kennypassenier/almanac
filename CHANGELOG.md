@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.1.7] - 2026-10-08
+
 ## [4.1.6] - 2026-10-04
 
 ## [4.1.5] - 2026-10-04
