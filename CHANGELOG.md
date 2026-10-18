@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-18
+
 ### Changed
 
 - **chassis-rs 3.7.1 → 3.8.0**: the dashboard now ships kp-themes 11.0.0 with
