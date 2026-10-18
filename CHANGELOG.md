@@ -11,6 +11,13 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 3.7.1 → 3.8.0**: the dashboard now ships kp-themes 11.0.0 with
+  twelve themes. A browser whose stored theme was `terminal`, `phantom`,
+  `light` or `grotesk` is moved once to the nearest remaining theme by the
+  kit; Almanac's own code named none of them.
+
 ## [4.1.8] - 2026-10-16
 
 ## [4.1.7] - 2026-10-08
