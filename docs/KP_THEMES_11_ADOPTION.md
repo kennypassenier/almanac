@@ -78,3 +78,17 @@ Almanac's wishes; Almanac builds no UI of its own for them.
 | feat-ui-5 | **Deliveries per day**: month heatmap of what Almanac wrote | `.kp-calendar--busy-days` | needs a small daily counter kept on disk |
 | feat-ui-6 | **This week in the calendars**: the events Almanac wrote this week, per calendar colour | `.kp-week[data-kp-week]` | Google events of the managed calendars (read only) |
 | feat-ui-7 | **Source profile view**: the mapping a source uses, readable | `.kp-code-block` (TOML) + `.kp-kv--columns` summary | profile files |
+
+## On the bump to kp-themes 11.1.0 (via chassis-rs 3.9.0)
+
+The page CSS carries workarounds for package gaps that 11.1.0 closes; drop
+each one with the bump and measure again (align and states at 1280 and 390):
+
+- `.st-live .kp-refresh__line { justify-items: start }` in `web/css/status.css`
+  (gap 22, on kp-themes main).
+- The History month head's own 7-track nav in `web/css/history.css`: use the
+  package's `data-kp-calendar-nav="spread"` instead (gap 21).
+- The Calendars attention band's hand-placed tracks: `.kp-attention` with
+  `data-kp-subgrid` now has named icon | words | actions tracks (gap 21).
+- `holdTableFootprint()` in `web/js/status.js` once the datatable is a
+  footprint host (gap 24, not yet fixed).
