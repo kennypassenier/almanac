@@ -3,7 +3,6 @@
 
 .st-journal,
 .st-sources,
-.st-live,
 .st-glance {
     display: grid;
     gap: var(--kp-space-md);
@@ -14,38 +13,108 @@
     min-inline-size: 0;
 }
 
-/* Health pair: two equal tracks, name and mark on the same two columns in both. */
-.st-health {
+/* At a glance: the tiles and the health pairs are one set of tracks (four at the card's width, two on a narrow card, one on a
+   phone); a pair spans two tracks (one on a phone), so a name starts where a tile's text starts [almanac-align-1019]. */
+.st-glance-wrap {
+    container: st-glance / inline-size;
+    min-inline-size: 0;
+}
+
+.st-glance {
+    --st-cols: 4;
+}
+
+.st-glance .kp-kpis,
+.st-glance .st-health {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-    gap: var(--kp-space-sm) var(--kp-space-lg);
+    grid-template-columns: repeat(var(--st-cols), minmax(0, 1fr));
+    column-gap: var(--kp-kpis-gap, var(--kp-space-md, 1rem));
+}
+
+.st-glance .st-health {
+    row-gap: var(--kp-space-sm, 0.5rem);
 }
 
 .st-health__item {
+    grid-column: span 2;
     display: grid;
     grid-template-columns: 5rem minmax(0, 1fr);
     align-items: center;
     gap: var(--kp-space-sm);
+    padding-inline: var(--kp-space-md, 1rem) 0;
+}
+
+.st-health__item > .kp-health {
+    min-inline-size: 0;
 }
 
 .st-health__name {
     color: var(--muted-foreground);
 }
 
-/* Live head: the title and the refresh control in two tracks that stack on a phone. */
-.st-live__head {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
-    align-items: center;
-    gap: var(--kp-space-sm) var(--kp-space-md);
+@container st-glance (max-width: 44rem) {
+    .st-glance {
+        --st-cols: 2;
+    }
 }
 
-.st-live__title {
+/* On a phone the tiles take a row each (two narrow tiles cut their labels mid-word), and a pair takes the row. */
+@container st-glance (max-width: 30rem) {
+    .st-glance {
+        --st-cols: 1;
+    }
+
+    .st-health__item {
+        grid-column: 1;
+    }
+}
+
+/* Live head: title | chooser | freshness | Refresh now are the four tracks of a form grid; the card spans all four. */
+.st-live {
+    --kp-formgrid-control: var(--kp-formgrid-short, 14rem);
+}
+
+.st-live .kp-refresh__line {
+    justify-items: start;
+    text-align: start;
+}
+
+.st-live > .st-live__title {
+    grid-column: label;
+    grid-row: 1;
     margin: 0;
+    align-self: center;
 }
 
-.st-live__head .kp-refresh {
+.st-live > .kp-refresh {
+    grid-row: 1;
+}
+
+.st-live > .st-live__card {
+    grid-column: label-start / actions-end;
+    grid-row: 2;
+    display: grid;
+    gap: var(--kp-space-md);
     min-inline-size: 0;
+}
+
+.st-live > .st-live__card > .kp-card {
+    inline-size: 100%;
+    box-sizing: border-box;
+}
+
+@container kp-formgrid (max-width: 36rem) {
+    .st-live > .st-live__title {
+        grid-column: 1 / -1;
+    }
+
+    .st-live > .kp-refresh {
+        grid-row: 2;
+    }
+
+    .st-live > .st-live__card {
+        grid-row: 3;
+    }
 }
 
 /* The table card: the chips and the search share one bar. */

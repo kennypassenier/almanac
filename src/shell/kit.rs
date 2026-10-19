@@ -75,11 +75,11 @@ const STATUS_ASSETS: &str = concat!(
 
 const JOURNAL_HTML: &str = r##"
 <div class="st-journal" data-st-journal>
-    <section class="kp-card st-card" id="st-glance" data-kp-state="loading" data-kp-loading-words="Reading the journal" aria-labelledby="st-glance-title">
+    <div class="st-glance-wrap"><section class="kp-card st-card" id="st-glance" data-kp-state="loading" data-kp-loading-words="Reading the journal" aria-labelledby="st-glance-title">
         <div class="kp-card__header"><h3 class="kp-card__title" id="st-glance-title">At a glance</h3></div>
         <p class="kp-card__body">What is waiting and what happened since the service started.</p>
         <div class="kp-card__stage">
-            <div class="kp-card__data st-glance">
+            <div class="kp-card__data st-glance" data-st-glance>
                 <div class="kp-kpis" role="group" aria-label="Journal figures">
                     <div class="kp-kpi" id="st-kpi-waiting">
                         <span class="kp-kpi__label">Waiting to be delivered</span>
@@ -103,7 +103,7 @@ const JOURNAL_HTML: &str = r##"
                         <a class="kp-kpi__link" href="#st-deliveries" title="Open the recent deliveries"><span class="kp-kpi__link-word">Deliveries</span> &#8599;</a>
                         <span class="kp-kpi__value"><span id="st-per-hour">&ndash;</span><small>per hour</small></span>
                         <span class="kp-kpi__trend">Last 24 hours, since the service started</span>
-                        <figure class="kp-kpi__chart" id="st-trend" data-kp-chart="spark" data-kp-spark-head="none" data-kp-spark-axis="relative" aria-label="Deliveries per hour, last 24 hours"></figure>
+                        <figure class="kp-kpi__chart" id="st-trend" data-kp-chart="spark" data-kp-chart-loading data-kp-spark-head="none" data-kp-spark-axis="relative" aria-label="Deliveries per hour, last 24 hours"></figure>
                     </div>
                 </div>
                 <div class="st-health" role="group" aria-label="Subsystems">
@@ -119,13 +119,12 @@ const JOURNAL_HTML: &str = r##"
                 <figure class="kp-stackbar" id="st-outcomes"></figure>
             </div>
         </div>
-    </section>
+    </section></div>
 
-    <div class="st-live" id="st-deliveries">
-        <div class="st-live__head">
-            <h3 class="st-live__title">Recent deliveries</h3>
-            <div class="kp-refresh" id="st-refresh" data-kp-refresh="0" data-kp-refresh-choices="0,15,30,60" data-kp-look="menu" data-kp-remember="almanac-status-refresh"></div>
-        </div>
+    <div class="kp-formgrid st-live" id="st-deliveries" data-kp-formgrid-align="center">
+        <h3 class="st-live__title">Recent deliveries</h3>
+        <div class="kp-refresh" id="st-refresh" data-kp-refresh="0" data-kp-refresh-choices="0,15,30,60" data-kp-look="menu" data-kp-remember="almanac-status-refresh"></div>
+        <div class="st-live__card">
         <div class="kp-connection" id="st-connection" data-kp-connection data-kp-connection-source="app" data-kp-placement="top" data-kp-retry-delays="off"></div>
         <section class="kp-card st-card" id="st-deliveries-card" data-kp-state="loading" data-kp-loading-words="Reading the deliveries" aria-label="Recent deliveries">
             <p class="kp-card__body">The newest first, from this run of the service. Filter by result; open a row to read what went wrong.</p>
@@ -167,6 +166,7 @@ const JOURNAL_HTML: &str = r##"
                 </div>
             </div>
         </section>
+        </div>
     </div>
 </div>
 "##;

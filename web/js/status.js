@@ -234,6 +234,8 @@ function journalFailed() {
     const card = deliveriesCard();
     if (glance) setCardState(glance, 'error', note);
     if (card) setCardState(card, 'error', { title: 'The deliveries could not be read', text: note.text });
+    const bar = $('#st-outcomes');
+    if (bar) setStackbar(bar, { title: 'Outcomes', state: 'error', parts: [], message: note.title });
 }
 
 /** @returns {Promise<boolean>} whether the read worked */
@@ -312,6 +314,10 @@ const hasSources = () => document.querySelector('[data-st-sources]') !== null;
 
 await ready;
 
+// The outcome bar and the trend are never blank before the first answer: the theme's own loading state, at their height.
+const bar = $('#st-outcomes');
+if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
+
 if (hasJournal()) {
     joinChips();
     attachAgo(document);
@@ -336,6 +342,15 @@ if (hasJournal()) {
             else run();
         });
     }
+    // The outcome bar's own Retry (a failed first read) reads again like the card's.
+    $('#st-outcomes')?.addEventListener('kp-stackbar-retry', () => {
+        const bar = $('#st-outcomes');
+        if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
+        if (glanceCard()) setCardState(/** @type {HTMLElement} */ (glanceCard()), 'loading');
+        const handle = refresh ? refreshOf(refresh) : null;
+        if (handle) handle.now('retry');
+        else run();
+    });
     // The first read does not go through the chooser: it opens paused, and a
     // paused chooser fires no `kp-refresh` for `now()`.
     run();
