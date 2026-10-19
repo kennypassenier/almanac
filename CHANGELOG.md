@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-19
+
 ### Added
 
 - **Three new pages on kp-themes 11.0.0**, each built exactly as Kenny
