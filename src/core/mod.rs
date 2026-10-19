@@ -24,5 +24,6 @@ pub mod profile;
 pub mod request;
 pub mod retry;
 pub mod secrets;
+pub mod status_view;
 pub mod token;
 pub mod upsert;

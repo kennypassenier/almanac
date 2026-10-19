@@ -1,1 +1,89 @@
-/* status page: layout only; every colour, space and font comes from kp-themes tokens. */
+/* status page: layout only; every colour, space and font comes from kp-themes tokens. The two sections are grids: the
+   glance card, the live head and the card below it share one column, and the pairs inside them share tracks. */
+
+.st-journal,
+.st-sources,
+.st-live,
+.st-glance {
+    display: grid;
+    gap: var(--kp-space-md);
+    min-inline-size: 0;
+}
+
+.st-card {
+    min-inline-size: 0;
+}
+
+/* Health pair: two equal tracks, name and mark on the same two columns in both. */
+.st-health {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+    gap: var(--kp-space-sm) var(--kp-space-lg);
+}
+
+.st-health__item {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    align-items: center;
+    gap: var(--kp-space-sm);
+}
+
+.st-health__name {
+    color: var(--muted-foreground);
+}
+
+/* Live head: the title and the refresh control in two tracks that stack on a phone. */
+.st-live__head {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+    align-items: center;
+    gap: var(--kp-space-sm) var(--kp-space-md);
+}
+
+.st-live__title {
+    margin: 0;
+}
+
+.st-live__head .kp-refresh {
+    min-inline-size: 0;
+}
+
+/* The table card: the chips and the search share one bar. */
+.st-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 20rem);
+    align-items: center;
+    gap: var(--kp-space-sm);
+}
+
+@media (max-width: 40rem) {
+    .st-bar {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.st-table .kp-table-wrap {
+    min-block-size: 20rem;
+}
+
+.st-key {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--kp-space-xs) var(--kp-space-sm);
+}
+
+.st-detail {
+    display: grid;
+    gap: var(--kp-space-sm);
+    padding-block: var(--kp-space-xs);
+}
+
+.st-detail p,
+.st-detail .kp-code-block {
+    margin: 0;
+}
+
+.st-sources__data {
+    min-inline-size: 0;
+}
