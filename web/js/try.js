@@ -42,7 +42,7 @@ const factRow = (/** @type {string} */ label, /** @type {string} */ value, /** @
     const id = `try-fact-${(serial += 1)}`;
     const body = copy ? `<span class="kp-copyable__value" id="${id}-v">${esc(value)}</span>` : esc(value);
     const action = copy
-        ? `<div class="kp-formgrid__actions"><button type="button" class="kp-button kp-button--ghost kp-copyable__button" data-kp-copy="${id}-v" aria-describedby="${id}-l">Copy</button></div>`
+        ? `<div class="kp-formgrid__actions"><button type="button" class="kp-button kp-button--sm kp-button--ghost kp-copyable__button" data-kp-copy="${id}-v" aria-describedby="${id}-l">Copy</button></div>`
         : '';
     return `<div class="kp-formgrid__row"><span class="kp-formgrid__label" id="${id}-l">${esc(label)}</span><div class="kp-formgrid__control"><span>${body}</span></div>${action}</div>`;
 };

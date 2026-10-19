@@ -96,6 +96,7 @@
 
     .kp-formgrid .try-tracks > * {
         grid-column: 1;
+        justify-self: start;
     }
 }
 
@@ -132,4 +133,9 @@
 
 .try-comp .kp-copyable__value {
     overflow-wrap: anywhere;
+}
+
+/* A fact's Copy is as wide as the code block's Copy (which keeps the width of "Copied"), so the two stand as one column. */
+.try-comp .kp-formgrid__actions .kp-copyable__button {
+    min-inline-size: 4.2rem;
 }
