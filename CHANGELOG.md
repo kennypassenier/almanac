@@ -11,6 +11,34 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Added
+
+- **Three new pages on kp-themes 11.0.0**, each built exactly as Kenny
+  approved it in a review demo (19/10/2026): **Deliveries** (the delivery
+  chain with live counts per stage and the failing stage lit, the retry
+  schedule as a list or a timeline, and the events Almanac set aside with
+  what to do), **History** (a month of deliveries per day with the picked
+  day's deliveries, and a week agenda of the events Almanac wrote, read from
+  the managed calendars), and **Try a source** (an event call checked and
+  dry-run against a source's profile, with the path the call takes, the
+  event it would write and a comparison with the event already in the
+  calendar; nothing is written).
+- A durable per-day delivery history (`history.json` beside the journal,
+  at most 400 days, replaced atomically) feeds the History page.
+
+### Changed
+
+- **Calendars page** rebuilt: it renders at once and fills from JSON routes,
+  so a slow Google no longer holds the page; counts that filter their rows,
+  a problems band with a fix per problem, the calendars as a datatable with
+  a typed confirm on delete, a new-calendar dialog, the profile files, and a
+  map of which source writes to which calendar.
+- **Status page**: the Journal section shows the journal at a glance, the
+  recent deliveries as a filterable datatable with live refresh, and the
+  Sources section checks each profile against the file on disk; reloading
+  profiles stays on the page.
+- Status is the first navigation entry again.
+
 ## [4.2.0] - 2026-10-18
 
 ### Changed
