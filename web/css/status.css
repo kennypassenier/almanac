@@ -1,16 +1,40 @@
-/* status page: layout only; every colour, space and font comes from kp-themes tokens. The two sections are grids: the
-   glance card, the live head and the card below it share one column, and the pairs inside them share tracks. */
+/* status page: layout only; every colour, space and font comes from kp-themes tokens. The sections stand directly in the kit's
+   section cards (chassis-rs 3.9.0 draws the card, its title, its sentence and its states): no card of their own. Inside, the
+   glance and the deliveries are blocks of one grid, and the pairs inside them share tracks. */
 
 .st-journal,
 .st-sources,
+.st-live,
 .st-glance {
     display: grid;
     gap: var(--kp-space-md);
     min-inline-size: 0;
 }
 
-.st-card {
-    min-inline-size: 0;
+.st-journal {
+    gap: var(--kp-space-xl, 2rem);
+}
+
+.st-sub {
+    margin: 0;
+    font-size: var(--kp-text-md);
+    font-weight: 600;
+}
+
+.st-lede {
+    margin: 0;
+    color: var(--muted-foreground);
+}
+
+.st-live,
+.st-glance {
+    gap: var(--kp-space-sm);
+}
+
+.st-glance > .kp-kpis,
+.st-glance > .st-health,
+.st-glance > .kp-stackbar {
+    margin-block-start: var(--kp-space-xs);
 }
 
 /* At a glance: the tiles and the health pairs are one set of tracks (four at the card's width, two on a narrow card, one on a
@@ -69,50 +93,7 @@
     }
 }
 
-/* Live head: title | chooser | freshness | Refresh now are the four tracks of a form grid; the card spans all four. */
-.st-live {
-    --kp-formgrid-control: var(--kp-formgrid-short, 14rem);
-}
-
-.st-live > .st-live__title {
-    grid-column: label;
-    grid-row: 1;
-    margin: 0;
-    align-self: center;
-}
-
-.st-live > .kp-refresh {
-    grid-row: 1;
-}
-
-.st-live > .st-live__card {
-    grid-column: label-start / actions-end;
-    grid-row: 2;
-    display: grid;
-    gap: var(--kp-space-md);
-    min-inline-size: 0;
-}
-
-.st-live > .st-live__card > .kp-card {
-    inline-size: 100%;
-    box-sizing: border-box;
-}
-
-@container kp-formgrid (max-width: 36rem) {
-    .st-live > .st-live__title {
-        grid-column: 1 / -1;
-    }
-
-    .st-live > .kp-refresh {
-        grid-row: 2;
-    }
-
-    .st-live > .st-live__card {
-        grid-row: 3;
-    }
-}
-
-/* The table card: the chips and the search share one bar. */
+/* The deliveries: the chips and the search share one bar. */
 .st-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(12rem, 20rem);
@@ -150,4 +131,9 @@
 
 .st-sources__data {
     min-inline-size: 0;
+}
+
+/* The held footprint counts the table's border: its height is measured with it. */
+.st-table {
+    box-sizing: border-box;
 }

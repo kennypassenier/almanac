@@ -1,32 +1,32 @@
-// status page: the Journal and Sources sections on kp-themes 11.0.0 parts. The server frames both sections in the loading
-// state (src/shell/kit.rs); this module fills them from /status/journal and /status/sources, keeps them current behind the
-// refresh chooser, and reloads the profile files through a flash button. Rows update in place by their stable id.
+// status page: the Journal and Sources sections inside the kit's section cards (chassis-rs 3.9.0). The kit draws each card and
+// its states and owns the page's one refresh control; this module fills the two stages from /status/journal and
+// /status/sources, reads them again on the kit's refresh, and keeps rows updating in place by their stable id.
 
 import { setCardState } from '/static/kp/js/card-state.js';
 import { setStackbar } from '/static/kp/js/stackbar.js';
-import { setSegmentedCounts, setSegmentedValues, getSegmentedValues } from '/static/kp/js/segmented.js';
+import { setSegmentedCounts, setSegmentedValues, getSegmentedValues, attachSegmented } from '/static/kp/js/segmented.js';
 import { dataTable } from '/static/kp/js/datatable.js';
-import { setConnection } from '/static/kp/js/connection.js';
-import { refreshOf } from '/static/kp/js/auto-refresh.js';
 import { agoMoment, attachAgo } from '/static/kp/js/freshness.js';
 import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/js/statusrow.js';
-import { setTrendData } from '/static/kp/js/chart.js';
-import { toast } from '/static/kp/js/overlays.js';
+import { setTrendData, attachCharts } from '/static/kp/js/chart.js';
+import { attachSparklines, attachKpiToggles, attachKpiStrips } from '/static/kp/js/kpi.js';
+import { attachTicks } from '/static/kp/js/tick.js';
 
 const $ = (/** @type {string} */ selector, /** @type {ParentNode} */ root = document) => /** @type {HTMLElement | null} */ (root.querySelector(selector));
 const escape = (/** @type {string} */ text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Resolves once js/auto.js has attached everything the page carries. */
-const ready = new Promise((resolve) => {
-    const done = () => document.documentElement.hasAttribute('data-kp-auto-ready');
-    if (done()) return resolve(undefined);
-    new MutationObserver((_, watch) => {
-        if (done()) {
-            watch.disconnect();
-            resolve(undefined);
-        }
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-kp-auto-ready'] });
-});
+/** Resolves once chassis.js has attached the page (the kit's own parts attach after that, so handles are awaited). */
+const ready = /** @type {Promise<unknown>} */ (/** @type {any} */ (window).chassis?.ready ?? new Promise((resolve) => document.addEventListener('chassis:ready', resolve, { once: true })));
+
+/** The handle of a data table once the kit's script has attached it. @param {HTMLElement} host */
+async function tableHandle(host) {
+    for (let i = 0; i < 100; i++) {
+        const handle = dataTable(host);
+        if (handle) return handle;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return null;
+}
 
 /** A read that failed in a way a person can be told about. */
 class ReadError extends Error {}
@@ -52,12 +52,13 @@ const RESULT = { created: ['Created', 'success'], updated: ['Updated', 'info'], 
 /** @type {any} the last answer, for a redraw by a toggle */
 let last = null;
 let firstJournal = true;
-let online = true;
 
-const glanceCard = () => $('#st-glance');
+/** The kit's section card around a section's stage. @param {string} marker */
+const cardOf = (marker) => /** @type {HTMLElement | null} */ ($(`[${marker}]`)?.closest('.kp-card[data-chassis-section]') ?? null);
+const journalCard = () => cardOf('data-st-journal');
 const deliveriesTable = () => dataTable(/** @type {HTMLElement} */ ($('#st-table')));
 
-/* A failed table keeps the height it had with its rows, so the page under it does not jump (js/footprint.js holds the
+/* A failed or empty table keeps the height it had with its rows, so the page under it does not jump (js/footprint.js holds the
    states of its own hosts; the data table is not one of them). */
 let tableHeight = 0;
 function holdTableFootprint() {
@@ -65,13 +66,17 @@ function holdTableFootprint() {
     new ResizeObserver(() => {
         const st = root.getAttribute('data-kp-state');
         if (st && st !== 'ready') return;
-        tableHeight = root.getBoundingClientRect().height;
+        tableHeight = Math.max(tableHeight, root.getBoundingClientRect().height);
     }).observe(root);
-    new MutationObserver(() => {
-        const failed = root.getAttribute('data-kp-state') === 'failed';
-        if (failed && tableHeight) root.style.setProperty('min-block-size', `min(${tableHeight}px, var(--kp-footprint-max, 48rem))`);
+    const settle = () => {
+        const empty = $('[data-kp-datatable-empty]', root);
+        const held = ['failed'].includes(root.getAttribute('data-kp-state') ?? '') || (empty !== null && !empty.hasAttribute('hidden'));
+        if (held && tableHeight) root.style.setProperty('min-block-size', `min(${tableHeight}px, var(--kp-footprint-max, 48rem))`);
         else root.style.removeProperty('min-block-size');
-    }).observe(root, { attributes: true, attributeFilter: ['data-kp-state'] });
+    };
+    new MutationObserver(settle).observe(root, { attributes: true, attributeFilter: ['data-kp-state'] });
+    const slot = $('[data-kp-datatable-empty]', root);
+    if (slot) new MutationObserver(settle).observe(slot, { attributes: true, attributeFilter: ['hidden'] });
 }
 
 /** The table's own loading state: its busy card over the rows, until the read answers. */
@@ -241,50 +246,39 @@ async function loadJournal() {
     last = d;
     drawGlance();
     syncTable(d.deliveries);
-    const glance = glanceCard();
-    if (glance) setCardState(glance, 'ready');
     const t = deliveriesTable();
     t?.busy(null);
     t?.state('ready');
+    const card = journalCard();
+    if (card) hold(card).set('ready');
     firstJournal = false;
 }
 
-/** The first read failed: the card says so, with a normal Retry. */
+/** The first read failed: the kit's card says so, with its normal Try again; the parts that have a state of their own say it too. */
 function journalFailed() {
     const note = { title: 'The journal could not be read', text: 'Almanac did not answer. Nothing was lost; try again.' };
-    const glance = glanceCard();
-    if (glance) setCardState(glance, 'error', note);
+    const card = journalCard();
+    if (card) hold(card).set('error', note);
     deliveriesTable()?.busy(null);
     deliveriesTable()?.fail('The deliveries could not be read. Almanac did not answer; nothing was lost.');
     const bar = $('#st-outcomes');
     if (bar) setStackbar(bar, { title: 'Outcomes', state: 'error', parts: [], message: note.title });
 }
 
-/** @returns {Promise<boolean>} whether the read worked */
+/** @returns {Promise<boolean>} whether the read worked; a later failure leaves what is shown (the kit's connection line says it) */
 async function refreshJournal() {
     try {
         await loadJournal();
-        if (!online) {
-            online = true;
-            const banner = $('#st-connection');
-            if (banner) setConnection(banner, 'online');
-        }
         return true;
-    } catch (error) {
-        if (firstJournal) {
-            journalFailed();
-        } else {
-            online = false;
-            const banner = $('#st-connection');
-            if (banner) setConnection(banner, 'refused', { why: error instanceof ReadError ? error.message : 'Almanac could not answer.' });
-        }
+    } catch {
+        if (firstJournal) journalFailed();
         return false;
     }
 }
 
 /* ------------------------------------------------------------------ the Sources section */
 
-const sourcesCard = () => $('#st-sources-card');
+const sourcesCard = () => cardOf('data-st-sources');
 let firstSources = true;
 
 /** @param {any} d */
@@ -296,7 +290,7 @@ function drawSources(d) {
     const card = /** @type {HTMLElement} */ (sourcesCard());
     if (rows.length === 0) {
         host.replaceChildren();
-        setCardState(card, 'empty', { title: 'No profile files on disk', text: 'Add a profile file for a source, then reload the profiles.' });
+        hold(card).set('empty', { title: 'No profile files on disk', text: 'Add a profile file for a source, then reload the profiles.' });
         return;
     }
     let list = $('.kp-statuslist', host);
@@ -311,7 +305,7 @@ function drawSources(d) {
         host.append(list);
         attachStatusLists(host);
     }
-    setCardState(card, 'ready');
+    hold(card).set('ready');
 }
 
 /** @returns {Promise<boolean>} */
@@ -323,10 +317,37 @@ async function loadSources() {
     } catch {
         if (firstSources) {
             const card = sourcesCard();
-            if (card) setCardState(card, 'error', { title: 'The profile files could not be read', text: 'Almanac could not list them. Try again in a moment.' });
+            if (card) hold(card).set('error', { title: 'The profile files could not be read', text: 'Almanac could not list them. Try again in a moment.' });
         }
         return false;
     }
+}
+
+/* ------------------------------------------------------------------ the kit's card states */
+
+/** @type {WeakMap<HTMLElement, { want: string, note?: object }>} */
+const wanted = new WeakMap();
+
+/**
+ * The kit's section card is the whole-section state (loading, empty, failed); the kit settles a card with content to "ready"
+ * after each of its own reads, which would wipe a state this module still means, so the state it wants is put back.
+ * @param {HTMLElement} card
+ */
+function hold(card) {
+    if (!wanted.has(card)) {
+        wanted.set(card, { want: 'ready' });
+        new MutationObserver(() => {
+            const mine = /** @type {{ want: string, note?: object }} */ (wanted.get(card));
+            if (mine.want !== 'ready' && card.getAttribute('data-kp-state') === 'ready') setCardState(card, /** @type {any} */ (mine.want), mine.note);
+        }).observe(card, { attributes: true, attributeFilter: ['data-kp-state'] });
+    }
+    return {
+        /** @param {string} state @param {object} [note] */
+        set(state, note) {
+            wanted.set(card, { want: state, note });
+            if (card.getAttribute('data-kp-state') !== state) setCardState(card, /** @type {any} */ (state), note);
+        },
+    };
 }
 
 /* ------------------------------------------------------------------ go */
@@ -336,69 +357,83 @@ const hasSources = () => document.querySelector('[data-st-sources]') !== null;
 
 await ready;
 
-// The outcome bar and the trend are never blank before the first answer: the theme's own loading state, at their height.
-const bar = $('#st-outcomes');
-if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
+// The parts the kit's own page script does not attach (it takes the stage's datatables, ages and cards).
+const stage = /** @type {HTMLElement} */ (document.querySelector('.kp-ops__body') ?? document.body);
+attachSparklines(stage);
+attachKpiToggles(stage);
+attachKpiStrips(stage);
+attachCharts(stage);
+attachSegmented(stage);
+attachTicks(stage);
+
+/** One read of everything, never two at once: the kit's first refresh and this module's own first read are the same read. */
+let reading = /** @type {Promise<boolean> | null} */ (null);
+function run() {
+    if (!reading) {
+        reading = Promise.all([hasJournal() ? refreshJournal() : true, hasSources() ? loadSources() : true])
+            .then(([journal, sources]) => journal && sources)
+            .finally(() => {
+                reading = null;
+            });
+    }
+    return reading;
+}
+
+if (hasSources()) {
+    const card = sourcesCard();
+    if (card) hold(card).set('loading', { words: 'Reading the profile files' });
+}
 
 if (hasJournal()) {
+    // The outcome bar and the trend are never blank before the first answer: the theme's own loading state, at their height.
+    const bar = $('#st-outcomes');
+    if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
     holdTableFootprint();
-    tableLoading();
-    joinChips();
     attachAgo(document);
-    const refresh = $('#st-refresh');
-    const run = async () => {
-        const [journal, sources] = await Promise.all([refreshJournal(), hasSources() ? loadSources() : Promise.resolve(true)]);
-        return journal && sources;
-    };
-    refresh?.addEventListener('kp-refresh', (event) => {
-        run().then((ok) => /** @type {CustomEvent} */ (event).detail.done(ok));
-    });
-    $('#st-connection')?.addEventListener('kp-connection-retry', () => {
-        const handle = refresh ? refreshOf(refresh) : null;
-        if (handle) handle.now('retry');
-        else run();
-    });
+    joinChips();
+    const table = /** @type {HTMLElement} */ ($('#st-table'));
+    await tableHandle(table);
+    tableLoading();
     $('#st-table')?.addEventListener('kp-datatable-retry', () => {
         tableLoading();
-        const handle = refresh ? refreshOf(refresh) : null;
-        if (handle) handle.now('retry');
-        else run();
+        run();
     });
-    for (const card of [glanceCard()]) {
-        card?.addEventListener('kp-card-retry', () => {
-            if (card) setCardState(card, 'loading');
-            tableLoading();
-            const handle = refresh ? refreshOf(refresh) : null;
-            if (handle) handle.now('retry');
-            else run();
-        });
-    }
+    const card = journalCard();
+    card?.addEventListener('kp-card-retry', () => {
+        if (card) hold(card).set('ready');
+        tableLoading();
+        const bar = $('#st-outcomes');
+        if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
+        firstJournal = true;
+        run();
+    });
     // The outcome bar's own Retry (a failed first read) reads again like the card's.
     $('#st-outcomes')?.addEventListener('kp-stackbar-retry', () => {
         const bar = $('#st-outcomes');
         if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
-        if (glanceCard()) setCardState(/** @type {HTMLElement} */ (glanceCard()), 'loading');
-        const handle = refresh ? refreshOf(refresh) : null;
-        if (handle) handle.now('retry');
-        else run();
+        run();
     });
-    // The first read does not go through the chooser: it opens paused, and a
-    // paused chooser fires no `kp-refresh` for `now()`.
-    run();
-} else if (hasSources()) {
-    loadSources();
 }
+
+// The page's one refresh control is the kit's; a refresh there reads these sections again. The kit's own read answers
+// the control (its freshness line), so this module only listens.
+document.querySelector('.kp-ops .kp-refresh')?.addEventListener('kp-refresh', () => {
+    run();
+});
+run();
 
 if (hasSources()) {
     sourcesCard()?.addEventListener('kp-card-retry', () => {
         const card = sourcesCard();
-        if (card) setCardState(card, 'loading');
-        loadSources();
+        if (card) hold(card).set('loading', { words: 'Reading the profile files' });
+        firstSources = true;
+        run();
     });
+    // The kit's "Reload profiles from disk" button says what it did in its toast; the list follows it.
     document.addEventListener('kp-flash', (event) => {
         const detail = /** @type {CustomEvent} */ (event).detail;
-        if (/** @type {Element} */ (event.target).id !== 'st-reload' || detail?.state !== 'success') return;
-        if (detail.line) toast(detail.line);
+        const own = /** @type {Element} */ (event.target).closest?.('[data-chassis-flash]');
+        if (!own || !sourcesCard()?.contains(own) || detail?.state !== 'success') return;
         loadSources();
     });
 }
