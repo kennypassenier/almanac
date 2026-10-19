@@ -74,11 +74,6 @@
     --kp-formgrid-control: var(--kp-formgrid-short, 14rem);
 }
 
-.st-live > .st-sources__action {
-    grid-row: 1;
-    justify-self: start;
-}
-
 .st-live .kp-refresh__line {
     justify-items: start;
     text-align: start;
@@ -89,9 +84,6 @@
     grid-row: 1;
     margin: 0;
     align-self: center;
-    /* One label width for both heads (Recent deliveries, Profile files), so
-       the chooser and Reload profiles from disk start on the same edge. */
-    min-inline-size: 11rem;
 }
 
 .st-live > .kp-refresh {

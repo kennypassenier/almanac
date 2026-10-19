@@ -284,19 +284,19 @@ pub fn remove_source(state: &AppState, source_id: &str) -> Result<(), chassis::E
 pub struct ProfilesSection(pub Arc<AppState>);
 
 const SOURCES_HTML: &str = r##"
-<div class="kp-formgrid st-live st-sources" data-st-sources data-kp-formgrid-align="center">
-    <h3 class="st-live__title" id="st-sources-title">Profile files</h3>
-    <div class="kp-formgrid__control st-sources__action">
-        <button type="button" class="kp-button" id="st-reload" data-kp-flash-button data-kp-post="/status/sources/reload" data-kp-flash-word="Done" data-kp-busy-label="Reloading">Reload profiles from disk</button>
-    </div>
-    <div class="st-live__card">
+<div class="st-sources" data-st-sources>
     <section class="kp-card st-card" id="st-sources-card" data-kp-state="loading" data-kp-loading-words="Reading the profile files" aria-labelledby="st-sources-title">
+        <div class="kp-card__header">
+            <h3 class="kp-card__title" id="st-sources-title">Profile files</h3>
+            <div class="kp-card__actions">
+                <button type="button" class="kp-button" id="st-reload" data-kp-flash-button data-kp-post="/status/sources/reload" data-kp-flash-word="Done" data-kp-busy-label="Reloading">Reload profiles from disk</button>
+            </div>
+        </div>
         <p class="kp-card__body" id="st-sources-intro">Which source writes to which calendar, and whether its profile file is being served.</p>
         <div class="kp-card__stage">
             <div class="kp-card__data st-sources__data" data-st-sources-list></div>
         </div>
     </section>
-    </div>
 </div>
 "##;
 
