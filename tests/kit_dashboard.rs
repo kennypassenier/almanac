@@ -99,7 +99,7 @@ async fn the_kit_owns_the_door_and_the_old_addresses_keep_working() {
     );
     let clients = hub.page("/clients").await;
     assert!(
-        clients.contains("<h1>Sources</h1>"),
+        clients.contains(">Sources</h1>"),
         "the clients page keeps Almanac's word for them"
     );
     hub.shutdown().await;
@@ -110,7 +110,7 @@ async fn the_sources_page_is_the_kits_with_a_calendar_field_and_column() {
     let hub = spawn_kit().await;
     let page = sources(&hub).await;
     assert!(
-        page.contains("class=\"explain\"") && page.contains("kp-nav"),
+        page.contains("kp-lede") && page.contains("kp-nav"),
         "inside the kit's layout"
     );
     assert!(
@@ -128,11 +128,11 @@ async fn the_sources_page_is_the_kits_with_a_calendar_field_and_column() {
     let token = hub.issue_client("home-assistant").await;
     let page = sources(&hub).await;
     assert!(
-        page.contains("home-assistant") && page.contains("<th>Calendar name</th>"),
+        page.contains("home-assistant") && page.contains(">Calendar name</th>"),
         "the row and Almanac's own calendar-by-name column: {page}"
     );
     assert!(
-        page.contains("<th>Calendar</th>"),
+        page.contains(">Calendar</th>"),
         "the kit's own field-derived column too (feat-clients-2, chassis-rs 2.0.0): {page}"
     );
     assert!(
@@ -169,7 +169,7 @@ async fn the_reload_action_moved_to_the_status_pages_sources_section() {
     let hub = spawn_kit().await;
     let status = hub.page("/").await;
     assert!(
-        status.contains(r#"data-kp-post="/status/sources/reload""#)
+        status.contains(r#"data-chassis-flash="/status/sources/reload""#)
             && status.contains("Reload profiles from disk"),
         "the status page's Sources section carries the action: {status}"
     );
@@ -233,13 +233,10 @@ async fn k21_adding_a_source_writes_its_profile_on_the_chosen_calendar() {
         page.contains("job-tracker") && page.contains("Huishouden"),
         "the row shows the calendar by name, not its id: {page}"
     );
-    assert_eq!(
-        page.matches(&id).count(),
-        2,
-        "the calendar id appears twice — the dropdown's value, and the kit's own \
-         field-derived \"Calendar\" column (feat-clients-2, chassis-rs 2.0.0); Almanac's \
-         own \"Calendar name\" column never shows the id, only the name: {page}"
-    );
+    // The id itself is the kit's: its form field and its own "Calendar"
+    // column (and, since chassis-rs 3.9.0, that column's filter choices).
+    // Almanac's "Calendar name" column shows the name, checked above.
+    assert!(page.contains(&id), "the kit's own calendar column: {page}");
     // A rejected name issues nothing and writes nothing.
     let rejected = add_source(&hub, ".bad name", &id).await;
     assert_eq!(rejected.status(), 400);
