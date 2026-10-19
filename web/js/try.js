@@ -37,9 +37,14 @@ async function api(url, init) {
 }
 
 /** @param {string} value */
-const copyable = (value) => {
-    const id = `try-copy-${(serial += 1)}`;
-    return `<span class="kp-copyable"><span class="kp-copyable__value" id="${id}">${esc(value)}</span><button type="button" class="kp-button kp-button--ghost kp-copyable__button" data-kp-copy="${id}">Copy</button></span>`;
+/** A fact row on the form grid's tracks: label | value (control) | Copy (actions, only when `copy` is set). */
+const factRow = (/** @type {string} */ label, /** @type {string} */ value, /** @type {boolean} */ copy) => {
+    const id = `try-fact-${(serial += 1)}`;
+    const body = copy ? `<span class="kp-copyable__value" id="${id}-v">${esc(value)}</span>` : esc(value);
+    const action = copy
+        ? `<div class="kp-formgrid__actions"><button type="button" class="kp-button kp-button--ghost kp-copyable__button" data-kp-copy="${id}-v" aria-describedby="${id}-l">Copy</button></div>`
+        : '';
+    return `<div class="kp-formgrid__row"><span class="kp-formgrid__label" id="${id}-l">${esc(label)}</span><div class="kp-formgrid__control"><span>${body}</span></div>${action}</div>`;
 };
 /** @param {HTMLElement} alert @param {'info' | 'success' | 'warning' | 'destructive'} tone @param {string} label @param {string} text */
 function setAlert(alert, tone, label, text) {
@@ -68,16 +73,15 @@ function drawProfile() {
     const s = sourceById(profileSource);
     if (!s) return;
     $('profile-title').textContent = `Profile of ${s.source_id}`;
-    const row = (/** @type {string} */ label, /** @type {string} */ value) => `<div class="kp-kv__row"><dt>${label}</dt><dd>${value}</dd></div>`;
     const kv = $('profile-kv');
     kv.innerHTML = [
-        row('Source id', copyable(s.source_id)),
-        row('Calendar', esc(s.calendar_name)),
-        row('Calendar id', copyable(s.calendar_id)),
-        row('Time zone', esc(s.timezone)),
-        row('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? ' (Almanac&rsquo;s own default)' : ''}`),
-        row('Schema version', String(s.schema_version)),
-        row('File', s.file_name ? copyable(s.file_name) : 'Not found'),
+        factRow('Source id', s.source_id, true),
+        factRow('Calendar', s.calendar_name, false),
+        factRow('Calendar id', s.calendar_id, true),
+        factRow('Time zone', s.timezone, false),
+        factRow('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? " (Almanac's own default)" : ''}`, false),
+        factRow('Schema version', String(s.schema_version), false),
+        factRow('File', s.file_name ?? 'Not found', Boolean(s.file_name)),
     ].join('');
     attachPatterns(kv);
     const file = $('profile-toml');
@@ -268,9 +272,9 @@ function drawResult(data, payload) {
     } else {
         const event = data.answer.event;
         $('result-spec-title').textContent = 'The event';
-        specArea.innerHTML = `<dl class="kp-kv kp-kv--lines" aria-label="The calendar event">${specRows(event, calendarName)
-            .map(([label, value]) => `<div class="kp-kv__row"><dt>${esc(label)}</dt><dd>${label === 'Marker' ? copyable(value) : esc(value)}</dd></div>`)
-            .join('')}</dl>`;
+        specArea.innerHTML = `<div class="kp-formgrid" data-kp-formgrid-lines="lines" role="group" aria-label="The calendar event">${specRows(event, calendarName)
+            .map(([label, value]) => factRow(label, value, label === 'Marker'))
+            .join('')}</div>`;
         attachPatterns(specArea);
         if (data.lookup_failed) {
             badgeTone('warning', 'Could not compare');
