@@ -77,7 +77,7 @@ function drawProfile() {
         row('Time zone', esc(s.timezone)),
         row('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? ' (Almanac&rsquo;s own default)' : ''}`),
         row('Schema version', String(s.schema_version)),
-        row('File', s.file_name ? copyable(`profiles/${s.file_name}`) : 'Not found'),
+        row('File', s.file_name ? copyable(s.file_name) : 'Not found'),
     ].join('');
     attachPatterns(kv);
     const file = $('profile-toml');

@@ -336,9 +336,9 @@ if (hasJournal()) {
             else run();
         });
     }
-    const handle = refresh ? refreshOf(refresh) : null;
-    if (handle) handle.now('now');
-    else run();
+    // The first read does not go through the chooser: it opens paused, and a
+    // paused chooser fires no `kp-refresh` for `now()`.
+    run();
 } else if (hasSources()) {
     loadSources();
 }

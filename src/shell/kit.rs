@@ -411,6 +411,9 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
     let deleted = Arc::clone(&state);
     app.on_client_deleted(move |client| remove_source(&deleted, &client.name));
     app.client_column(TargetCalendar(Arc::clone(&state)));
+    // Status stays the first entry, as the brand link's own page; project
+    // pages sit at order 0 and would otherwise come before it.
+    app.kit_page("status", |page| page.order(-1));
     app.nav_entry("Calendars", "/calendars");
     app.nav_entry("Deliveries", "/deliveries");
     app.nav_entry("History", "/history");
