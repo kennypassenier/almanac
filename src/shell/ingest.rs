@@ -383,7 +383,7 @@ async fn authenticate(
 /// identical posts, two events, and a delete answering 404. A default
 /// in a template fixes the next source; a refusal here fixes all of
 /// them.
-fn requires_an_id(payload: &Value, headers: &HeaderMap) -> Result<(), Reply> {
+pub(crate) fn requires_an_id(payload: &Value, headers: &HeaderMap) -> Result<(), Reply> {
     let has_external_id = payload
         .get("external_id")
         .and_then(Value::as_str)

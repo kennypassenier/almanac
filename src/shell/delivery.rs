@@ -76,7 +76,10 @@ pub struct Delivered {
 /// external id field, or the source's supplied idempotency key (M7)
 /// when it does not. `None` means the source offered neither, and the
 /// event is created unconditionally.
-fn upsert_key(entry: &Entry, event: &crate::core::calendar::GoogleEvent) -> Option<String> {
+pub(crate) fn upsert_key(
+    entry: &Entry,
+    event: &crate::core::calendar::GoogleEvent,
+) -> Option<String> {
     if let Some(props) = &event.extended_properties
         && let Some(key) = props.private.get(UPSERT_PROPERTY)
     {
