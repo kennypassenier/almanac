@@ -6,5 +6,83 @@
 <script type="module" src="/ui/js/deliveries.js?v={{ assets }}"></script>
 {% endblock %}
 {% block content %}
-<h1>Deliveries</h1>
+<div class="ad-page">
+    <header class="ad-intro">
+        <h1>Deliveries</h1>
+    </header>
+
+    <section class="ad-sec" id="chain" aria-labelledby="h-chain">
+        <div class="ad-sec__head">
+            <h2 id="h-chain">Delivery chain: where every event stands</h2>
+            <p>
+                An event passes four stages: received at the door, written to the journal, picked up by the worker and put in Google
+                Calendar; the stage that is failing is lit red, and an event Almanac gave up on waits in the last lane.
+            </p>
+        </div>
+        <div class="ad-block">
+            <section class="kp-pipeline" data-kp-pipeline data-kp-pipeline-limit="4" id="ad-chain" aria-label="Delivery chain"></section>
+            <p class="ad-meta" id="ad-chain-said" role="status"></p>
+        </div>
+    </section>
+
+    <section class="ad-sec" id="schedule" aria-labelledby="h-schedule">
+        <div class="ad-sec__head">
+            <h2 id="h-schedule">Retry schedule: when the waiting entries are tried next</h2>
+            <p>
+                While Google refuses, Almanac tries all waiting entries together after 15 s, 1 min, 5 min, 15 min and then every 30 min;
+                this shows the coming tries and, per entry, how many tries it has left.
+            </p>
+            <div class="kp-segmented ad-sec__switch" id="ad-shape" data-kp-segmented="single" role="radiogroup" aria-label="How the schedule is drawn">
+                <button type="button" class="kp-segmented__item" data-value="runs" role="radio" aria-checked="true" title="The next tries, each with its time and how far away it is">List</button>
+                <button type="button" class="kp-segmented__item" data-value="gantt" role="radio" aria-checked="false" title="One lane per waiting entry with its past tries and its coming ones">Timeline</button>
+            </div>
+        </div>
+        <div class="ad-block">
+            <div class="kp-runs" data-kp-runs data-kp-runs-count="4" data-kp-runs-title="Next tries of the waiting entries" id="ad-runs"></div>
+            <section
+                class="kp-gantt"
+                data-kp-gantt
+                data-kp-gantt-points
+                data-kp-gantt-ranges="3h"
+                data-kp-gantt-range="3h"
+                data-kp-gantt-ghosts="1 1 1 1"
+                id="ad-gantt"
+                aria-label="Tries per waiting entry"
+                hidden
+            ></section>
+            <p class="ad-meta" id="ad-sched-said" role="status"></p>
+        </div>
+    </section>
+
+    <section class="ad-sec" id="aside" aria-labelledby="h-aside">
+        <div class="ad-sec__head">
+            <h2 id="h-aside">An entry Almanac gave up on</h2>
+            <p>After the third permanent refusal Almanac sets an event aside and tells you what is wrong and what to do about it.</p>
+        </div>
+        <div class="ad-block">
+            <div class="ad-aside-frame">
+                <div class="kp-problems" data-kp-problems data-kp-problems-mode="each" id="ad-aside" aria-label="Entries set aside" hidden></div>
+                <div class="ad-aside-loading" id="ad-aside-loading" role="status" aria-busy="true" aria-label="Reading the journal">
+                    <div class="kp-skeleton ad-aside-ghost"></div>
+                </div>
+                <div class="kp-empty ad-aside-empty" data-kp-art="done" id="ad-aside-empty" hidden>
+                    <p class="kp-empty__title">Nothing has been set aside</p>
+                    <p class="kp-empty__body">Every event Almanac accepted is either delivered or still being tried.</p>
+                </div>
+                <div class="kp-alert kp-alert--danger ad-aside-failed" id="ad-aside-failed" role="alert" hidden>
+                    <strong class="kp-alert__what">Could not read the entries set aside</strong>
+                    <span class="kp-alert__why">The journal did not answer.</span>
+                    <span class="kp-alert__remedy"><button type="button" class="kp-button" id="ad-aside-retry">Try again</button></span>
+                </div>
+            </div>
+            <div class="kp-alert kp-alert--info" role="status">
+                <strong class="kp-alert__what">A set-aside entry cannot be retried from here</strong>
+                <span class="kp-alert__why">Almanac keeps it in the journal for inspection and never tries it again; it has no re-queue action.</span>
+                <span class="kp-alert__remedy">
+                    <span class="kp-alert__remedy-label">What now</span> Fix the cause, then send the event again from its source.
+                </span>
+            </div>
+        </div>
+    </section>
+</div>
 {% endblock %}
