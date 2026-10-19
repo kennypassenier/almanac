@@ -1,7 +1,7 @@
 //! Almanac's own dashboard pages on the kit (M12 as amended 2026-09-06,
-//! step 2 of the chassis migration): **Sources** — the mapping profiles,
-//! the calendars they write to and the files that could not be loaded —
-//! only. The kit brings the layout, the login and session,
+//! step 2 of the chassis migration): **Calendars** — the calendars, the
+//! sources that write to them and the profile files, as a page that renders
+//! at once and fills itself from the JSON routes in `ui/calendars.rs`. The kit brings the layout, the login and session,
 //! the clients page (labelled "Sources" here: the per-source tokens),
 //! CSRF and CSP; this module fills `content` with minijinja templates.
 //!
@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
@@ -48,58 +48,25 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 async fn calendars_page(
     Extension(dash): Extension<Dashboard>,
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> Response {
-    render_calendars(&dash, &state, None).await
+    render_calendars(&dash, None)
 }
 
-/// Renders the Sources page, optionally with an error and the values
-/// that were typed, so a refusal keeps what the person entered.
-async fn render_calendars(dash: &Dashboard, state: &AppState, error: Option<&str>) -> Response {
-    let loaded = state.profiles();
-    let mut profiles: Vec<_> = loaded.values().collect();
-    profiles.sort_by(|a, b| a.source_id.cmp(&b.source_id));
-    let unusable: Vec<serde_json::Value> = crate::shell::profiles::load_all(&state.profiles_dir)
-        .unusable
-        .iter()
-        .map(|u| json!({ "file_name": u.file_name(), "reason": u.reason }))
-        .collect();
-    let can_create = state.calendar_owner.is_some();
-    let (calendars, calendar_error) = match state.client.list_calendars().await {
-        Ok(calendars) => {
-            let calendars =
-                state.without_deleted_calendars(state.with_created_calendars(calendars));
-            state.remember_calendars(&calendars);
-            (calendars, None)
-        }
-        Err(e) => (Vec::new(), Some(e.to_string())),
-    };
-    let calendar_rows: Vec<serde_json::Value> = calendars
-        .iter()
-        .map(|(id, name)| {
-            let in_use_by: Vec<&str> = profiles
-                .iter()
-                .filter(|p| &p.target_calendar_id == id)
-                .map(|p| p.source_id.as_str())
-                .collect();
-            json!({ "id": id, "name": name, "in_use_by": in_use_by })
-        })
-        .collect();
-    match dash.render_project(
-        "/calendars",
-        CALENDARS_HTML,
-        json!({
-            "error": error,
-            "profiles_dir": state.profiles_dir.display().to_string(),
-            "unusable": unusable,
-            "calendars": calendar_rows,
-            "calendar_error": calendar_error,
-            "can_create": can_create,
-        }),
-    ) {
+/// Renders the Calendars page. It never waits on Google: the page script
+/// fetches the lists. `notice` carries the refusal of an old form post
+/// (a bookmark or a runbook still posting to the page), which the script
+/// raises as a toast.
+fn render_calendars(dash: &Dashboard, notice: Option<&str>) -> Response {
+    match dash.render_project("/calendars", CALENDARS_HTML, json!({ "notice": notice })) {
         Ok(html) => html.into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+/// The sentence an old form post shows when the shared function refuses.
+fn notice_of(e: &chassis::Error) -> String {
+    format!("{}. {}", e.message.trim_end_matches('.'), e.remedy)
 }
 
 /// What the make-a-calendar form sends (K24).
@@ -108,56 +75,16 @@ struct NewCalendar {
     name: String,
 }
 
-/// `POST /calendars` — make one and share it (K24).
+/// `POST /calendars` — make one and share it (K24). The page itself calls
+/// `POST /calendars/make` as JSON; this form post stays for bookmarks.
 async fn create_calendar(
     Extension(dash): Extension<Dashboard>,
     State(state): State<Arc<AppState>>,
     Form(form): Form<NewCalendar>,
 ) -> Response {
-    let name = form.name.trim();
-    if name.is_empty() {
-        return render_calendars(&dash, &state, Some("Name the calendar.")).await;
-    }
-    let Some(owner) = state.calendar_owner.as_deref() else {
-        return render_calendars(
-            &dash,
-            &state,
-            Some(
-                "ALMANAC_CALENDAR_OWNER is not set — without an owner to share it with, a \
-                 calendar Almanac creates belongs to the service account and is visible to \
-                 nobody.",
-            ),
-        )
-        .await;
-    };
-    // Find-or-create, serialized per name and consulted against what
-    // almanac made moments ago: Google's list lags a create by seconds,
-    // and two clicks inside that window would both create.
-    let lock = state.locks.for_key(&format!("calendar:{name}")).await;
-    let _guard = lock.lock().await;
-    if let Some(id) = state.remembered_calendar(name) {
-        tracing::info!(
-            calendar = %name,
-            id = %id,
-            "a calendar with that name was just created; reusing it rather than making a second"
-        );
-        return Redirect::to("/calendars").into_response();
-    }
-    match state.client.ensure_calendar(name, owner).await {
-        Ok((id, created)) => {
-            if created {
-                state.remember_created_calendar(name, &id);
-                tracing::info!(
-                    calendar = %name,
-                    id = %id,
-                    shared_with = %owner,
-                    role = "owner",
-                    "created a calendar from the dashboard and shared it"
-                );
-            }
-            Redirect::to("/calendars").into_response()
-        }
-        Err(e) => render_calendars(&dash, &state, Some(&e.to_string())).await,
+    match crate::shell::ui::calendars::make_calendar(&state, &form.name).await {
+        Ok(_) => Redirect::to("/calendars").into_response(),
+        Err(e) => render_calendars(&dash, Some(&notice_of(&e))),
     }
 }
 
@@ -169,32 +96,9 @@ async fn delete_calendar(
     State(state): State<Arc<AppState>>,
     Path(calendar_id): Path<String>,
 ) -> Response {
-    let users: Vec<String> = state
-        .profiles()
-        .values()
-        .filter(|p| p.target_calendar_id == calendar_id)
-        .map(|p| p.source_id.clone())
-        .collect();
-    if !users.is_empty() {
-        return render_calendars(
-            &dash,
-            &state,
-            Some(&format!(
-                "{} still writes to that calendar, so it cannot be deleted yet. Delete the \
-                 source first — its events stay on the calendar either way.",
-                users.join(", ")
-            )),
-        )
-        .await;
-    }
-    match state.client.delete_calendar(&calendar_id).await {
-        Ok(()) => {
-            state.remember_deleted_calendar(&calendar_id);
-            state.forget_created_calendar(&calendar_id);
-            tracing::info!(calendar_id = %calendar_id, "deleted a calendar from the dashboard");
-            Redirect::to("/calendars").into_response()
-        }
-        Err(e) => render_calendars(&dash, &state, Some(&e.to_string())).await,
+    match crate::shell::ui::calendars::remove_calendar(&state, &calendar_id).await {
+        Ok(_) => Redirect::to("/calendars").into_response(),
+        Err(e) => render_calendars(&dash, Some(&notice_of(&e))),
     }
 }
 
@@ -206,28 +110,28 @@ async fn delete_unusable(
     State(state): State<Arc<AppState>>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let unusable = crate::shell::profiles::load_all(&state.profiles_dir).unusable;
-    if !unusable.iter().any(|u| u.file_name() == file_name) {
-        return (StatusCode::NOT_FOUND, "no such unusable profile").into_response();
-    }
-    match crate::shell::profiles::delete_file(&state.profiles_dir, &file_name) {
-        Ok(removed) => {
-            state.set_profiles(crate::shell::profiles::load_map(&state.profiles_dir));
-            tracing::info!(removed = %removed.display(), "deleted an unusable profile from the dashboard");
-            Redirect::to("/calendars").into_response()
+    match crate::shell::ui::calendars::remove_unusable_file(&state, &file_name) {
+        Ok(()) => Redirect::to("/calendars").into_response(),
+        Err(e) if e.kind == chassis::Kind::NotFound => {
+            (StatusCode::NOT_FOUND, "no such unusable profile").into_response()
         }
-        Err(e) => render_calendars(&dash, &state, Some(&e.to_string())).await,
+        Err(e) => render_calendars(&dash, Some(&notice_of(&e))),
     }
 }
 
 /// `POST /sources/reload` — re-read the profiles directory (K21), which
-/// is what makes a profile placed by hand usable without a restart.
-async fn reload_profiles(State(state): State<Arc<AppState>>) -> Response {
-    let profiles = crate::shell::profiles::load_map(&state.profiles_dir);
-    tracing::info!(
-        count = profiles.len(),
-        "reloaded profiles from the dashboard"
-    );
-    state.set_profiles(profiles);
-    Redirect::to("/calendars").into_response()
+/// is what makes a profile placed by hand usable without a restart. The
+/// page asks for JSON and stays where it is; a plain form post still
+/// redirects to the page.
+async fn reload_profiles(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let summary = crate::shell::ui::calendars::reload_summary(&state);
+    let wants_json = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("application/json"));
+    if wants_json {
+        axum::Json(summary).into_response()
+    } else {
+        Redirect::to("/calendars").into_response()
+    }
 }

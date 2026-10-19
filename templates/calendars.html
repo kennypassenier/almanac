@@ -1,65 +1,147 @@
 {% extends "layout.html" %}
 {% block title %}Calendars · {{ app_name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/ui/css/calendars.css?v={{ assets }}">
+<script type="module" src="/static/kp/js/auto.js?v={{ assets }}"></script>
+<script type="module" src="/ui/js/calendars.js?v={{ assets }}"></script>
+{% endblock %}
 {% block content %}
-<h1>Calendars</h1>
-<p class="explain">Every calendar the service account can see. A source is added on the <a href="/clients">Sources</a> page: its name, the calendar it writes to and its token in one go. A calendar a source still writes to cannot be deleted here; delete the source first.</p>
-{% if error %}
-<div class="kp-alert kp-alert--danger" role="alert">{{ error }}</div>
-{% endif %}
-{% if calendars %}
-<div class="kp-table-wrap">
-<table class="kp-table">
-  <thead><tr><th>Name</th><th>Used by</th><th></th></tr></thead>
-  <tbody>
-  {% for c in calendars %}
-  <tr>
-    <td>{{ c.name }} <details style="display: inline-block; margin-left: 0.5rem"><summary class="text-secondary" style="cursor: pointer; font-size: 0.875rem">id</summary><code style="font-size: 0.8125rem; word-break: break-all">{{ c.id }}</code></details></td>
-    <td>{% if c.in_use_by %}{{ c.in_use_by | join(", ") }}{% else %}<span class="text-secondary italic">nothing</span>{% endif %}</td>
-    <td class="text-end">{% if not c.in_use_by %}
-      <form method="post" action="/calendars/{{ c.id }}/delete" style="margin: 0">
-        <button type="submit" class="kp-button kp-button--destructive" data-kp-destructive data-kp-confirm="Delete the calendar &quot;{{ c.name }}&quot; and everything on it?">Delete</button>
-      </form>{% endif %}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-{% elif not calendar_error %}
-<p class="text-secondary italic">The service account sees no calendars yet.</p>
-{% endif %}
-{% if calendar_error %}<p class="text-secondary" style="font-size: 0.875rem">Google could not be asked for the calendars: {{ calendar_error }}</p>{% endif %}
-{% if can_create %}
-<form method="post" action="/calendars" style="margin-top: 0.5rem">
-  <div class="kp-field"><label class="kp-field__label" for="name">New calendar</label>
-    <input class="kp-field__input" id="name" name="name" placeholder="Household" required></div>
-  <button type="submit" class="kp-button">Make and share it</button>
-</form>
-{% else %}
-<p class="text-secondary" style="font-size: 0.875rem">Almanac cannot make calendars: <code>ALMANAC_CALENDAR_OWNER</code> is not set, so a new calendar would belong to the service account and be visible to nobody.</p>
-{% endif %}
+<div class="cal-page" data-cal-page>
+  <header class="kp-page-header">
+    <div class="kp-page-header__inner">
+      <div>
+        <h1 class="kp-page-header__title">Calendars</h1>
+        <p class="kp-page-header__description">The Google calendars Almanac writes into, which source writes to which, and the profile files that make that so.</p>
+      </div>
+      <div class="kp-page-header__actions">
+        <button type="button" class="kp-button kp-button--primary" data-cal-open-new>New calendar</button>
+        <div class="kp-menu-button" data-kp-menu-button data-kp-key="calendars-page-more" data-cal-more>
+          <button type="button" class="kp-button">More ▾</button>
+          <div class="kp-menu kp-menu--rich" role="menu" aria-label="Other actions on this page" hidden>
+            <button type="button" role="menuitem" class="kp-menu__item" tabindex="-1" aria-labelledby="cal-mi-l1" aria-describedby="cal-mi-h1" data-kp-value="reload"><span class="kp-menu__label" id="cal-mi-l1">Reload profiles from disk</span><span class="kp-menu__hint" id="cal-mi-h1">Read every profile file again, without restarting the service</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
 
-<h2>Profile files</h2>
-<p class="explain">Every source has a mapping profile in <code>{{ profiles_dir }}</code>; the Sources page writes it when a source is added. A profile placed there by hand is picked up on reload — the <a href="/">status page</a>'s Sources section has the button.</p>
-{% if unusable %}
-<h3>Not being served</h3>
-<p class="explain">These files are in the profiles directory and Almanac cannot use them, so the sources they describe receive nothing — a post to one answers 401, the same as an unknown source.</p>
-<div class="kp-table-wrap">
-<table class="kp-table">
-  <thead><tr><th>File</th><th>Reason</th><th></th></tr></thead>
-  <tbody>
-  {% for u in unusable %}
-  <tr>
-    <td><code>{{ u.file_name }}</code></td>
-    <td class="text-secondary">{{ u.reason }}</td>
-    <td class="text-end">
-      <form method="post" action="/profiles/{{ u.file_name }}/delete" style="margin: 0">
-        <button type="submit" class="kp-button kp-button--destructive" data-kp-destructive data-kp-confirm="Delete the file {{ u.file_name }}? It is not being served, and this removes it from disk.">Delete</button>
-      </form>
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+  <div class="cal-counts">
+    <div class="kp-kpis" role="group" aria-label="Calendars at a glance" aria-busy="true" data-kp-kpis-columns="all 2 1" data-cal-kpis>
+      <div class="kp-kpi" aria-busy="true"><span class="kp-kpi__label">Calendars</span><span class="kp-kpi__value"><span class="kp-skeleton cal-skeleton-value"></span></span><span class="kp-kpi__trend"><span class="kp-skeleton cal-skeleton-line"></span></span></div>
+      <div class="kp-kpi" aria-busy="true"><span class="kp-kpi__label">Sources</span><span class="kp-kpi__value"><span class="kp-skeleton cal-skeleton-value"></span></span><span class="kp-kpi__trend"><span class="kp-skeleton cal-skeleton-line"></span></span></div>
+      <div class="kp-kpi" aria-busy="true"><span class="kp-kpi__label">Profile files not served</span><span class="kp-kpi__value"><span class="kp-skeleton cal-skeleton-value"></span></span><span class="kp-kpi__trend"><span class="kp-skeleton cal-skeleton-line"></span></span></div>
+      <div class="kp-kpi" aria-busy="true"><span class="kp-kpi__label">Events delivered</span><span class="kp-kpi__value"><span class="kp-skeleton cal-skeleton-value"></span></span><span class="kp-kpi__trend"><span class="kp-skeleton cal-skeleton-line"></span></span></div>
+    </div>
+    <p class="cal-filter-line kp-text-muted" role="status" data-cal-filter-line>Reading the counts.</p>
+  </div>
+
+  <div class="kp-attention" role="region" aria-label="Needs attention" data-cal-attention></div>
+
+  <section class="kp-card cal-card" aria-labelledby="cal-cal-title" data-cal-section="calendars">
+    <div class="kp-card__header"><h3 class="kp-card__title" id="cal-cal-title">Calendars</h3></div>
+    <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-remember="almanac-calendars" data-kp-sort-multi="click" data-kp-page-sizes="none" data-kp-busy-overlay data-kp-state="loading" data-cal-table>
+      <div class="kp-datatable__bar">
+        <p class="kp-datatable__status" data-kp-datatable-status role="status"></p>
+        <button type="button" class="kp-button kp-button--ghost kp-button--sm" data-kp-datatable-sort-reset>Clear the sort</button>
+      </div>
+      <div class="kp-table-wrap">
+        <table class="kp-table">
+          <caption class="kp-sr-only">Calendars the service account can see</caption>
+          <thead>
+            <tr>
+              <th scope="col" data-kp-sort="text">Name</th>
+              <th scope="col">Calendar id</th>
+              <th scope="col" data-kp-sort="number">Used by</th>
+              <th scope="col"><span class="kp-sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="kp-empty" data-kp-datatable-empty hidden></div>
+    </div>
+  </section>
+
+  <section class="kp-card cal-card" data-kp-state="loading" data-kp-loading-words="Reading the profile files" aria-labelledby="cal-prof-title" data-cal-section="profiles" data-cal-profiles>
+    <div class="kp-card__header"><h3 class="kp-card__title" id="cal-prof-title">Profile files</h3></div>
+    <p class="kp-card__body">Every source has a mapping profile in the profiles folder; a profile placed there by hand is picked up on reload.</p>
+    <div class="kp-card__stage">
+      <div class="kp-card__data">
+        <div class="kp-problems" data-kp-problems data-cal-problems></div>
+        <p class="kp-text-muted" data-cal-allserved hidden>Every profile file is served.</p>
+        <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-page-sizes="none" data-cal-served>
+          <div class="kp-table-wrap">
+            <table class="kp-table">
+              <caption class="kp-sr-only">Profile files that are served</caption>
+              <thead>
+                <tr>
+                  <th scope="col" data-kp-sort="text">File</th>
+                  <th scope="col" data-kp-sort="text">Source</th>
+                  <th scope="col" data-kp-sort="text">Calendar</th>
+                  <th scope="col" data-kp-sort="number">Health</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="kp-card cal-card" aria-labelledby="cal-uses-title" data-cal-section="uses">
+    <div class="kp-card__header">
+      <h3 class="kp-card__title" id="cal-uses-title">Who writes where</h3>
+      <div class="kp-card__actions">
+        <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-label="View" data-cal-view-switch>
+          <button type="button" class="kp-segmented__item" data-value="lines" role="radio" aria-checked="true"><span class="kp-segmented__label">Lines</span></button>
+          <button type="button" class="kp-segmented__item" data-value="graph" role="radio" aria-checked="false"><span class="kp-segmented__label">Network</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="cal-uses-body">
+      <div class="kp-matrix" data-kp-matrix data-kp-view="lines" data-kp-matrix-owned aria-label="Which source writes to which calendar" data-cal-lines></div>
+      <figure class="kp-graph" data-kp-graph aria-label="Which source writes to which calendar, as a network" data-cal-graph hidden></figure>
+    </div>
+  </section>
+
+  <dialog class="kp-dialog kp-confirm" aria-labelledby="cal-del-title" aria-describedby="cal-del-desc" data-cal-delete-dialog>
+    <h2 class="kp-dialog__title" id="cal-del-title">Delete the calendar?</h2>
+    <p class="kp-dialog__description" id="cal-del-desc">This cannot be undone. Cancel leaves everything as it is.</p>
+    <div data-cal-type-block></div>
+    <p class="cal-result kp-text-muted" role="status" data-cal-result></p>
+    <div class="kp-dialog__actions">
+      <button type="button" class="kp-button" data-cal-del-cancel>Cancel</button>
+      <button type="button" class="kp-button kp-button--destructive" data-cal-del-go disabled data-kp-disabled-reason="Type the calendar name first.">Delete calendar</button>
+    </div>
+  </dialog>
+
+  <dialog class="kp-dialog" aria-labelledby="cal-new-title" aria-describedby="cal-new-desc" data-cal-new-dialog>
+    <h2 class="kp-dialog__title" id="cal-new-title">New calendar</h2>
+    <p class="kp-dialog__description" id="cal-new-desc">Almanac makes the calendar in Google and shares it with you.</p>
+    <form class="kp-form" data-kp-form novalidate data-cal-new-form>
+      <div class="kp-form__summary" data-kp-form-summary tabindex="-1" hidden></div>
+      <div class="kp-dialog__body">
+        <section class="kp-dialog__section">
+          <h3 class="kp-dialog__heading">Name</h3>
+          <div class="kp-field">
+            <label class="kp-field__label" for="cal-new-name">Calendar name <span class="kp-field__required">required</span></label>
+            <input class="kp-field__input" id="cal-new-name" name="name" required autocomplete="off" aria-describedby="cal-new-help" placeholder="Household" />
+            <span class="kp-field__help" id="cal-new-help">It shows in Google Calendar exactly as typed.</span>
+            <span class="kp-field__error" data-kp-field-error hidden></span>
+          </div>
+        </section>
+        <section class="kp-dialog__section">
+          <h3 class="kp-dialog__heading">Sharing</h3>
+          <p class="kp-dialog__note" data-cal-sharing>The calendar is shared with the owner Almanac is set up for, so it shows up in their Google Calendar at once.</p>
+        </section>
+      </div>
+      <div class="kp-dialog__actions">
+        <button type="button" class="kp-button" data-cal-new-cancel>Cancel</button>
+        <button type="submit" class="kp-button kp-button--primary" data-kp-submit data-cal-new-go data-kp-disabled-reason="Almanac cannot make calendars: the owner is not set.">Make and share</button>
+      </div>
+    </form>
+  </dialog>
 </div>
-{% endif %}
+<script type="application/json" id="cal-boot">{{ {"notice": notice} | tojson }}</script>
 {% endblock %}
