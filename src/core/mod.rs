@@ -11,6 +11,7 @@
 pub mod auth;
 pub mod calendar;
 pub mod colors;
+pub mod dry_run;
 pub mod error;
 pub mod history;
 pub mod html;

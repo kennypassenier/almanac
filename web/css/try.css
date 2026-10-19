@@ -1,1 +1,126 @@
-/* try page: layout only; every colour, space and font comes from kp-themes tokens. */
+/* Try a source: layout only. Everything with a kp- class is the package; these try- rules lay out what only this page adds:
+   the page grid, the section head, the source picker row, the profile grid, the actions row and the result grid.
+   Every colour, space and size comes from the kp-themes tokens. */
+
+.try-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--kp-space-xl, 2rem);
+    max-inline-size: 90rem;
+}
+
+.try-intro,
+.try-sec__head {
+    display: grid;
+    gap: var(--kp-space-xs, 0.25rem);
+    max-inline-size: 80ch;
+}
+
+.try-intro :is(h1, p),
+.try-sec__head :is(h2, p) {
+    margin: 0;
+}
+
+.try-intro p {
+    color: var(--muted-foreground);
+}
+
+.try-sec,
+.try-comp,
+.try-stack {
+    display: grid;
+    gap: var(--kp-space-md, 1rem);
+    min-inline-size: 0;
+}
+
+.try-card {
+    min-inline-size: 0;
+}
+
+.try-card__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--kp-space-sm, 0.5rem);
+}
+
+.try-label {
+    color: var(--muted-foreground);
+}
+
+/* The label and the segmented track share one row; the track may be wider than a phone and scrolls inside the row. */
+.try-picker {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--kp-space-sm, 0.5rem);
+    min-inline-size: 0;
+}
+
+.try-picker > .kp-segmented {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    justify-self: start;
+}
+
+/* The facts and the file side by side while there is room, stacked on a narrow screen; both start at the top of the card. */
+.try-profile {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+    gap: var(--kp-space-lg, 1.5rem);
+    align-items: start;
+    min-inline-size: 0;
+}
+
+/* The editor's field takes the whole card (the package's knob for a field's widest size). */
+.try-stack .kp-field {
+    --kp-field-max-width: none;
+}
+
+/* The button sits on the first column, its note on the second: the note lines up with the field's text under it. */
+.try-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--kp-space-sm, 0.5rem) var(--kp-space-md, 1rem);
+}
+
+.try-actions__note {
+    color: var(--muted-foreground);
+}
+
+.try-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+    gap: var(--kp-space-lg, 1.5rem);
+    align-items: start;
+    min-block-size: 22rem;
+}
+
+.try-block {
+    display: grid;
+    gap: var(--kp-space-xs, 0.25rem);
+    min-inline-size: 0;
+    align-content: start;
+}
+
+.try-h {
+    margin: 0;
+}
+
+.try-diff {
+    max-block-size: 24rem;
+    overflow: auto;
+    margin: 0;
+}
+
+/* A copy button inside a narrow value keeps its word whole and its size: the value wraps instead. */
+.try-comp .kp-copyable__button {
+    flex: none;
+    white-space: nowrap;
+}
+
+.try-comp .kp-copyable__value {
+    overflow-wrap: anywhere;
+}

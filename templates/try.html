@@ -6,5 +6,155 @@
 <script type="module" src="/ui/js/try.js?v={{ assets }}"></script>
 {% endblock %}
 {% block content %}
-<h1>Try a source</h1>
+<div class="try-page">
+    <header class="try-intro">
+        <h1>Try a source before it writes</h1>
+        <p>
+            Paste an event call and see exactly what Almanac would put in the calendar. Nothing is written. The source&rsquo;s profile is shown next to it.
+        </p>
+    </header>
+
+    <!-- 1 · Source picker + profile -->
+    <section class="try-sec" id="source-profile" aria-labelledby="h-source-profile">
+        <div class="try-sec__head">
+            <h2 id="h-source-profile">Pick a source and read its profile</h2>
+            <p>
+                Every source has one small profile file that says which calendar its events land on, in which time zone, and how long an event
+                lasts when the call does not say; the summary and the file are shown together.
+            </p>
+        </div>
+        <div id="profile-component" class="try-comp">
+            <div class="try-picker">
+                <span class="try-label" id="profile-picker-label">Source</span>
+                <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-labelledby="profile-picker-label" id="profile-picker"></div>
+            </div>
+            <section class="kp-card try-card" id="profile-card" data-kp-state="loading" data-kp-loading-words="Reading the profile file" aria-labelledby="profile-title">
+                <div class="kp-card__header try-card__header">
+                    <h3 class="kp-card__title" id="profile-title">Profile</h3>
+                </div>
+                <div class="kp-card__stage">
+                    <div class="kp-card__data try-profile">
+                        <dl class="kp-kv kp-kv--columns kp-kv--lines" id="profile-kv" aria-label="What the profile says"></dl>
+                        <figure class="kp-code" data-kp-code id="profile-toml" data-kp-code-title="Profile file" data-kp-code-language="TOML" data-kp-code-lines></figure>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </section>
+
+    <!-- 2 · Event editor -->
+    <section class="try-sec" id="event-editor" aria-labelledby="h-event-editor">
+        <div class="try-sec__head">
+            <h2 id="h-event-editor">Write the event call and check it before you send it</h2>
+            <p>
+                Paste or edit the JSON a source would send. The field marks the line that is wrong and refuses a call Almanac would refuse (an
+                unknown field, a missing title); Try asks Almanac what it would put in the calendar and writes nothing.
+            </p>
+        </div>
+        <div id="editor-component" class="try-comp">
+            <section class="kp-card try-card" id="editor-card" data-kp-state="ready" data-kp-loading-words="Asking Almanac" aria-labelledby="editor-title">
+                <div class="kp-card__header try-card__header">
+                    <h3 class="kp-card__title" id="editor-title">Try an event call</h3>
+                </div>
+                <div class="kp-card__stage">
+                    <div class="kp-card__data">
+                        <form class="try-stack" id="editor-form" novalidate>
+                            <div class="try-picker">
+                                <span class="try-label" id="editor-picker-label">Source</span>
+                                <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-labelledby="editor-picker-label" id="editor-picker"></div>
+                            </div>
+                            <div class="kp-field">
+                                <label class="kp-field__label" for="editor-body">Event call (the JSON body)</label>
+                                <textarea
+                                    class="kp-field__input kp-field__input--multiline"
+                                    id="editor-body"
+                                    name="body"
+                                    rows="12"
+                                    data-kp-json="strict"
+                                    data-kp-json-indent="2"
+                                    data-kp-json-check="input"
+                                    data-kp-json-format="button"
+                                    data-kp-json-gutter="true"
+                                    data-kp-json-schema='{"title":"EventRequest","type":"object","additionalProperties":false,"required":["title","start"],"properties":{"title":{"type":"string"},"start":{"type":"string"},"external_id":{"type":["string","null"]},"description":{"type":["string","null"]},"location":{"type":["string","null"]},"end":{"type":["string","null"]},"duration_minutes":{"type":["integer","null"]},"all_day":{"type":"boolean"},"duration_days":{"type":["integer","null"]},"busy":{"type":["boolean","null"]},"color":{"type":["string","null"]},"status":{"enum":["confirmed","tentative","cancelled",null]},"reminders":{"type":["object","null"],"additionalProperties":false,"properties":{"popup_minutes_before":{"type":"array","items":{"type":"integer"}},"email_minutes_before":{"type":"array","items":{"type":"integer"}},"silent":{"type":"boolean"}}},"timezone":{"type":["string","null"]}}}'
+                                    placeholder='{"title": "Washing machine done", "external_id": "switch.washer", "start": "the start as RFC3339"}'
+                                ></textarea>
+                            </div>
+                            <div class="try-actions">
+                                <button type="submit" class="kp-button kp-button--primary" id="editor-try">Try it</button>
+                                <span class="try-actions__note">Nothing is written to the calendar.</span>
+                            </div>
+                            <div class="kp-alert kp-alert--info" id="editor-answer" role="status" data-kp-semantic>
+                                <span><span class="kp-alert__label">Note: </span>Nothing tried yet. Press Try it.</span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </section>
+
+    <!-- 3 · Path trace -->
+    <section class="try-sec" id="path-trace" aria-labelledby="h-path-trace">
+        <div class="try-sec__head">
+            <h2 id="h-path-trace">See where a call stops</h2>
+            <p>
+                A call goes through four steps: the call itself, the source&rsquo;s profile, the event and the calendar. The step that refuses
+                it is lit, the steps after it are not reached, and the rule that decided is a chip.
+            </p>
+        </div>
+        <div id="trace-component" class="try-comp">
+            <section class="kp-card try-card" aria-labelledby="trace-title">
+                <div class="kp-card__header try-card__header">
+                    <h3 class="kp-card__title" id="trace-title">Path of the call</h3>
+                    <span class="kp-badge" id="trace-http" hidden></span>
+                </div>
+                <div class="try-stack">
+                    <div class="kp-trace" data-kp-trace id="try-trace" data-kp-trace-copy data-kp-trace-stop="first-refusal" data-kp-trace-verdict="both" data-kp-trace-rule="chip" data-kp-trace-layout="auto"></div>
+                    <div class="kp-alert kp-alert--info" role="status" data-kp-semantic><span><span class="kp-alert__label">Note: </span>This is a dry run: whatever the answer, nothing is written to Google.</span></div>
+                    <div class="kp-alert kp-alert--destructive" id="trace-refused" role="alert" data-kp-semantic hidden><span><span class="kp-alert__label">Error: </span>A refused call is answered with 422 and is not kept. Fix it and send it again.</span></div>
+                    <div class="kp-alert kp-alert--info" id="trace-answer" role="status" tabindex="-1" data-kp-semantic><span><span class="kp-alert__label">Note: </span>Press Try it to see the path of a call.</span></div>
+                    <figure class="kp-code" data-kp-code id="trace-body" data-kp-code-title="Answer" data-kp-code-language="JSON" data-kp-code-lines></figure>
+                </div>
+            </section>
+        </div>
+    </section>
+
+    <!-- 4 · Result -->
+    <section class="try-sec" id="try-result" aria-labelledby="h-try-result">
+        <div class="try-sec__head">
+            <h2 id="h-try-result">The event Almanac would write</h2>
+            <p>
+                The calendar event in plain words, a line-by-line comparison with the event already in the calendar (a new event or an update),
+                and the curl command that repeats the call.
+            </p>
+        </div>
+        <div id="result-component" class="try-comp">
+            <section class="kp-card try-card" id="result-card" data-kp-state="empty" data-kp-loading-words="Asking Almanac" aria-labelledby="result-title">
+                <div class="kp-card__header try-card__header">
+                    <h3 class="kp-card__title" id="result-title">What Almanac would write</h3>
+                    <span class="kp-badge" id="result-badge" hidden></span>
+                </div>
+                <div class="kp-card__stage">
+                    <div class="kp-card__data try-stack">
+                        <div class="kp-alert kp-alert--info" id="result-note" role="status" data-kp-semantic><span><span class="kp-alert__label">Note: </span>-</span></div>
+                        <div class="try-grid">
+                            <div class="try-block">
+                                <h4 class="try-h" id="result-spec-title">The event</h4>
+                                <div id="result-spec-area"></div>
+                            </div>
+                            <div class="try-block">
+                                <h4 class="try-h" id="result-diff-title">Against the calendar</h4>
+                                <div id="result-diff-area"></div>
+                            </div>
+                        </div>
+                        <div class="try-block">
+                            <h4 class="try-h">Copy as curl</h4>
+                            <div id="result-curl-area"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </section>
+</div>
 {% endblock %}
