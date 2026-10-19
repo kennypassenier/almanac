@@ -6,5 +6,96 @@
 <script type="module" src="/ui/js/history.js?v={{ assets }}"></script>
 {% endblock %}
 {% block content %}
-<h1>History</h1>
+<div class="hist-page">
+    <header class="hist-intro">
+        <h1>History</h1>
+        <p>What Almanac delivered into Google Calendar: a month of deliveries day by day, and the events it wrote this week.</p>
+    </header>
+
+    <section class="hist-sec" id="deliveries-per-day" aria-labelledby="h-deliveries-per-day">
+        <div class="hist-sec__head">
+            <h2 id="h-deliveries-per-day">Deliveries per day</h2>
+            <p>
+                Each day of the month is a plate: green when every event Almanac accepted that day reached the calendar, red when at least one
+                did not. Pick a day to see what was created, updated or failed.
+            </p>
+        </div>
+        <div class="hist-retry" id="hist-month-retry-row" hidden>
+            <button type="button" class="kp-button" id="hist-month-retry">Try again</button>
+        </div>
+        <div class="kp-calendar-layout hist-layout">
+            <section
+                class="kp-calendar kp-calendar--busy-whole"
+                id="hist-calendar"
+                data-kp-calendar
+                data-kp-time-zone="Europe/Brussels"
+                lang="en-GB"
+                aria-label="Events delivered per day"
+            ></section>
+            <aside class="hist-detail" aria-live="polite" aria-labelledby="hist-day-title">
+                <h3 class="hist-detail__title" id="hist-day-title">Today</h3>
+                <dl class="kp-kv kp-kv--lines" id="hist-day-summary"></dl>
+                <div class="kp-datatable hist-table" id="hist-table" data-kp-datatable data-kp-busy-overlay>
+                    <div class="kp-alert kp-alert--destructive" data-kp-datatable-failed role="alert" hidden>
+                        <p class="kp-alert__label">The deliveries of this day could not be loaded</p>
+                        <p data-kp-datatable-failed-reason></p>
+                        <button type="button" class="kp-button" data-kp-datatable-retry>Try again</button>
+                    </div>
+                    <div class="kp-table-wrap">
+                        <table class="kp-table">
+                            <caption class="kp-sr-only">Deliveries of the picked day</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col" data-kp-sort="text">Delivered</th>
+                                    <th scope="col" data-kp-sort="text">Event</th>
+                                    <th scope="col" data-kp-sort="text">Calendar</th>
+                                    <th scope="col" data-kp-sort="text">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hist-rows"></tbody>
+                        </table>
+                    </div>
+                    <div class="kp-empty kp-stateplate kp-stateplate--empty" data-kp-datatable-empty hidden>
+                        <strong class="kp-stateplate__title" id="hist-empty-title">Nothing was delivered on this day</strong>
+                        <span class="kp-stateplate__text" id="hist-empty-text">Almanac accepted no events.</span>
+                    </div>
+                    <p class="kp-datatable__status" data-kp-datatable-status role="status" aria-live="polite"></p>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <section class="hist-sec" id="this-week" aria-labelledby="h-this-week">
+        <div class="hist-sec__head">
+            <h2 id="h-this-week">This week in the calendars</h2>
+            <p>
+                Seven days, each event at its time of day and in the colour of its calendar. Open an event to see which source sent it and when
+                Almanac delivered it.
+            </p>
+        </div>
+        <div class="hist-retry" id="hist-week-retry-row" hidden>
+            <button type="button" class="kp-button" id="hist-week-retry">Try again</button>
+        </div>
+        <div class="hist-weekblock">
+            <section
+                class="kp-week"
+                id="hist-week"
+                data-kp-week
+                data-kp-week-nav
+                data-kp-week-upcoming="8"
+                data-kp-week-upcoming-label="The next events Almanac wrote"
+                data-kp-week-upcoming-empty="No event is left in this week."
+                data-kp-time-zone="Europe/Brussels"
+                lang="en-GB"
+                aria-label="Events Almanac wrote this week"
+            ></section>
+            <div class="kp-card hist-eventcard" aria-live="polite" id="hist-event">
+                <div class="kp-card__header">
+                    <h3 class="kp-card__title" id="hist-event-title">No event opened</h3>
+                </div>
+                <dl class="kp-kv kp-kv--lines" id="hist-event-kv"><div class="kp-kv__row"><dt>Event</dt><dd>Open an event in the week to see its details.</dd></div></dl>
+            </div>
+        </div>
+    </section>
+</div>
 {% endblock %}
