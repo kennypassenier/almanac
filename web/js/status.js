@@ -55,7 +55,31 @@ let firstJournal = true;
 let online = true;
 
 const glanceCard = () => $('#st-glance');
-const deliveriesCard = () => $('#st-deliveries-card');
+const deliveriesTable = () => dataTable(/** @type {HTMLElement} */ ($('#st-table')));
+
+/* A failed table keeps the height it had with its rows, so the page under it does not jump (js/footprint.js holds the
+   states of its own hosts; the data table is not one of them). */
+let tableHeight = 0;
+function holdTableFootprint() {
+    const root = /** @type {HTMLElement} */ ($('#st-table'));
+    new ResizeObserver(() => {
+        const st = root.getAttribute('data-kp-state');
+        if (st && st !== 'ready') return;
+        tableHeight = root.getBoundingClientRect().height;
+    }).observe(root);
+    new MutationObserver(() => {
+        const failed = root.getAttribute('data-kp-state') === 'failed';
+        if (failed && tableHeight) root.style.setProperty('min-block-size', `min(${tableHeight}px, var(--kp-footprint-max, 48rem))`);
+        else root.style.removeProperty('min-block-size');
+    }).observe(root, { attributes: true, attributeFilter: ['data-kp-state'] });
+}
+
+/** The table's own loading state: its busy card over the rows, until the read answers. */
+function tableLoading() {
+    const t = deliveriesTable();
+    t?.busy({ text: 'Reading the deliveries', overlay: true });
+    t?.state('loading');
+}
 
 function drawGlance() {
     const d = last;
@@ -219,11 +243,9 @@ async function loadJournal() {
     syncTable(d.deliveries);
     const glance = glanceCard();
     if (glance) setCardState(glance, 'ready');
-    const card = deliveriesCard();
-    if (card) {
-        if (d.deliveries.length === 0) setCardState(card, 'empty', { title: 'Nothing delivered yet this run', text: 'When Almanac writes an event to a calendar, it appears here.' });
-        else setCardState(card, 'ready');
-    }
+    const t = deliveriesTable();
+    t?.busy(null);
+    t?.state('ready');
     firstJournal = false;
 }
 
@@ -231,9 +253,9 @@ async function loadJournal() {
 function journalFailed() {
     const note = { title: 'The journal could not be read', text: 'Almanac did not answer. Nothing was lost; try again.' };
     const glance = glanceCard();
-    const card = deliveriesCard();
     if (glance) setCardState(glance, 'error', note);
-    if (card) setCardState(card, 'error', { title: 'The deliveries could not be read', text: note.text });
+    deliveriesTable()?.busy(null);
+    deliveriesTable()?.fail('The deliveries could not be read. Almanac did not answer; nothing was lost.');
     const bar = $('#st-outcomes');
     if (bar) setStackbar(bar, { title: 'Outcomes', state: 'error', parts: [], message: note.title });
 }
@@ -319,6 +341,8 @@ const bar = $('#st-outcomes');
 if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
 
 if (hasJournal()) {
+    holdTableFootprint();
+    tableLoading();
     joinChips();
     attachAgo(document);
     const refresh = $('#st-refresh');
@@ -334,9 +358,16 @@ if (hasJournal()) {
         if (handle) handle.now('retry');
         else run();
     });
-    for (const card of [glanceCard(), deliveriesCard()]) {
+    $('#st-table')?.addEventListener('kp-datatable-retry', () => {
+        tableLoading();
+        const handle = refresh ? refreshOf(refresh) : null;
+        if (handle) handle.now('retry');
+        else run();
+    });
+    for (const card of [glanceCard()]) {
         card?.addEventListener('kp-card-retry', () => {
             if (card) setCardState(card, 'loading');
+            tableLoading();
             const handle = refresh ? refreshOf(refresh) : null;
             if (handle) handle.now('retry');
             else run();
