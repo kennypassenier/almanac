@@ -12,17 +12,27 @@ async fn sources(hub: &KitHub) -> String {
     hub.page("/clients").await
 }
 
-async fn calendars(hub: &KitHub) -> String {
-    hub.page("/calendars").await
+/// What the Calendars page fills its calendars card from (4.3.0: the page
+/// renders at once and asks for the list, so a slow Google holds only it).
+async fn calendar_list(hub: &KitHub) -> serde_json::Value {
+    body_json(hub.get("/calendars/data/google").await).await
 }
 
-/// The first calendar id the Calendars page reveals (under the `id` toggle).
-fn first_calendar_id(page: &str) -> String {
-    page.split("<code style=\"font-size: 0.8125rem; word-break: break-all\">")
-        .nth(1)
-        .and_then(|rest| rest.split('<').next())
-        .expect("a calendar id on the page")
+/// The first calendar id the Calendars page is given.
+fn first_calendar_id(list: &serde_json::Value) -> String {
+    list["calendars"][0]["id"]
+        .as_str()
+        .expect("a calendar id in the list")
         .to_string()
+}
+
+fn calendar_names(list: &serde_json::Value) -> Vec<String> {
+    list["calendars"]
+        .as_array()
+        .expect("the calendars")
+        .iter()
+        .filter_map(|c| c["name"].as_str().map(str::to_string))
+        .collect()
 }
 
 /// Add a source the 4.0.2 way: one issue on the Sources page with the
@@ -79,10 +89,13 @@ async fn the_kit_owns_the_door_and_the_old_addresses_keep_working() {
     }
     let status = hub.page("/").await;
     assert!(
-        status.contains("Journal")
-            && status.contains("Sources")
-            && status.contains("home-assistant"),
+        status.contains("Journal") && status.contains("Sources"),
         "{status}"
+    );
+    let sources = body_json(hub.get("/status/sources").await).await;
+    assert!(
+        sources.to_string().contains("home-assistant"),
+        "the Sources section is filled from its route: {sources}"
     );
     let clients = hub.page("/clients").await;
     assert!(
@@ -148,23 +161,25 @@ async fn the_kits_own_refusals_say_source_not_client() {
     hub.shutdown().await;
 }
 
-/// K29 (chassis-rs 1.8.0): the former standalone "Reload profiles from
-/// disk" form on /calendars is now a `SectionAction` on the status
-/// page's Sources section, through the kit's button mechanism.
+/// K29, as rebuilt in 4.3.0: "Reload profiles from disk" is a flash button
+/// on the status page's Sources section that stays on the page, and an
+/// entry in the Calendars page's More menu; the form route still works.
 #[tokio::test]
 async fn the_reload_action_moved_to_the_status_pages_sources_section() {
     let hub = spawn_kit().await;
     let status = hub.page("/").await;
     assert!(
-        status.contains(r#"data-post="/sources/reload""#)
-            && status.contains("Reload profiles from disk")
-            && status.contains(r#"data-busy-label="Reloading…""#),
+        status.contains(r#"data-kp-post="/status/sources/reload""#)
+            && status.contains("Reload profiles from disk"),
         "the status page's Sources section carries the action: {status}"
     );
-    let calendars = calendars(&hub).await;
+    let answer = hub.form("/status/sources/reload", "").await;
+    assert_eq!(answer.status(), 200, "the button's route answers in place");
     assert!(
-        !calendars.contains("Reload profiles from disk"),
-        "the standalone form on /calendars is gone: {calendars}"
+        body_json(answer).await["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("reloaded")),
+        "with the count it reloaded"
     );
     let reloaded = hub.form("/sources/reload", "").await;
     assert_eq!(
@@ -188,12 +203,12 @@ async fn k21_adding_a_source_writes_its_profile_on_the_chosen_calendar() {
         made_status, 303,
         "the calendar is made and shared: {made_body}"
     );
-    let page = calendars(&hub).await;
+    let list = calendar_list(&hub).await;
     assert!(
-        page.contains("Huishouden"),
-        "the new calendar is in the list: {page}"
+        calendar_names(&list).iter().any(|n| n == "Huishouden"),
+        "the new calendar is in the list: {list}"
     );
-    let id = first_calendar_id(&page);
+    let id = first_calendar_id(&list);
     // Visiting the Calendars page remembered the names for the Sources page.
     let page = sources(&hub).await;
     assert!(
@@ -250,8 +265,11 @@ async fn k21_adding_a_source_writes_its_profile_on_the_chosen_calendar() {
 #[tokio::test]
 async fn k24_without_an_owner_no_calendar_is_created_and_the_page_says_so() {
     let hub = spawn_kit().await;
-    let page = calendars(&hub).await;
-    assert!(page.contains("ALMANAC_CALENDAR_OWNER"), "{page}");
+    let list = calendar_list(&hub).await;
+    assert_eq!(
+        list["can_create"], false,
+        "the page is told it cannot make one, and says so: {list}"
+    );
     let made = hub.form("/calendars", "name=Nope").await;
     assert_eq!(made.status(), 200);
     assert!(
@@ -269,19 +287,13 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_an_unused_one_can() {
     let made = hub.form("/calendars", "name=Werk").await;
     let made_status = made.status();
     assert_eq!(made_status, 303, "{}", made.text().await.unwrap());
-    let id = first_calendar_id(&calendars(&hub).await);
+    let id = first_calendar_id(&calendar_list(&hub).await);
     assert_eq!(add_source(&hub, "werk", &id).await.status(), 201);
     let refused = hub
         .form(&format!("/calendars/{}/delete", urlencode(&id)), "")
         .await;
     assert_eq!(refused.status(), 200);
-    assert!(
-        refused
-            .text()
-            .await
-            .unwrap()
-            .contains("still writes to that calendar")
-    );
+    assert!(refused.text().await.unwrap().contains("werk writes to it"));
     // The source goes first — on the Sources page, profile and token together.
     let werk = client_id(&hub, "werk").await;
     let gone = hub
@@ -299,8 +311,11 @@ async fn k24_a_calendar_in_use_cannot_be_deleted_and_an_unused_one_can() {
         .form(&format!("/calendars/{}/delete", urlencode(&id)), "")
         .await;
     assert_eq!(deleted.status(), 303, "then the calendar can go");
-    let page = calendars(&hub).await;
-    assert!(!page.contains("Werk"), "gone from the list at once: {page}");
+    let list = calendar_list(&hub).await;
+    assert!(
+        !calendar_names(&list).iter().any(|n| n == "Werk"),
+        "gone from the list at once: {list}"
+    );
     hub.shutdown().await;
 }
 
@@ -382,10 +397,12 @@ async fn k23_an_unusable_profile_is_listed_and_can_be_deleted_and_reload_picks_u
     .unwrap();
     // Reload notices the broken file; the page lists it.
     assert_eq!(hub.form("/sources/reload", "").await.status(), 303);
-    let page = calendars(&hub).await;
+    let files = body_json(hub.get("/calendars/data/profiles").await).await;
     assert!(
-        page.contains("Not being served") && page.contains("broken.toml"),
-        "{page}"
+        files["unserved"]
+            .as_array()
+            .is_some_and(|u| u.iter().any(|f| f["file"] == "broken.toml")),
+        "{files}"
     );
     assert_eq!(
         hub.form("/profiles/broken.toml/delete", "").await.status(),
