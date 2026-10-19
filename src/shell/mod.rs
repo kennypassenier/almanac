@@ -30,6 +30,8 @@ pub mod profiles;
 /// project has had to fix.
 pub mod testing;
 pub mod token_store;
+pub mod ui;
+pub mod web;
 pub mod worker;
 
 use std::sync::Arc;
@@ -47,7 +49,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 /// `App::dashboard_routes`: the kit renders them inside its layout behind
 /// the admin login and refuses cross-origin form posts (4.0.0).
 pub fn pages(state: Arc<AppState>) -> Router {
-    dashboard::routes().with_state(state)
+    dashboard::routes().merge(ui::routes()).with_state(state)
 }
 
 /// [`build_router`] plus `/healthz` and `/metrics` as the kit serves them

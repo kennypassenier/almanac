@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block title %}Deliveries · {{ app_name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/ui/css/deliveries.css?v={{ assets }}">
+<script type="module" src="/static/kp/js/auto.js?v={{ assets }}"></script>
+<script type="module" src="/ui/js/deliveries.js?v={{ assets }}"></script>
+{% endblock %}
+{% block content %}
+<h1>Deliveries</h1>
+{% endblock %}

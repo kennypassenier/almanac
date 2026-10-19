@@ -341,6 +341,10 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
     app.on_client_deleted(move |client| remove_source(&deleted, &client.name));
     app.client_column(TargetCalendar(Arc::clone(&state)));
     app.nav_entry("Calendars", "/calendars");
+    app.nav_entry("Deliveries", "/deliveries");
+    app.nav_entry("History", "/history");
+    app.nav_entry("Try a source", "/try");
+    crate::shell::web::mount(app);
     app.status_section(JournalSection(Arc::clone(&state)));
     app.status_section(ProfilesSection(state));
     // "Send test" on the Sources page posts a ping with that client's token;
