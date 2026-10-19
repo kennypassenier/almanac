@@ -85,6 +85,16 @@
     justify-content: stretch;
 }
 
+/* The title sits on the buttons' centre line, not on the heading's own margins. */
+.hist-month .kp-calendar__nav {
+    align-items: center;
+}
+
+.hist-month .kp-calendar__nav > .kp-calendar__title {
+    margin-block: 0;
+    align-self: center;
+}
+
 /* 21.5rem is the package's own nav fit: below it the title keeps a row of its own over three equal tracks. */
 @container hist-month (min-width: 21.5rem) {
     .hist-month .kp-calendar__nav {
