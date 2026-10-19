@@ -36,7 +36,7 @@
                 <div class="kp-card__stage">
                     <div class="kp-card__data try-profile">
                         <div class="kp-formgrid" data-kp-formgrid-lines="lines" role="group" id="profile-kv" aria-label="What the profile says"></div>
-                        <figure class="kp-code" data-kp-code id="profile-toml" data-kp-code-title="Profile file" data-kp-code-language="TOML" data-kp-code-lines></figure>
+                        <figure class="kp-code" data-kp-code id="profile-toml" data-kp-code-title="Profile file" data-kp-code-language="TOML" data-kp-code-lines data-kp-code-state="loading"></figure>
                     </div>
                 </div>
             </section>
@@ -53,13 +53,14 @@
             </p>
         </div>
         <div id="editor-component" class="try-comp">
-            <section class="kp-card try-card" id="editor-card" data-kp-state="ready" data-kp-loading-words="Asking Almanac" aria-labelledby="editor-title">
+            <section class="kp-card try-card" id="editor-card" data-kp-state="loading" data-kp-loading-words="Asking Almanac" aria-labelledby="editor-title">
                 <div class="kp-card__header try-card__header">
                     <h3 class="kp-card__title" id="editor-title">Try an event call</h3>
                 </div>
                 <div class="kp-card__stage">
                     <div class="kp-card__data">
-                        <form id="editor-form" novalidate>
+                        <form id="editor-form" data-kp-form novalidate>
+                            <div class="kp-form__summary" data-kp-form-summary tabindex="-1" hidden></div>
                             <div class="kp-formgrid">
                                 <div class="kp-formgrid__row">
                                     <span class="kp-formgrid__label" id="editor-picker-label">Source</span>
@@ -88,7 +89,7 @@
                                 <div class="kp-formgrid__row kp-formgrid__row--buttons">
                                     <span class="kp-formgrid__label"></span>
                                     <div class="kp-formgrid__control try-tracks" data-kp-formgrid-span="wide">
-                                        <div class="kp-formgrid__buttons"><button type="submit" class="kp-button kp-button--primary" id="editor-try">Try it</button></div>
+                                        <div class="kp-formgrid__buttons"><button type="submit" class="kp-button kp-button--primary" id="editor-try" data-kp-submit data-kp-busy="Asking&hellip;">Try it</button></div>
                                         <p class="kp-formgrid__value">Nothing is written to the calendar.</p>
                                     </div>
                                 </div>
@@ -128,7 +129,7 @@
                     <div class="kp-alert kp-alert--info" role="status" data-kp-semantic><span><span class="kp-alert__label">Note: </span>This is a dry run: whatever the answer, nothing is written to Google.</span></div>
                     <div class="kp-alert kp-alert--destructive" id="trace-refused" role="alert" data-kp-semantic hidden><span><span class="kp-alert__label">Error: </span>A refused call is answered with 422 and is not kept. Fix it and send it again.</span></div>
                     <div class="kp-alert kp-alert--info" id="trace-answer" role="status" tabindex="-1" data-kp-semantic><span><span class="kp-alert__label">Note: </span>Press Try it to see the path of a call.</span></div>
-                    <figure class="kp-code" data-kp-code id="trace-body" data-kp-code-title="Answer" data-kp-code-language="JSON" data-kp-code-lines></figure>
+                    <figure class="kp-code" data-kp-code id="trace-body" data-kp-code-title="Answer" data-kp-code-language="JSON" data-kp-code-lines data-kp-code-state="loading"></figure>
                 </div>
             </section>
         </div>
@@ -144,7 +145,7 @@
             </p>
         </div>
         <div id="result-component" class="try-comp">
-            <section class="kp-card try-card" id="result-card" data-kp-state="empty" data-kp-loading-words="Asking Almanac" aria-labelledby="result-title">
+            <section class="kp-card try-card" id="result-card" data-kp-state="loading" data-kp-loading-words="Asking Almanac" aria-labelledby="result-title">
                 <div class="kp-card__header try-card__header">
                     <h3 class="kp-card__title" id="result-title">What Almanac would write</h3>
                     <span class="kp-badge" id="result-badge" hidden></span>
