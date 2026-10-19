@@ -8,7 +8,6 @@ import { toast } from '/static/kp/js/overlays.js';
 import { runFlashButton } from '/static/kp/js/flash.js';
 import { setAttention } from '/static/kp/js/attention.js';
 import { setProblems } from '/static/kp/js/problems.js';
-import { setCardState } from '/static/kp/js/card-state.js';
 import { dataTable } from '/static/kp/js/datatable.js';
 import { attachDisabledReasons } from '/static/kp/js/reason.js';
 import { attachCodes } from '/static/kp/js/code.js';
@@ -330,6 +329,7 @@ const slot = must('[data-kp-datatable-empty]', tableWrap);
     slot.className = plate.className;
     slot.setAttribute('data-kp-art', 'none');
     slot.replaceChildren(...plate.childNodes);
+    slot.querySelector('.kp-stateplate__title')?.classList.add('kp-empty__title');
     attachArt(slot.parentElement ?? document);
 }
 
@@ -338,6 +338,7 @@ const slot = must('[data-kp-datatable-empty]', tableWrap);
     const served = must('[data-kp-datatable-empty]', servedWrap);
     const plate = statePlate(document, { kind: 'empty', title: 'No profile file is being served', text: 'Every source posts with a served profile; none is served right now.', into: served });
     plate.setAttribute('data-kp-art', 'none');
+    plate.querySelector('.kp-stateplate__title')?.classList.add('kp-empty__title');
     attachArt(servedWrap);
 }
 
@@ -495,20 +496,37 @@ function losesFor(u) {
     return id;
 }
 
+/** The served table's own empty plate, worded for the case. @param {string} title @param {string} text @param {HTMLElement} [action] */
+function servedEmpty(title, text, action) {
+    const served = must('[data-kp-datatable-empty]', servedWrap);
+    const plate = statePlate(document, { kind: 'empty', title, text, into: served });
+    plate.setAttribute('data-kp-art', 'none');
+    plate.querySelector('.kp-stateplate__title')?.classList.add('kp-empty__title');
+    if (action) plate.append(action);
+}
+
 function renderProfiles() {
     const p = profiles;
-    if (!p) return setCardState(profileCard, 'loading', { words: 'Reading the profile files' });
-    if (!p.ok || !p.folder_ok) {
-        return setCardState(profileCard, 'error', { title: 'The profiles folder could not be read', text: 'Almanac has no access to it right now.' });
+    if (!p) {
+        allServed.hidden = true;
+        servedTable.busy({ text: 'Reading the profile files', overlay: true });
+        servedTable.state('loading');
+        return;
     }
+    if (!p.ok || !p.folder_ok) {
+        allServed.hidden = true;
+        servedTable.busy(null);
+        servedTable.fail('The profiles folder could not be read: Almanac has no access to it right now.');
+        return;
+    }
+    servedTable.busy(null);
     if (!p.served.length && !p.unserved.length) {
         const add = document.createElement('a');
         add.className = 'kp-button kp-button--sm kp-button--primary';
         add.href = '/clients';
         add.textContent = 'Add a source';
-        return setCardState(profileCard, 'empty', { title: 'No profile files yet', text: 'Add a source on the Sources page and Almanac writes its profile here.', action: add });
-    }
-    setCardState(profileCard, 'ready');
+        servedEmpty('No profile files yet', 'Add a source on the Sources page and Almanac writes its profile here.', add);
+    } else servedEmpty('No profile file is being served', 'Every source posts with a served profile; none is served right now.');
     setProblems(
         problemsBox,
         p.unserved.map((u) => {
@@ -525,7 +543,7 @@ function renderProfiles() {
             return { key: u.file, what: `${u.file} is not being served`, why: u.why, remedy: u.remedy, severity: /** @type {const} */ ('warning'), action: b };
         }),
     );
-    allServed.hidden = p.unserved.length > 0;
+    allServed.hidden = p.unserved.length > 0 || !p.served.length;
     servedWrap.hidden = false;
     servedBody.innerHTML = p.served
         .map((s) => {
@@ -538,10 +556,11 @@ function renderProfiles() {
 </tr>`;
         })
         .join('\n');
-    servedTable?.refresh();
+    servedTable.refresh();
+    servedTable.state('ready');
 }
 
-profileCard.addEventListener('kp-card-retry', () => void loadProfiles());
+servedWrap.addEventListener('kp-datatable-retry', () => void loadProfiles());
 
 problemsBox.addEventListener('click', (event) => {
     const button = event.target instanceof Element ? /** @type {HTMLElement | null} */ (event.target.closest('[data-cal-delete-file]')) : null;

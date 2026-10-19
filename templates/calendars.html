@@ -63,14 +63,14 @@
     </div>
   </section>
 
-  <section class="kp-card cal-card cal-cards" data-kp-state="loading" data-kp-loading-words="Reading the profile files" aria-labelledby="cal-prof-title" data-cal-section="profiles" data-cal-profiles>
+  <section class="kp-card cal-card cal-cards" aria-labelledby="cal-prof-title" data-cal-section="profiles" data-cal-profiles>
     <div class="kp-card__header"><h3 class="kp-card__title" id="cal-prof-title">Profile files</h3></div>
     <p class="kp-card__body">Every source has a mapping profile in the profiles folder; a profile placed there by hand is picked up on reload.</p>
     <div class="kp-card__stage">
       <div class="kp-card__data">
         <div class="kp-problems" data-kp-problems data-cal-problems></div>
         <p class="kp-text-muted" data-cal-allserved hidden>Every profile file is served.</p>
-        <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-page-sizes="none" data-cal-served>
+        <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-page-sizes="none" data-kp-busy-overlay data-kp-state="loading" data-cal-served>
           <div class="kp-table-wrap">
             <table class="kp-table">
               <caption class="kp-sr-only">Profile files that are served</caption>
