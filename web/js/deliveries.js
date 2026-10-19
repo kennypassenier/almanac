@@ -337,6 +337,10 @@ function render() {
 }
 
 let inFlight = false;
+/** The last answer's text, to tell a poll that changed nothing. */
+let lastBody = '';
+/** Whether the last answer has something that moves with the clock. */
+let moving = false;
 /** Reads the route. @param {boolean} [showLoading] lay the loading state first (Try again) */
 async function load(showLoading = false) {
     if (inFlight) return;
@@ -345,16 +349,25 @@ async function load(showLoading = false) {
         status = 'loading';
         render();
     }
+    const before = `${status}:${lastBody}`;
     try {
         const response = await fetch('/deliveries/data', { headers: { 'Content-Type': 'application/json' }, cache: 'no-store' });
         if (!response.ok) throw new Error(String(response.status));
-        data = await response.json();
+        const body = await response.text();
+        lastBody = body.replace(/"now":\d+,?/, '');
+        data = JSON.parse(body);
+        // The timeline's window moves with the clock while anything waits, so then every answer draws.
+        moving = data.schedule.entries.length > 0 || data.schedule.outage_since !== null;
         status = 'ready';
     } catch {
         status = 'error';
+        lastBody = '';
+        moving = false;
     } finally {
         inFlight = false;
     }
+    // A poll that read the same answer draws nothing again: a state plate (and its Retry) stays put, and a focused one keeps its focus.
+    if (!showLoading && !moving && before === `${status}:${lastBody}`) return;
     render();
 }
 
