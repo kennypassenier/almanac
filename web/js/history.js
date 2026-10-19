@@ -1,6 +1,7 @@
 // history page: kp-themes 11.0.0 components wired to Almanac JSON routes.
 import { setCalendarDays, setCalendarState, setCalendarLegend, setCalendarCaption, calendarSelect } from '/static/kp/js/calendar.js';
 import { setWeekEvents, setWeekState, setWeekLegend } from '/static/kp/js/week.js';
+import { setCardState } from '/static/kp/js/card-state.js';
 import { dataTable } from '/static/kp/js/datatable.js';
 
 /** Resolves once js/auto.js has attached everything the page carries. */
@@ -36,11 +37,6 @@ const fillKv = (kv, rows) => {
     if (kv) kv.innerHTML = rows.map(([k, v]) => `<div class="kp-kv__row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 };
 
-/** @param {string} id @param {boolean} show */
-const showRetry = (id, show) => {
-    byId(id).hidden = !show;
-};
-
 // ---------------------------------------------------------------- section 1: deliveries per day
 const calendar = byId('hist-calendar');
 const tableEl = byId('hist-table');
@@ -69,7 +65,6 @@ function shift(iso, n) {
 }
 
 async function loadMonth() {
-    showRetry('hist-month-retry-row', false);
     setCalendarState(calendar, 'loading', 'Reading the deliveries of this month');
     try {
         const data = await getJson('/history/api/days');
@@ -100,7 +95,6 @@ async function loadMonth() {
         if (!pickedDay) showDay(data.today);
     } catch {
         setCalendarState(calendar, 'error', 'Could not read the deliveries of this month');
-        showRetry('hist-month-retry-row', true);
         if (!pickedDay) handle?.fail('The deliveries could not be read just now.');
     }
 }
@@ -141,7 +135,7 @@ async function showDay(iso) {
 
 calendar.addEventListener('kp-calendar-pick', (event) => showDay(/** @type {CustomEvent} */ (event).detail.date));
 tableEl.addEventListener('kp-datatable-retry', () => showDay(pickedDay));
-byId('hist-month-retry').addEventListener('click', loadMonth);
+calendar.addEventListener('kp-calendar-retry', loadMonth);
 
 // ---------------------------------------------------------------- section 2: this week
 const weekEl = byId('hist-week');
@@ -153,7 +147,6 @@ let weekStart = null;
 
 async function loadWeek() {
     const token = ++weekToken;
-    showRetry('hist-week-retry-row', false);
     setWeekState(weekEl, 'loading', '');
     try {
         const data = await getJson(`/history/api/week${weekStart ? `?start=${weekStart}` : ''}`);
@@ -178,7 +171,6 @@ async function loadWeek() {
     } catch {
         if (token !== weekToken) return;
         setWeekState(weekEl, 'error', 'Could not read the calendars Almanac writes to.');
-        showRetry('hist-week-retry-row', true);
     }
 }
 
@@ -186,13 +178,14 @@ weekEl.addEventListener('kp-week-range', (event) => {
     weekStart = /** @type {CustomEvent} */ (event).detail.start;
     loadWeek();
 });
-byId('hist-week-retry').addEventListener('click', loadWeek);
+weekEl.addEventListener('kp-week-retry', loadWeek);
 
 weekEl.addEventListener('kp-week-open', (event) => {
     const e = weekById.get(/** @type {CustomEvent} */ (event).detail.id);
     if (!e) return;
     const [tone, word] = e.result ? RESULT[/** @type {keyof typeof RESULT} */ (e.result)] : ['success', 'Delivered'];
     byId('hist-event-title').textContent = e.label;
+    setCardState(byId('hist-event'), 'ready');
     fillKv(byId('hist-event-kv'), [
         ['Source', `<span class="kp-id">${esc(e.source)}</span>`],
         ['Calendar', esc(e.calendar)],
@@ -202,5 +195,6 @@ weekEl.addEventListener('kp-week-open', (event) => {
     ]);
 });
 
+setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
 loadMonth();
 loadWeek();

@@ -75,13 +75,57 @@
     white-space: nowrap;
 }
 
-/* A retry button sits on the same grid as the section it belongs to. */
-.hist-retry {
-    display: grid;
-    grid-template-columns: max-content;
-    min-inline-size: 0;
+/* The month head: Prev, the month, Next and Today stand on the days' own tracks. [almanac-align-1019] */
+.hist-month {
+    container: hist-month / inline-size;
 }
 
-.hist-retry[hidden] {
-    display: none;
+.hist-month .kp-calendar__nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: stretch;
+}
+
+/* The title sits on the buttons' centre line, not on the heading's own margins. */
+.hist-month .kp-calendar__nav {
+    align-items: center;
+}
+
+.hist-month .kp-calendar__nav > .kp-calendar__title {
+    margin-block: 0;
+    align-self: center;
+}
+
+/* 21.5rem is the package's own nav fit: below it the title keeps a row of its own over three equal tracks. */
+@container hist-month (min-width: 21.5rem) {
+    .hist-month .kp-calendar__nav {
+        grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
+    }
+}
+
+/* Wide enough for a day to hold a button: the nav uses the days' seven tracks and gap. */
+@container hist-month (min-width: 40rem) {
+    .hist-month .kp-calendar__nav {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        column-gap: var(--kp-calendar-gap, 6px);
+    }
+
+    .hist-month .kp-calendar__nav > [data-kp-calendar-prev] {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .hist-month .kp-calendar__nav > .kp-calendar__title {
+        grid-column: 3 / span 3;
+        grid-row: 1;
+    }
+
+    .hist-month .kp-calendar__nav > [data-kp-calendar-next] {
+        grid-column: 6;
+        grid-row: 1;
+    }
+
+    .hist-month .kp-calendar__nav > [data-kp-calendar-today] {
+        grid-column: 7;
+        grid-row: 1;
+    }
 }
