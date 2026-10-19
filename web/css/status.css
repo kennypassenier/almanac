@@ -74,11 +74,6 @@
     --kp-formgrid-control: var(--kp-formgrid-short, 14rem);
 }
 
-.st-live .kp-refresh__line {
-    justify-items: start;
-    text-align: start;
-}
-
 .st-live > .st-live__title {
     grid-column: label;
     grid-row: 1;
