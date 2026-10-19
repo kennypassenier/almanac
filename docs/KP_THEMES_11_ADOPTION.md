@@ -90,5 +90,9 @@ each one with the bump and measure again (align and states at 1280 and 390):
   package's `data-kp-calendar-nav="spread"` instead (gap 21).
 - The Calendars attention band's hand-placed tracks: `.kp-attention` with
   `data-kp-subgrid` now has named icon | words | actions tracks (gap 21).
-- `holdTableFootprint()` in `web/js/status.js` once the datatable is a
-  footprint host (gap 24, not yet fixed).
+- `holdTableFootprint()` in `web/js/status.js` at desktop widths: since
+  kp-themes 0a046418 a table that fails or is empty on its first read holds
+  its frame plus `data-kp-page-size` rows x `--kp-footprint-row` (gap 24).
+  Where the deliveries table shows cards (390 px) the package does not
+  predict the height: set `--kp-footprint-row` for that width or
+  `data-kp-footprint-rows`, then measure.
