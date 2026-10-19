@@ -35,7 +35,7 @@
                 </div>
                 <div class="kp-card__stage">
                     <div class="kp-card__data try-profile">
-                        <dl class="kp-kv kp-kv--columns kp-kv--lines" id="profile-kv" aria-label="What the profile says"></dl>
+                        <div class="kp-formgrid" data-kp-formgrid-lines="lines" role="group" id="profile-kv" aria-label="What the profile says"></div>
                         <figure class="kp-code" data-kp-code id="profile-toml" data-kp-code-title="Profile file" data-kp-code-language="TOML" data-kp-code-lines></figure>
                     </div>
                 </div>
@@ -59,13 +59,17 @@
                 </div>
                 <div class="kp-card__stage">
                     <div class="kp-card__data">
-                        <form class="try-stack" id="editor-form" novalidate>
-                            <div class="try-picker">
-                                <span class="try-label" id="editor-picker-label">Source</span>
-                                <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-labelledby="editor-picker-label" id="editor-picker"></div>
-                            </div>
-                            <div class="kp-field">
-                                <label class="kp-field__label" for="editor-body">Event call (the JSON body)</label>
+                        <form id="editor-form" novalidate>
+                            <div class="kp-formgrid">
+                                <div class="kp-formgrid__row">
+                                    <span class="kp-formgrid__label" id="editor-picker-label">Source</span>
+                                    <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
+                                        <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-labelledby="editor-picker-label" id="editor-picker"></div>
+                                    </div>
+                                </div>
+                                <div class="kp-formgrid__row">
+                                    <label class="kp-formgrid__label" for="editor-body">Event call (the JSON body)</label>
+                                    <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
                                 <textarea
                                     class="kp-field__input kp-field__input--multiline"
                                     id="editor-body"
@@ -79,13 +83,23 @@
                                     data-kp-json-schema='{"title":"EventRequest","type":"object","additionalProperties":false,"required":["title","start"],"properties":{"title":{"type":"string"},"start":{"type":"string"},"external_id":{"type":["string","null"]},"description":{"type":["string","null"]},"location":{"type":["string","null"]},"end":{"type":["string","null"]},"duration_minutes":{"type":["integer","null"]},"all_day":{"type":"boolean"},"duration_days":{"type":["integer","null"]},"busy":{"type":["boolean","null"]},"color":{"type":["string","null"]},"status":{"enum":["confirmed","tentative","cancelled",null]},"reminders":{"type":["object","null"],"additionalProperties":false,"properties":{"popup_minutes_before":{"type":"array","items":{"type":"integer"}},"email_minutes_before":{"type":"array","items":{"type":"integer"}},"silent":{"type":"boolean"}}},"timezone":{"type":["string","null"]}}}'
                                     placeholder='{"title": "Washing machine done", "external_id": "switch.washer", "start": "the start as RFC3339"}'
                                 ></textarea>
-                            </div>
-                            <div class="try-actions">
-                                <button type="submit" class="kp-button kp-button--primary" id="editor-try">Try it</button>
-                                <span class="try-actions__note">Nothing is written to the calendar.</span>
-                            </div>
-                            <div class="kp-alert kp-alert--info" id="editor-answer" role="status" data-kp-semantic>
-                                <span><span class="kp-alert__label">Note: </span>Nothing tried yet. Press Try it.</span>
+                                    </div>
+                                </div>
+                                <div class="kp-formgrid__row kp-formgrid__row--buttons">
+                                    <span class="kp-formgrid__label"></span>
+                                    <div class="kp-formgrid__control try-tracks" data-kp-formgrid-span="wide">
+                                        <div class="kp-formgrid__buttons"><button type="submit" class="kp-button kp-button--primary" id="editor-try">Try it</button></div>
+                                        <p class="kp-formgrid__value">Nothing is written to the calendar.</p>
+                                    </div>
+                                </div>
+                                <div class="kp-formgrid__row">
+                                    <span class="kp-formgrid__label">Answer</span>
+                                    <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
+                                        <div class="kp-alert kp-alert--info" id="editor-answer" role="status" data-kp-semantic>
+                                            <span><span class="kp-alert__label">Note: </span>Nothing tried yet. Press Try it.</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </form>
                     </div>

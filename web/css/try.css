@@ -64,38 +64,48 @@
     justify-self: start;
 }
 
-/* The facts and the file side by side while there is room, stacked on a narrow screen; both start at the top of the card. */
+/* The facts, then the file under them: both start on the card's left edge, so the facts' tracks and the file's edge read as one column. */
 .try-profile {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--kp-space-lg, 1.5rem);
-    align-items: start;
     min-inline-size: 0;
 }
 
-/* The editor's field takes the whole card (the package's knob for a field's widest size). */
-.try-stack .kp-field {
+/* The form grid does the tracks; the field takes the whole control-to-actions span. */
+.try-comp .kp-formgrid {
     --kp-field-max-width: none;
 }
 
-/* The button sits on the first column, its note on the second: the note lines up with the field's text under it. */
-.try-actions {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+/* A control cell that spans control to actions lays its own two cells on the tracks it spans: Try it on the control track,
+   its note on the value track; under the grid's phone width they read top to bottom. */
+.kp-formgrid .kp-formgrid__control.try-tracks {
+    grid-template-columns: subgrid;
+    column-gap: inherit;
     align-items: center;
-    gap: var(--kp-space-sm, 0.5rem) var(--kp-space-md, 1rem);
 }
 
-.try-actions__note {
-    color: var(--muted-foreground);
+.kp-formgrid .try-tracks > .kp-formgrid__buttons {
+    grid-column: control;
 }
 
+@container kp-formgrid (max-width: 36rem) {
+    .kp-formgrid .kp-formgrid__control.try-tracks {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .kp-formgrid .try-tracks > * {
+        grid-column: 1;
+        justify-self: start;
+    }
+}
+
+/* The facts take the card's whole width, so they have the tracks of the profile facts; the comparison goes under them. */
 .try-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--kp-space-lg, 1.5rem);
     align-items: start;
-    min-block-size: 22rem;
 }
 
 .try-block {
@@ -123,4 +133,9 @@
 
 .try-comp .kp-copyable__value {
     overflow-wrap: anywhere;
+}
+
+/* A fact's Copy is as wide as the code block's Copy (which keeps the width of "Copied"), so the two stand as one column. */
+.try-comp .kp-formgrid__actions .kp-copyable__button {
+    min-inline-size: 4.2rem;
 }
