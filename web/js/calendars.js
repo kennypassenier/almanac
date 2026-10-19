@@ -179,7 +179,7 @@ function renderStrip() {
     if (!google || !profiles) {
         strip.setAttribute('aria-busy', 'true');
         strip.innerHTML = waiting('Calendars') + waiting('Sources') + waiting('Profile files not served') + waiting('Events delivered');
-        line.textContent = 'Reading the counts.';
+        line.textContent = '';
         return;
     }
     if (!google.ok || !profiles.ok) {
@@ -331,6 +331,14 @@ const slot = must('[data-kp-datatable-empty]', tableWrap);
     slot.setAttribute('data-kp-art', 'none');
     slot.replaceChildren(...plate.childNodes);
     attachArt(slot.parentElement ?? document);
+}
+
+// The served-profiles table's empty plate: every file is waiting to be deleted or none exists.
+{
+    const served = must('[data-kp-datatable-empty]', servedWrap);
+    const plate = statePlate(document, { kind: 'empty', title: 'No profile file is being served', text: 'Every source posts with a served profile; none is served right now.', into: served });
+    plate.setAttribute('data-kp-art', 'none');
+    attachArt(servedWrap);
 }
 
 /** @param {Calendar} c */
@@ -518,7 +526,7 @@ function renderProfiles() {
         }),
     );
     allServed.hidden = p.unserved.length > 0;
-    servedWrap.hidden = !p.served.length;
+    servedWrap.hidden = false;
     servedBody.innerHTML = p.served
         .map((s) => {
             const warn = s.health === 'warn';

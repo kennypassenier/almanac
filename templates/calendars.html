@@ -8,9 +8,9 @@
 {% endblock %}
 {% block content %}
 <div class="cal-page" data-cal-page>
-  <header class="kp-page-header">
+  <header class="kp-page-header cal-header">
     <div class="kp-page-header__inner">
-      <div>
+      <div class="cal-header__text">
         <h1 class="kp-page-header__title">Calendars</h1>
         <p class="kp-page-header__description">The Google calendars Almanac writes into, which source writes to which, and the profile files that make that so.</p>
       </div>
@@ -36,9 +36,9 @@
     <p class="cal-filter-line kp-text-muted" role="status" data-cal-filter-line>Reading the counts.</p>
   </div>
 
-  <div class="kp-attention" role="region" aria-label="Needs attention" data-cal-attention></div>
+  <div class="kp-formgrid cal-attention-grid"><div class="kp-attention" data-kp-subgrid role="region" aria-label="Needs attention" data-cal-attention></div></div>
 
-  <section class="kp-card cal-card" aria-labelledby="cal-cal-title" data-cal-section="calendars">
+  <section class="kp-card cal-card cal-cards" aria-labelledby="cal-cal-title" data-cal-section="calendars">
     <div class="kp-card__header"><h3 class="kp-card__title" id="cal-cal-title">Calendars</h3></div>
     <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-remember="almanac-calendars" data-kp-sort-multi="click" data-kp-page-sizes="none" data-kp-busy-overlay data-kp-state="loading" data-cal-table>
       <div class="kp-datatable__bar">
@@ -63,7 +63,7 @@
     </div>
   </section>
 
-  <section class="kp-card cal-card" data-kp-state="loading" data-kp-loading-words="Reading the profile files" aria-labelledby="cal-prof-title" data-cal-section="profiles" data-cal-profiles>
+  <section class="kp-card cal-card cal-cards" data-kp-state="loading" data-kp-loading-words="Reading the profile files" aria-labelledby="cal-prof-title" data-cal-section="profiles" data-cal-profiles>
     <div class="kp-card__header"><h3 class="kp-card__title" id="cal-prof-title">Profile files</h3></div>
     <p class="kp-card__body">Every source has a mapping profile in the profiles folder; a profile placed there by hand is picked up on reload.</p>
     <div class="kp-card__stage">
@@ -85,6 +85,7 @@
               <tbody></tbody>
             </table>
           </div>
+          <div class="kp-empty" data-kp-datatable-empty hidden></div>
         </div>
       </div>
     </div>
@@ -109,7 +110,7 @@
   <dialog class="kp-dialog kp-confirm" aria-labelledby="cal-del-title" aria-describedby="cal-del-desc" data-cal-delete-dialog>
     <h2 class="kp-dialog__title" id="cal-del-title">Delete the calendar?</h2>
     <p class="kp-dialog__description" id="cal-del-desc">This cannot be undone. Cancel leaves everything as it is.</p>
-    <div data-cal-type-block></div>
+    <div class="kp-formgrid"><div class="kp-formgrid__row"><div class="kp-formgrid__control" data-kp-formgrid-span="all"><div data-cal-type-block></div></div></div></div>
     <p class="cal-result kp-text-muted" role="status" data-cal-result></p>
     <div class="kp-dialog__actions">
       <button type="button" class="kp-button" data-cal-del-cancel>Cancel</button>
@@ -125,12 +126,11 @@
       <div class="kp-dialog__body">
         <section class="kp-dialog__section">
           <h3 class="kp-dialog__heading">Name</h3>
-          <div class="kp-field">
-            <label class="kp-field__label" for="cal-new-name">Calendar name <span class="kp-field__required">required</span></label>
-            <input class="kp-field__input" id="cal-new-name" name="name" required autocomplete="off" aria-describedby="cal-new-help" placeholder="Household" />
-            <span class="kp-field__help" id="cal-new-help">It shows in Google Calendar exactly as typed.</span>
-            <span class="kp-field__error" data-kp-field-error hidden></span>
-          </div>
+          <div class="kp-formgrid"><div class="kp-formgrid__row">
+            <label class="kp-formgrid__label" for="cal-new-name"><span>Calendar name <span class="kp-field__required">required</span></span></label>
+            <div class="kp-formgrid__control kp-field"><input class="kp-field__input" id="cal-new-name" name="name" required autocomplete="off" aria-describedby="cal-new-help" placeholder="Household" /><span class="kp-field__error" data-kp-field-error hidden></span></div>
+            <p class="kp-formgrid__value" id="cal-new-help">It shows in Google Calendar exactly as typed.</p>
+          </div></div>
         </section>
         <section class="kp-dialog__section">
           <h3 class="kp-dialog__heading">Sharing</h3>

@@ -67,15 +67,8 @@
                 <div class="ad-aside-loading" id="ad-aside-loading" role="status" aria-busy="true" aria-label="Reading the journal">
                     <div class="kp-skeleton ad-aside-ghost"></div>
                 </div>
-                <div class="kp-empty ad-aside-empty" data-kp-art="done" id="ad-aside-empty" hidden>
-                    <p class="kp-empty__title">Nothing has been set aside</p>
-                    <p class="kp-empty__body">Every event Almanac accepted is either delivered or still being tried.</p>
-                </div>
-                <div class="kp-alert kp-alert--danger ad-aside-failed" id="ad-aside-failed" role="alert" hidden>
-                    <strong class="kp-alert__what">Could not read the entries set aside</strong>
-                    <span class="kp-alert__why">The journal did not answer.</span>
-                    <span class="kp-alert__remedy"><button type="button" class="kp-button" id="ad-aside-retry">Try again</button></span>
-                </div>
+                <div class="ad-aside-empty" id="ad-aside-empty" hidden></div>
+                <div class="ad-aside-failed" id="ad-aside-failed" hidden></div>
             </div>
             <div class="kp-alert kp-alert--info" role="status">
                 <strong class="kp-alert__what">A set-aside entry cannot be retried from here</strong>

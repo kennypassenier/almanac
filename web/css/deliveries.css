@@ -71,10 +71,16 @@
 
 /* The set-aside box keeps one height whether it holds one problem, two, the empty plate or the failed one. */
 .ad-aside-frame {
+    position: relative;
     min-block-size: 23.5rem;
     display: grid;
     align-content: start;
     gap: var(--kp-space-md, 1rem);
+}
+
+.ad-aside-frame > :is(.ad-aside-empty, .ad-aside-failed):not([hidden]) {
+    min-block-size: 100%;
+    block-size: 100%;
 }
 
 .ad-aside-ghost {

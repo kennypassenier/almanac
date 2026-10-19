@@ -5,6 +5,9 @@
 import { attachGantts, setGanttKinds, setGanttPoints, setGanttState, setGanttWindow, setGanttZones } from '/static/kp/js/gantt.js';
 import { attachPipelines, setPipeline, setPipelineState } from '/static/kp/js/pipeline.js';
 import { attachProblems, setProblems } from '/static/kp/js/problems.js';
+import { attachArt } from '/static/kp/js/art.js';
+import { statePlate } from '/static/kp/js/state-plate.js';
+import { openBusyCard } from '/static/kp/js/busy-card.js';
 import { attachRuns, setRuns, setRunsState } from '/static/kp/js/runs.js';
 import { setSegmentedValues } from '/static/kp/js/segmented.js';
 
@@ -293,7 +296,21 @@ shapeEl.addEventListener('kp-segmented-change', (event) => {
 
 /* ------------------------------------------------------------------ 3 · set-aside entries */
 
+// The set-aside box's states are the package's: the busy card over the skeleton, the empty plate, the failed plate with Try again.
+const asideFrame = /** @type {HTMLElement} */ (asideLoading.parentElement);
+statePlate(document, { kind: 'empty', title: 'Nothing has been set aside', text: 'Every event Almanac accepted is either delivered or still being tried.', into: asideEmpty });
+asideEmpty.setAttribute('data-kp-art', 'done');
+attachArt(asideEmpty.parentElement ?? document);
+statePlate(document, { kind: 'error', title: 'Could not read the entries set aside', text: 'The journal did not answer.', actionLabel: 'Try again', onAction: () => load(true), into: asideFailed });
+/** @type {import('/static/kp/js/busy-card.js').BusyCard | null} */
+let asideBusy = null;
+
 function renderAside() {
+    if (status === 'loading' && !asideBusy) asideBusy = openBusyCard(asideFrame, { words: 'Reading the journal', area: () => [asideLoading], arrive: false });
+    else if (status !== 'loading' && asideBusy) {
+        void asideBusy.close();
+        asideBusy = null;
+    }
     asideLoading.hidden = status !== 'loading';
     asideFailed.hidden = status !== 'error';
     const list = status === 'ready' ? data.aside : [];
@@ -310,7 +327,6 @@ function renderAside() {
         })),
     );
 }
-$('ad-aside-retry').addEventListener('click', () => load(true));
 
 /* ------------------------------------------------------------------ data */
 

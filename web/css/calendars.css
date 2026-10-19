@@ -105,3 +105,147 @@
     margin: 0;
     min-block-size: 1.5em;
 }
+
+/* The page header [almanac-align-1019]: the title on the actions' centre line, the actions two equal tracks (side by side
+   at every width). */
+.cal-header .cal-header__text {
+    display: contents;
+}
+
+.cal-header .kp-page-header__inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+}
+
+.cal-header .kp-page-header__title {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.cal-header .kp-page-header__description {
+    grid-column: 1;
+    grid-row: 2;
+    margin-block-start: 0;
+}
+
+.cal-header .kp-page-header__actions {
+    grid-column: 2;
+    grid-row: 1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    justify-content: stretch;
+    align-items: center;
+}
+
+.cal-header .kp-page-header__actions > :is(.kp-button, .kp-menu-button),
+.cal-header .kp-menu-button > .kp-button {
+    inline-size: 100%;
+    box-sizing: border-box;
+}
+
+@container kp-page-header (max-width: 40rem) {
+    .cal-header .kp-page-header__inner {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cal-header .kp-page-header__title,
+    .cal-header .kp-page-header__description,
+    .cal-header .kp-page-header__actions {
+        grid-column: 1;
+    }
+
+    .cal-header .kp-page-header__description {
+        grid-row: 2;
+    }
+
+    .cal-header .kp-page-header__actions {
+        grid-row: 3;
+        grid-auto-flow: row;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cal-header .kp-page-header__actions > .kp-button--primary {
+        order: 0;
+    }
+}
+
+/* The attention band: icon | text | actions, the same three tracks in every plate. The band is no container
+   (data-kp-subgrid), so each plate is a subgrid of the form grid around it; under 36rem the package's own fold takes over. */
+.cal-attention-grid > .kp-attention[data-kp-subgrid] {
+    grid-column: label-start / actions-end;
+}
+
+@container kp-formgrid (width > 36rem) {
+    .cal-attention-grid > .kp-attention[data-kp-subgrid] {
+        grid-template-columns: subgrid;
+        row-gap: var(--kp-space-sm, 0.5rem);
+    }
+
+    .cal-attention-grid > .kp-attention[data-kp-subgrid] > .kp-attention__item {
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+    }
+
+    .cal-attention-grid .kp-attention__icon {
+        grid-column: label;
+    }
+
+    .cal-attention-grid .kp-attention__text {
+        grid-column: control-start / value-end;
+    }
+
+    .cal-attention-grid .kp-attention__actions {
+        grid-column: actions;
+    }
+}
+
+/* The fix buttons of every plate are one width whatever the width: in the actions track, or full width under the text. */
+.cal-attention-grid .kp-attention__actions {
+    display: grid;
+    justify-content: stretch;
+}
+
+.cal-attention-grid .kp-attention__actions > .kp-button {
+    inline-size: 100%;
+    box-sizing: border-box;
+    white-space: nowrap;
+}
+
+/* Phone cards: every line is a subgrid of its card's two tracks, label | value; every value starts on the value track. */
+@container kp-table (max-width: 40rem) {
+    .cal-cards .kp-datatable[data-kp-cards] .kp-table tr {
+        display: grid;
+        grid-template-columns: fit-content(40%) minmax(0, 1fr);
+        column-gap: var(--kp-space-md, 1rem);
+    }
+
+    .cal-cards .kp-datatable[data-kp-cards] .kp-table td {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        align-items: baseline;
+        justify-content: normal;
+        gap: 0 var(--kp-space-md, 1rem);
+        text-align: start;
+    }
+
+    .cal-cards .kp-datatable[data-kp-cards] .kp-table td::before {
+        grid-column: 1;
+    }
+
+    .cal-cards .kp-datatable[data-kp-cards] .kp-table td > * {
+        grid-column: 2;
+        justify-self: start;
+        min-inline-size: 0;
+    }
+
+    .cal-cards .kp-datatable[data-kp-cards] .kp-table td > .kp-code {
+        justify-self: stretch;
+    }
+}
+
+/* No problem in the band: its grid takes no room either. */
+.cal-attention-grid:not(:has(.kp-attention__item)) {
+    display: none;
+}
