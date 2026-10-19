@@ -1,1 +1,107 @@
-/* calendars page: layout only; every colour, space and font comes from kp-themes tokens. */
+/* The Calendars page: only the composition around the package's parts. Everything with a kp- class is the package; sizes and
+   gaps come from its tokens. The page is one grid column; the counts, the cards and the dialogs' rows align on it. */
+
+.cal-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--kp-space-xl, 2rem);
+    max-inline-size: 90rem;
+}
+
+.cal-page [hidden] {
+    display: none;
+}
+
+/* The counts and their filter line share one column, so the line sits under the first tile's edge. */
+.cal-counts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--kp-space-sm, 0.5rem);
+}
+
+.cal-counts > .kp-kpis > .kp-stateplate {
+    grid-column: 1 / -1;
+    --kp-stateplate-pad: var(--kp-space-sm, 0.5rem) var(--kp-space-md, 1rem);
+    --kp-stateplate-text: 1rem;
+    min-block-size: 0;
+}
+
+.cal-filter-line {
+    margin: 0;
+    min-block-size: 1.5em;
+}
+
+.cal-skeleton-value {
+    --kp-skeleton-height: 1.75rem;
+    inline-size: 3ch;
+}
+
+.cal-skeleton-line {
+    inline-size: 80%;
+}
+
+/* A table card holds the height of three rows, so loading, empty and failed keep the loaded footprint; an empty or failed
+   plate grows to fill what the rows would. */
+.cal-card [data-cal-table] {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 30rem;
+}
+
+.cal-card [data-cal-table] > .kp-table-wrap {
+    flex: 1;
+}
+
+.cal-card [data-cal-table]:has(tbody:empty) > .kp-table-wrap,
+.cal-card [data-cal-table][data-kp-state='failed'] > .kp-table-wrap {
+    display: none;
+}
+
+.cal-card [data-cal-table] > [data-kp-datatable-empty]:not([hidden]),
+.cal-card [data-cal-table] > [data-kp-datatable-failed]:not([hidden]) {
+    flex: 1;
+}
+
+/* The calendar id is 45 characters of code: its column keeps a width that shows it on one or two lines. */
+.cal-card td[data-label='Calendar id'] {
+    min-inline-size: 18rem;
+}
+
+[data-cal-problems]:not(:empty) {
+    margin-block-end: var(--kp-space-md, 1rem);
+}
+
+/* A count filters the rows it counts: the cards and parts it does not count leave. */
+.cal-page[data-cal-filter='calendars'] [data-cal-section='profiles'],
+.cal-page[data-cal-filter='sources'] [data-cal-section='calendars'],
+.cal-page[data-cal-filter='unserved'] [data-cal-section='calendars'],
+.cal-page[data-cal-filter='unserved'] [data-cal-section='uses'] {
+    display: none;
+}
+
+.cal-page[data-cal-filter='sources'] [data-cal-problems],
+.cal-page[data-cal-filter='sources'] [data-cal-allserved],
+.cal-page[data-cal-filter='unserved'] [data-cal-served],
+.cal-page[data-cal-filter='unserved'] [data-cal-allserved] {
+    display: none;
+}
+
+/* The uses map keeps one height whichever view it shows. */
+.cal-uses-body {
+    min-block-size: 22rem;
+    display: grid;
+}
+
+.cal-uses-body > [hidden] {
+    display: none;
+}
+
+/* A ruled dialog section gets the same inline air, so Name and Sharing stay aligned. */
+.cal-page .kp-dialog__section {
+    padding-inline: var(--kp-space-sm, 0.5rem);
+}
+
+.cal-result {
+    margin: 0;
+    min-block-size: 1.5em;
+}
