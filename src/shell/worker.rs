@@ -68,6 +68,9 @@ pub async fn record_route(
         },
         outcome,
     });
+
+    // The durable per-day record behind the History page.
+    crate::shell::history_store::note(state, entry, result).await;
 }
 
 /// What one drain pass did, so the loop can decide how long to wait

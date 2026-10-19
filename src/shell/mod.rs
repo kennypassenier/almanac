@@ -15,6 +15,7 @@ pub mod datadir;
 pub mod delivery;
 pub mod durability;
 pub mod heartbeat;
+pub mod history_store;
 pub mod ingest;
 pub mod journal;
 pub mod kit;
