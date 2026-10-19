@@ -21,10 +21,8 @@
                 did not. Pick a day to see what was created, updated or failed.
             </p>
         </div>
-        <div class="hist-retry" id="hist-month-retry-row" hidden>
-            <button type="button" class="kp-button" id="hist-month-retry">Try again</button>
-        </div>
         <div class="kp-calendar-layout hist-layout">
+            <div class="hist-month">
             <section
                 class="kp-calendar kp-calendar--busy-whole"
                 id="hist-calendar"
@@ -33,6 +31,7 @@
                 lang="en-GB"
                 aria-label="Events delivered per day"
             ></section>
+            </div>
             <aside class="hist-detail" aria-live="polite" aria-labelledby="hist-day-title">
                 <h3 class="hist-detail__title" id="hist-day-title">Today</h3>
                 <dl class="kp-kv kp-kv--lines" id="hist-day-summary"></dl>
@@ -74,9 +73,6 @@
                 Almanac delivered it.
             </p>
         </div>
-        <div class="hist-retry" id="hist-week-retry-row" hidden>
-            <button type="button" class="kp-button" id="hist-week-retry">Try again</button>
-        </div>
         <div class="hist-weekblock">
             <section
                 class="kp-week"
@@ -90,11 +86,11 @@
                 lang="en-GB"
                 aria-label="Events Almanac wrote this week"
             ></section>
-            <div class="kp-card hist-eventcard" aria-live="polite" id="hist-event">
+            <div class="kp-card hist-eventcard" aria-live="polite" id="hist-event" data-kp-state="empty">
                 <div class="kp-card__header">
-                    <h3 class="kp-card__title" id="hist-event-title">No event opened</h3>
+                    <h3 class="kp-card__title" id="hist-event-title">The opened event</h3>
                 </div>
-                <dl class="kp-kv kp-kv--lines" id="hist-event-kv"><div class="kp-kv__row"><dt>Event</dt><dd>Open an event in the week to see its details.</dd></div></dl>
+                <div class="kp-card__stage"><dl class="kp-kv kp-kv--lines kp-card__data" id="hist-event-kv"></dl></div>
             </div>
         </div>
     </section>
