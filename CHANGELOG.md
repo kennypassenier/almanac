@@ -11,6 +11,20 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 3.8.0 → 3.9.0** (kp-themes 11.1.1). The kit's status page is
+  now an operations page with one refresh control; Almanac's Journal and
+  Sources sections sit in the kit's own section cards (no card inside a
+  card) and follow that one refresh.
+- **Every page on shared grid tracks**: the approved alignment fixes
+  (Try a source facts and editor, the status head and health lines, the
+  History month head, the Calendars header, problems band, dialogs and
+  phone cards) are built on kp-themes' form grid.
+- **Every component on its standard states**: tables, the month and week
+  views, code views, the pipeline, the retry list, cards and forms show the
+  package's own loading, empty and failed states with its Retry.
+
 ## [4.3.0] - 2026-10-19
 
 ### Added
