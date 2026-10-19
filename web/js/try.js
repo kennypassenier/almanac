@@ -9,6 +9,7 @@ import { jsonField } from '/static/kp/js/json-field.js';
 import { attachCommands } from '/static/kp/js/command.js';
 import { attachPatterns } from '/static/kp/js/patterns.js';
 import { setSegmentedItems, setSegmentedValues } from '/static/kp/js/segmented.js';
+import { form as formOf, VALID_EVENT } from '/static/kp/js/forms.js';
 import { statePlate } from '/static/kp/js/state-plate.js';
 
 /** Resolves once js/auto.js has attached everything the page carries. */
@@ -66,6 +67,7 @@ let profileSource = '';
 let editorSource = '';
 
 const profileCard = $('profile-card');
+const profileToml = $('profile-toml');
 const tryButton = /** @type {HTMLButtonElement} */ ($('editor-try'));
 const area = /** @type {HTMLTextAreaElement} */ ($('editor-body'));
 
@@ -84,7 +86,7 @@ function drawProfile() {
         factRow('File', s.file_name ?? 'Not found', Boolean(s.file_name)),
     ].join('');
     attachPatterns(kv);
-    const file = $('profile-toml');
+    const file = profileToml;
     if (s.toml == null) setCode(file, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read' });
     else setCode(file, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, size: `${new Blob([s.toml]).size} B` });
 }
@@ -97,12 +99,37 @@ function drawPickers() {
     }
 }
 
-async function loadSources() {
+let sourcesFailed = false;
+/** Everything on the page waits on the profiles (Try needs a source), so the whole page is loading, or failed, with them. */
+function pageWaits() {
     setCardState(profileCard, 'loading');
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'loading', loadingWords: 'Reading the profile file' });
+    setCardState(editorCard, 'loading');
+    setCardState(resultCard, 'loading');
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Reading the profiles' });
+}
+function pageFailed() {
+    setCardState(profileCard, 'error', { title: 'Could not read the profiles', text: 'Almanac did not answer. Nothing else is affected.' });
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profiles could not be read' });
+    setCardState(editorCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
+    setCardState(resultCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'The profiles could not be read' });
+}
+/** The page is ready for a first Try: the editor is open, nothing was tried. */
+function pageIdle() {
+    setCardState(editorCard, 'ready');
+    idleTrace();
+    emptyResult();
+}
+
+async function loadSources() {
+    sourcesFailed = false;
+    pageWaits();
     try {
         sources = (await api('/try/api/sources')).sources;
     } catch {
-        setCardState(profileCard, 'error', { title: 'Could not read the profiles', text: 'Almanac did not answer. Nothing else is affected.' });
+        sourcesFailed = true;
+        pageFailed();
         return;
     }
     if (!sources.length) {
@@ -111,7 +138,7 @@ async function loadSources() {
         reload.className = 'kp-button kp-button--primary';
         reload.textContent = 'Reload profiles from disk';
         reload.addEventListener('click', async () => {
-            setCardState(profileCard, 'loading');
+            pageWaits();
             try {
                 await fetch('/sources/reload', { method: 'POST', credentials: 'same-origin' });
             } catch {
@@ -120,6 +147,7 @@ async function loadSources() {
             loadSources();
         });
         setCardState(profileCard, 'empty', { title: 'No sources loaded', text: 'Almanac serves a source only when its profile file is in the profiles folder.', action: reload });
+        pageIdle();
         refreshTry();
         return;
     }
@@ -128,6 +156,7 @@ async function loadSources() {
     drawPickers();
     drawProfile();
     setCardState(profileCard, 'ready');
+    pageIdle();
     refreshTry();
 }
 
@@ -343,6 +372,7 @@ let asking = 0;
 async function ask() {
     const value = jsonField(area)?.value();
     if (value === undefined || !sourceById(editorSource)) return;
+    formOf(editorForm)?.clear();
     const turn = (asking += 1);
     setCardState(editorCard, 'loading');
     setCardState(resultCard, 'loading');
@@ -355,6 +385,7 @@ async function ask() {
     } catch {
         if (turn !== asking) return;
         setCardState(editorCard, 'error', { title: 'Almanac did not answer', text: 'The dry-run call did not get an answer. Your event call is still in the field.' });
+        formOf(editorForm)?.errors({ body: 'Almanac did not answer the dry-run call. Your event call is still here; try again.' });
         trace(traceEl)?.setState('error', { message: 'Almanac did not answer the dry-run call.' });
         setAlert(traceAnswer, 'destructive', 'Failed', 'Almanac did not answer.');
         setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'There is no answer to show' });
@@ -370,15 +401,20 @@ async function ask() {
     setCardState(resultCard, 'ready');
 }
 
-$('editor-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (!tryButton.disabled) ask();
+const editorForm = $('editor-form');
+// The package form validates, takes the busy submit and ends it with done(); the page only sends.
+editorForm.addEventListener('submit', (event) => event.preventDefault());
+editorForm.addEventListener(VALID_EVENT, async (event) => {
+    const { done } = /** @type {CustomEvent} */ (event).detail;
+    await ask();
+    done();
+    refreshTry();
 });
-editorCard.addEventListener('kp-card-retry', ask);
-resultCard.addEventListener('kp-card-retry', ask);
+// A failed first read retries the profiles; otherwise Retry asks again.
+const retry = () => (sourcesFailed ? loadSources() : ask());
+editorCard.addEventListener('kp-card-retry', retry);
+resultCard.addEventListener('kp-card-retry', retry);
 traceEl.addEventListener('kp-trace-retry', ask);
 traceEl.addEventListener('kp-trace-rule', () => traceAnswer.focus());
 
-idleTrace();
-emptyResult();
 await loadSources();
