@@ -1,1 +1,87 @@
 /* history page: layout only; every colour, space and font comes from kp-themes tokens. */
+
+/* One 12-column grid for the page: the intro, then each section across the full width. */
+.hist-page {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--kp-space-xl);
+    max-inline-size: 90rem;
+}
+
+.hist-intro,
+.hist-sec {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: var(--kp-space-sm);
+    min-inline-size: 0;
+}
+
+.hist-sec {
+    gap: var(--kp-space-md);
+}
+
+.hist-sec__head {
+    display: grid;
+    gap: var(--kp-space-xs);
+    min-inline-size: 0;
+}
+
+.hist-intro :is(h1, p),
+.hist-sec__head :is(h2, p) {
+    margin: 0;
+}
+
+/* The heatmap and its day: the detail is wider than the package's 16rem so four table columns fit without cutting a word. */
+.hist-layout {
+    --kp-calendar-aside: 30rem;
+}
+
+.hist-detail {
+    display: grid;
+    gap: var(--kp-space-sm);
+    min-inline-size: 0;
+    align-content: start;
+}
+
+.hist-detail__title {
+    margin: 0;
+}
+
+/* The table holds the height of a ten-row day, so picking another day moves nothing under it. */
+.hist-table {
+    min-block-size: 20rem;
+}
+
+.hist-weekblock {
+    display: grid;
+    gap: var(--kp-space-md);
+    min-inline-size: 0;
+}
+
+.hist-sub {
+    display: block;
+    color: var(--muted-foreground);
+}
+
+/* Narrow: the package puts the detail under the grid; a wider aside must not keep a second track open. */
+@media (max-width: 60rem) {
+    .hist-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* The failed alert of the table in a narrow aside lays its text beside Try again; the button's words never break mid-word. */
+.hist-table [data-kp-datatable-retry] {
+    white-space: nowrap;
+}
+
+/* A retry button sits on the same grid as the section it belongs to. */
+.hist-retry {
+    display: grid;
+    grid-template-columns: max-content;
+    min-inline-size: 0;
+}
+
+.hist-retry[hidden] {
+    display: none;
+}

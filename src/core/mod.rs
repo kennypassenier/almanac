@@ -12,6 +12,7 @@ pub mod auth;
 pub mod calendar;
 pub mod colors;
 pub mod error;
+pub mod history;
 pub mod html;
 pub mod humanise;
 pub mod journal;

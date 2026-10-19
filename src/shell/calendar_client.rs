@@ -278,6 +278,38 @@ impl GoogleCalendarClient {
         Ok(list.items.unwrap_or_default())
     }
 
+    /// Every event that starts in `[time_min, time_max)` (RFC 3339), repeats
+    /// expanded, oldest first. Read-only: the History page's week agenda
+    /// filters these to the ones carrying Almanac's own property.
+    pub async fn list_events_between(
+        &self,
+        calendar_id: &str,
+        time_min: &str,
+        time_max: &str,
+    ) -> Result<Vec<GoogleEvent>, AlmanacError> {
+        let url = format!("{}/{calendar_id}/events", self.base_url);
+        let response = self
+            .send_with_retry(|http, token| {
+                http.get(&url).bearer_auth(token).query(&[
+                    ("timeMin", time_min),
+                    ("timeMax", time_max),
+                    ("singleEvents", "true"),
+                    ("orderBy", "startTime"),
+                    ("maxResults", "2500"),
+                ])
+            })
+            .await?;
+
+        let list: EventListResponse =
+            response.json().await.map_err(|e| AlmanacError::GoogleApi {
+                message: format!("failed to parse the Calendar API's event list response: {e}"),
+                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
+                transient: false,
+            })?;
+
+        Ok(list.items.unwrap_or_default())
+    }
+
     /// Creates a new secondary calendar owned by the authenticated
     /// service account and returns its id. A small forward-borrow from
     /// K3 (multiple calendars, landing properly in L2): used here as a
