@@ -77,9 +77,7 @@ impl Worker {
             };
         }
 
-        let wait_secs = FAILURE_BACKOFF_SECS[self
-            .consecutive_failures
-            .min(FAILURE_BACKOFF_SECS.len() - 1)];
+        let wait_secs = failure_wait(self.consecutive_failures);
         self.consecutive_failures += 1;
 
         let report_backlog = journal_is_filling && !self.backlog_reported;
@@ -97,6 +95,66 @@ impl Worker {
     pub fn consecutive_failures(&self) -> usize {
         self.consecutive_failures
     }
+}
+
+/// The wait after a stalled pass when `consecutive_failures` stalled
+/// passes came before it (0 for the first): the ladder's rung, the last
+/// one repeating.
+pub fn failure_wait(consecutive_failures: usize) -> u64 {
+    FAILURE_BACKOFF_SECS[consecutive_failures.min(FAILURE_BACKOFF_SECS.len() - 1)]
+}
+
+/// When the next `count` passes run if the loop keeps doing what it does now, in unix
+/// seconds. `next_at` is the next pass, already scheduled;
+/// `consecutive_failures` is the stalled-pass count after the latest pass.
+pub fn projected_passes(next_at: u64, consecutive_failures: usize, count: usize) -> Vec<u64> {
+    let mut at = next_at;
+    let mut passes = Vec::with_capacity(count);
+    for failures in (consecutive_failures..).take(count) {
+        passes.push(at);
+        // A healthy loop (or a mixed pass) comes back at the poll
+        // interval; only stalled passes climb the ladder.
+        at += if failures == 0 {
+            POLL_INTERVAL_SECS
+        } else {
+            failure_wait(failures)
+        };
+    }
+    passes
+}
+
+/// What a set-aside entry's stored reason ("<message> — <remedy>") says,
+/// in plain words: why Google or Almanac gave up, and what to do.
+pub fn plain_set_aside_reason(reason: &str) -> (String, String) {
+    let (message, remedy) = reason
+        .split_once(" — ")
+        .map_or((reason, ""), |(m, r)| (m, r));
+    let cause = match message
+        .strip_prefix("Calendar API returned HTTP ")
+        .and_then(|rest| rest.get(..3))
+    {
+        Some("400") => "Google said the event is not valid.",
+        Some("401") => "Google did not accept Almanac's sign-in.",
+        Some("403") => "Almanac is not allowed to write to that calendar.",
+        Some("404") => "The calendar or the event no longer exists.",
+        Some("410") => "The event was removed from the calendar.",
+        Some(_) => "Google refused the event.",
+        None if message.contains("Calendar API") => "Google's answer could not be read.",
+        None => "The event could not be turned into a calendar entry.",
+    };
+    let remedy = remedy.trim();
+    let next = if remedy.is_empty() {
+        "Send the event again from its source.".to_string()
+    } else {
+        let mut chars = remedy.chars();
+        let first = chars.next().map(|c| c.to_uppercase().to_string());
+        format!(
+            "{}{}, then send the event again from its source.",
+            first.unwrap_or_default(),
+            chars.as_str().trim_end_matches('.')
+        )
+    };
+    (cause.to_string(), next)
 }
 
 /// Whether a journal of `size` bytes against `cap` is filling up.
@@ -127,6 +185,27 @@ mod tests {
             delivered: 0,
             failed: 0,
         }
+    }
+
+    #[test]
+    fn projected_passes_climb_the_ladder_and_repeat_its_last_rung() {
+        assert_eq!(
+            projected_passes(100, 2, 4),
+            vec![100, 100 + 300, 100 + 300 + 900, 100 + 300 + 900 + 1800]
+        );
+        assert_eq!(projected_passes(0, 9, 3), vec![0, 1800, 3600]);
+    }
+
+    #[test]
+    fn a_set_aside_reason_reads_in_plain_words() {
+        let (cause, next) = plain_set_aside_reason(
+            "Calendar API returned HTTP 404 Not Found: {} — check the request payload",
+        );
+        assert_eq!(cause, "The calendar or the event no longer exists.");
+        assert_eq!(
+            next,
+            "Check the request payload, then send the event again from its source."
+        );
     }
 
     #[test]

@@ -1,1 +1,99 @@
 /* deliveries page: layout only; every colour, space and font comes from kp-themes tokens. */
+
+.ad-page,
+.ad-intro,
+.ad-sec,
+.ad-block {
+    display: grid;
+    gap: var(--kp-space-md, 1rem);
+    min-inline-size: 0;
+}
+
+.ad-page {
+    gap: var(--kp-space-xl, 2rem);
+}
+
+.ad-intro h1,
+.ad-sec__head :is(h2, p),
+.ad-meta {
+    margin: 0;
+}
+
+/* A section's head is a grid of its own: words in the first column, the one control (when there is one) in the second,
+   on the first row, so it lines up with the heading and not with the paragraph. */
+.ad-sec__head {
+    display: grid;
+    gap: var(--kp-space-sm, 0.5rem) var(--kp-space-lg, 1.5rem);
+    min-inline-size: 0;
+    align-items: start;
+}
+
+.ad-sec__switch {
+    justify-self: start;
+}
+
+@media (min-width: 40rem) {
+    .ad-sec__head:has(.ad-sec__switch) {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            'title switch'
+            'lede lede';
+    }
+
+    .ad-sec__head:has(.ad-sec__switch) h2 {
+        grid-area: title;
+    }
+
+    .ad-sec__head:has(.ad-sec__switch) p {
+        grid-area: lede;
+    }
+
+    .ad-sec__head:has(.ad-sec__switch) .ad-sec__switch {
+        grid-area: switch;
+        justify-self: end;
+    }
+}
+
+.ad-meta {
+    color: var(--muted-foreground);
+}
+
+/* The lit stage of the delivery chain: the package's own stage colour knob, set to the destructive colour. */
+.kp-pipeline .kp-pipeline__lane[data-ad-lit] {
+    --kp-pipeline-tone: var(--destructive);
+    border-color: var(--destructive);
+}
+
+/* The lanes keep room for the waiting cards of an outage, so the board changes least between states. */
+#ad-chain {
+    --kp-pipeline-min: 20rem;
+}
+
+/* The set-aside box keeps one height whether it holds one problem, two, the empty plate or the failed one. */
+.ad-aside-frame {
+    min-block-size: 23.5rem;
+    display: grid;
+    align-content: start;
+    gap: var(--kp-space-md, 1rem);
+}
+
+.ad-aside-ghost {
+    min-block-size: 12rem;
+}
+
+/* The lanes of the retry timeline carry an entry's title and its source: wider than the package's default so neither is cut. */
+@media (min-width: 40rem) {
+    #ad-gantt {
+        --kp-gantt-label: 15rem;
+    }
+}
+
+@media (max-width: 40rem) {
+    #ad-gantt {
+        --kp-gantt-label: 9.5rem;
+    }
+
+    .ad-aside-frame {
+        min-block-size: 43rem;
+    }
+}
