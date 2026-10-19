@@ -126,12 +126,12 @@ const JOURNAL_HTML: &str = r##"
         <div class="kp-refresh" id="st-refresh" data-kp-refresh="0" data-kp-refresh-choices="0,15,30,60" data-kp-look="menu" data-kp-remember="almanac-status-refresh"></div>
         <div class="st-live__card">
         <div class="kp-connection" id="st-connection" data-kp-connection data-kp-connection-source="app" data-kp-placement="top" data-kp-retry-delays="off"></div>
-        <section class="kp-card st-card" id="st-deliveries-card" data-kp-state="loading" data-kp-loading-words="Reading the deliveries" aria-label="Recent deliveries">
+        <section class="kp-card st-card" id="st-deliveries-card" aria-label="Recent deliveries">
             <p class="kp-card__body">The newest first, from this run of the service. Filter by result; open a row to read what went wrong.</p>
             <p class="kp-card__body st-key">Result key: <span class="kp-badge kp-badge--success" data-kp-semantic>Created</span> a new calendar entry <span class="kp-badge kp-badge--info" data-kp-semantic>Updated</span> an entry changed <span class="kp-badge kp-badge--warning" data-kp-semantic>Retrying</span> failed, tried again on its own <span class="kp-badge kp-badge--destructive" data-kp-semantic>Failed</span> gave up</p>
             <div class="kp-card__stage">
                 <div class="kp-card__data">
-                    <div class="kp-datatable st-table" id="st-table" data-kp-datatable data-kp-expandable data-kp-expand-single data-kp-sort-multi="click" data-kp-page-size="8" data-kp-page-sizes="none" data-kp-remember="almanac-status-deliveries">
+                    <div class="kp-datatable st-table" id="st-table" data-kp-datatable data-kp-busy-overlay data-kp-expandable data-kp-expand-single data-kp-sort-multi="click" data-kp-page-size="8" data-kp-page-sizes="none" data-kp-remember="almanac-status-deliveries">
                         <div class="kp-datatable__bar st-bar">
                             <div class="kp-segmented kp-segmented--chips" data-kp-segmented="multi" role="group" aria-label="Show deliveries by result">
                                 <button type="button" class="kp-segmented__item" data-value="all" data-kp-segmented-all aria-pressed="true"><span class="kp-segmented__label">All</span><span class="kp-segmented__count"></span></button>
@@ -154,8 +154,8 @@ const JOURNAL_HTML: &str = r##"
                             </table>
                         </div>
                         <div class="kp-empty" data-kp-datatable-empty data-kp-art="nomatch" hidden>
-                            <p class="kp-empty__title">Nothing matches</p>
-                            <p class="kp-empty__body">No delivery fits this filter.</p>
+                            <p class="kp-empty__title">Nothing to show</p>
+                            <p class="kp-empty__body">Nothing has been delivered yet this run, or no delivery fits this filter. When Almanac writes an event to a calendar, it appears here.</p>
                             <button type="button" class="kp-button kp-button--secondary" data-kp-datatable-clear>Clear the filter</button>
                         </div>
                         <div class="kp-datatable__bar">
