@@ -56,6 +56,9 @@ setCalendarCaption(calendar, 'Under each day: events delivered of events accepte
 // Loading from the first frame: the card stands over the month until the days arrive.
 setCalendarState(calendar, 'loading', 'Reading the deliveries of this month');
 handle?.busy({ text: 'Reading the deliveries of this day', overlay: true });
+handle?.state('loading');
+setWeekState(byId('hist-week'), 'loading', 'Reading this week');
+setCardState(byId('hist-event'), 'loading', { words: 'Reading this week' });
 
 /** @param {string} iso @param {number} n */
 function shift(iso, n) {
@@ -105,6 +108,7 @@ async function showDay(iso) {
     const token = ++dayToken;
     byId('hist-day-title').textContent = human(iso);
     handle?.busy({ text: `Reading the deliveries of ${human(iso)}`, overlay: true });
+    handle?.state('loading');
     try {
         const data = await getJson(`/history/api/day?date=${encodeURIComponent(iso)}`);
         if (token !== dayToken) return;
@@ -147,7 +151,7 @@ let weekStart = null;
 
 async function loadWeek() {
     const token = ++weekToken;
-    setWeekState(weekEl, 'loading', '');
+    setWeekState(weekEl, 'loading', 'Reading this week');
     try {
         const data = await getJson(`/history/api/week${weekStart ? `?start=${weekStart}` : ''}`);
         if (token !== weekToken) return;
@@ -167,10 +171,12 @@ async function loadWeek() {
             weekEl,
             data.calendars.map((/** @type {any} */ c) => ({ series: c.series, label: c.name })),
         );
+        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
         if (!events.length) setWeekState(weekEl, 'empty', 'Almanac wrote nothing in this week.');
     } catch {
         if (token !== weekToken) return;
         setWeekState(weekEl, 'error', 'Could not read the calendars Almanac writes to.');
+        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
     }
 }
 
@@ -195,6 +201,5 @@ weekEl.addEventListener('kp-week-open', (event) => {
     ]);
 });
 
-setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
 loadMonth();
 loadWeek();

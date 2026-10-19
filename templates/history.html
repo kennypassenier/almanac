@@ -27,6 +27,7 @@
                 class="kp-calendar kp-calendar--busy-whole"
                 id="hist-calendar"
                 data-kp-calendar
+                data-kp-state="loading"
                 data-kp-time-zone="Europe/Brussels"
                 lang="en-GB"
                 aria-label="Events delivered per day"
@@ -35,12 +36,7 @@
             <aside class="hist-detail" aria-live="polite" aria-labelledby="hist-day-title">
                 <h3 class="hist-detail__title" id="hist-day-title">Today</h3>
                 <dl class="kp-kv kp-kv--lines" id="hist-day-summary"></dl>
-                <div class="kp-datatable hist-table" id="hist-table" data-kp-datatable data-kp-busy-overlay>
-                    <div class="kp-alert kp-alert--destructive" data-kp-datatable-failed role="alert" hidden>
-                        <p class="kp-alert__label">The deliveries of this day could not be loaded</p>
-                        <p data-kp-datatable-failed-reason></p>
-                        <button type="button" class="kp-button" data-kp-datatable-retry>Try again</button>
-                    </div>
+                <div class="kp-datatable hist-table" id="hist-table" data-kp-datatable data-kp-busy-overlay data-kp-state="loading">
                     <div class="kp-table-wrap">
                         <table class="kp-table">
                             <caption class="kp-sr-only">Deliveries of the picked day</caption>
@@ -78,6 +74,7 @@
                 class="kp-week"
                 id="hist-week"
                 data-kp-week
+                data-kp-state="loading"
                 data-kp-week-nav
                 data-kp-week-upcoming="8"
                 data-kp-week-upcoming-label="The next events Almanac wrote"
@@ -86,7 +83,7 @@
                 lang="en-GB"
                 aria-label="Events Almanac wrote this week"
             ></section>
-            <div class="kp-card hist-eventcard" aria-live="polite" id="hist-event" data-kp-state="empty">
+            <div class="kp-card hist-eventcard" aria-live="polite" id="hist-event" data-kp-state="loading">
                 <div class="kp-card__header">
                     <h3 class="kp-card__title" id="hist-event-title">The opened event</h3>
                 </div>
