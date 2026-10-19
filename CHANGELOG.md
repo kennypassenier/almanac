@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-10-19
+
 ### Changed
 
 - **chassis-rs 3.8.0 → 3.9.0** (kp-themes 11.1.1). The kit's status page is
