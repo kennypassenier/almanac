@@ -1,0 +1,31 @@
+/* Card states: the package's empty note filled to the card's whole stage and set at the plate's heading size (Kenny's rule: empty and
+   failed fill the normal footprint, prominent and centred). `.kp-card__empty` takes `block-size: 100%` of a grid item whose row is
+   auto, which Firefox does not resolve, so the plate stretches by the grid instead; its title and sentence follow the plate's tokens. */
+
+.kp-card__state:has(> .kp-card__empty) {
+    align-content: stretch;
+}
+
+.kp-card__state > .kp-card__empty {
+    block-size: auto;
+    align-self: stretch;
+    place-content: center;
+    justify-items: center;
+    gap: var(--kp-space-sm);
+    padding-block: var(--kp-space-xl);
+    padding-inline: var(--kp-space-lg);
+    font-size: var(--kp-stateplate-text, clamp(1.125rem, 1rem + 0.6vw, 1.5rem));
+    line-height: 1.35;
+    text-wrap: balance;
+}
+
+.kp-card__empty .kp-card__state-title {
+    font-size: var(--kp-stateplate-text, clamp(1.125rem, 1rem + 0.6vw, 1.5rem));
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.kp-card__empty .kp-card__state-text {
+    font-size: var(--kp-text-md);
+    max-inline-size: 36ch;
+}

@@ -7,6 +7,7 @@
 /// 404 in the binary, so a new page script is added in both places.
 pub const FILES: &[(&str, &[u8])] = &[
     ("index.html", include_bytes!("../../web/index.html")),
+    ("css/states.css", include_bytes!("../../web/css/states.css")),
     (
         "js/calendars.js",
         include_bytes!("../../web/js/calendars.js"),

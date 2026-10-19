@@ -68,7 +68,7 @@ pub struct JournalSection(pub Arc<AppState>);
 /// The head of both sections: the stylesheet and the page module (external,
 /// so the kit's `script-src 'self'` holds). Loading a module twice is a no-op.
 const STATUS_ASSETS: &str = concat!(
-    "<link rel=\"stylesheet\" href=\"/ui/css/status.css\">",
+    "<link rel=\"stylesheet\" href=\"/ui/css/states.css\"><link rel=\"stylesheet\" href=\"/ui/css/status.css\">",
     "<script type=\"module\" src=\"/static/kp/js/auto.js\"></script>",
     "<script type=\"module\" src=\"/ui/js/status.js\"></script>",
 );
