@@ -79,20 +79,30 @@ Almanac's wishes; Almanac builds no UI of its own for them.
 | feat-ui-6 | **This week in the calendars**: the events Almanac wrote this week, per calendar colour | `.kp-week[data-kp-week]` | Google events of the managed calendars (read only) |
 | feat-ui-7 | **Source profile view**: the mapping a source uses, readable | `.kp-code-block` (TOML) + `.kp-kv--columns` summary | profile files |
 
-## On the bump to kp-themes 11.1.0 (via chassis-rs 3.9.0)
+## Workarounds to drop in the next kp-themes / chassis-rs cycle
 
-The page CSS carries workarounds for package gaps that 11.1.0 closes; drop
-each one with the bump and measure again (align and states at 1280 and 390):
+Almanac runs on chassis-rs 3.9.0 (kp-themes 11.1.1) since 4.4.0. These page
+workarounds stand in for package or kit gaps queued in
+`~/Projects/kp-gaps/almanac.md`; drop each one when its fix ships and
+measure again (gaps, align and states; formal and dark; 1280 and 390):
 
-- `.st-live .kp-refresh__line { justify-items: start }` in `web/css/status.css`
-  (gap 22, on kp-themes main).
-- The History month head's own 7-track nav in `web/css/history.css`: use the
-  package's `data-kp-calendar-nav="spread"` instead (gap 21).
-- The Calendars attention band's hand-placed tracks: `.kp-attention` with
-  `data-kp-subgrid` now has named icon | words | actions tracks (gap 21).
-- `holdTableFootprint()` in `web/js/status.js` at desktop widths: since
-  kp-themes 0a046418 a table that fails or is empty on its first read holds
-  its frame plus `data-kp-page-size` rows x `--kp-footprint-row` (gap 24).
-  Where the deliveries table shows cards (390 px) the package does not
-  predict the height: set `--kp-footprint-row` for that width or
-  `data-kp-footprint-rows`, then measure.
+1. `holdTableFootprint()` in `web/js/status.js`: the deliveries table's
+   failed and empty height (gaps 24, 26, 27).
+2. The attention band's form-grid tracks in `web/css/calendars.css`
+   (`.cal-attention-grid > .kp-attention[data-kp-subgrid]`, gap 21; 11.1.x
+   names icon | words | actions tracks, so check whether the package's own
+   tracks are enough).
+3. `.cal-page .kp-dialog__section` inline padding in `web/css/calendars.css`
+   (gap 12).
+4. The empty and failed table height `min-block-size: 30rem` in
+   `web/css/calendars.css` (gap 7).
+5. `white-space: nowrap` on buttons in narrow cells: Copy in
+   `web/css/try.css` (gap 15), the fix buttons in `web/css/calendars.css`,
+   Try again in `web/css/history.css` (gap 7).
+6. The phone-width aside rule beside `--kp-calendar-aside: 30rem` in
+   `web/css/history.css` (gap 14), and the now-empty `.hist-month` wrapper
+   in `templates/history.html`.
+
+Kit wishes for chassis-rs (no blocker): an html-only section body without
+the empty `dl[data-chassis-rows]`, and a hook so `settleCards` does not set
+an html section back to ready (status.js's `hold()` exists for it).
