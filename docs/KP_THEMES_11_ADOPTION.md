@@ -79,30 +79,22 @@ Almanac's wishes; Almanac builds no UI of its own for them.
 | feat-ui-6 | **This week in the calendars**: the events Almanac wrote this week, per calendar colour | `.kp-week[data-kp-week]` | Google events of the managed calendars (read only) |
 | feat-ui-7 | **Source profile view**: the mapping a source uses, readable | `.kp-code-block` (TOML) + `.kp-kv--columns` summary | profile files |
 
-## Workarounds to drop in the next kp-themes / chassis-rs cycle
+## Workarounds still in the code (5.0.0, chassis-rs 3.13.0 / kp-themes 11.2.0)
 
-Almanac runs on chassis-rs 3.9.0 (kp-themes 11.1.1) since 4.4.0. These page
-workarounds stand in for package or kit gaps queued in
-`~/Projects/kp-gaps/almanac.md`; drop each one when its fix ships and
-measure again (gaps, align and states; formal and dark; 1280 and 390):
+Checked against kp-themes v11.2.0 and chassis-rs v3.13.0 on 2026-10-22:
+18 of the 32 entries in `~/Projects/kp-gaps/almanac.md` are fixed in the
+packages, and the page CSS that stood in for them is gone (dialog section
+padding, the 30rem table height, the phone-card subgrid, the Copy and Try
+again `nowrap`). What stays, each for an entry that is still open:
 
-1. `holdTableFootprint()` in `web/js/status.js`: the deliveries table's
-   failed and empty height (gaps 24, 26, 27).
-2. The attention band's form-grid tracks in `web/css/calendars.css`
-   (`.cal-attention-grid > .kp-attention[data-kp-subgrid]`, gap 21; 11.1.x
-   names icon | words | actions tracks, so check whether the package's own
-   tracks are enough).
-3. `.cal-page .kp-dialog__section` inline padding in `web/css/calendars.css`
-   (gap 12).
-4. The empty and failed table height `min-block-size: 30rem` in
-   `web/css/calendars.css` (gap 7).
-5. `white-space: nowrap` on buttons in narrow cells: Copy in
-   `web/css/try.css` (gap 15), the fix buttons in `web/css/calendars.css`,
-   Try again in `web/css/history.css` (gap 7).
-6. The phone-width aside rule beside `--kp-calendar-aside: 30rem` in
-   `web/css/history.css` (gap 14), and the now-empty `.hist-month` wrapper
-   in `templates/history.html`.
-
-Kit wishes for chassis-rs (no blocker): an html-only section body without
-the empty `dl[data-chassis-rows]`, and a hook so `settleCards` does not set
-an html section back to ready (status.js's `hold()` exists for it).
+1. `holdTableFootprint()` in `web/js/status.js`: a table driven into empty or
+   failed after it loaded still shrinks (gap 32).
+2. The phone-width aside rule beside `--kp-calendar-aside` in
+   `web/css/history.css` (gap 14).
+3. `joinChips()` in `web/js/status.js`: no chips-plus-table filter part
+   (gap 11).
+4. The attention band's form-grid tracks in `web/css/calendars.css` (gap 21;
+   the package's `data-kp-subgrid` may make it unnecessary, not yet tried).
+5. In Rust, for chassis-rs gaps 28, 29 and 31: the import hook split as
+   `import_from(tx, dir)`, the hard-coded `almanac-kit.db`, and the 400-day
+   rule built with `format!`.

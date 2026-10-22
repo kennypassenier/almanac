@@ -125,12 +125,6 @@
     margin: 0;
 }
 
-/* A copy button inside a narrow value keeps its word whole and its size: the value wraps instead. */
-.try-comp .kp-copyable__button {
-    flex: none;
-    white-space: nowrap;
-}
-
 .try-comp .kp-copyable__value {
     overflow-wrap: anywhere;
 }

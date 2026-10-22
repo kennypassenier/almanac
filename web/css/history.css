@@ -70,8 +70,4 @@
     }
 }
 
-/* The failed alert of the table in a narrow aside lays its text beside Try again; the button's words never break mid-word. */
-.hist-table [data-kp-datatable-retry] {
-    white-space: nowrap;
-}
 

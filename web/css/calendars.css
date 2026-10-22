@@ -45,7 +45,6 @@
 .cal-card [data-cal-table] {
     display: flex;
     flex-direction: column;
-    min-block-size: 30rem;
 }
 
 .cal-card [data-cal-table] > .kp-table-wrap {
@@ -94,11 +93,6 @@
 
 .cal-uses-body > [hidden] {
     display: none;
-}
-
-/* A ruled dialog section gets the same inline air, so Name and Sharing stay aligned. */
-.cal-page .kp-dialog__section {
-    padding-inline: var(--kp-space-sm, 0.5rem);
 }
 
 .cal-result {
@@ -210,39 +204,6 @@
     inline-size: 100%;
     box-sizing: border-box;
     white-space: nowrap;
-}
-
-/* Phone cards: every line is a subgrid of its card's two tracks, label | value; every value starts on the value track. */
-@container kp-table (max-width: 40rem) {
-    .cal-cards .kp-datatable[data-kp-cards] .kp-table tr {
-        display: grid;
-        grid-template-columns: fit-content(40%) minmax(0, 1fr);
-        column-gap: var(--kp-space-md, 1rem);
-    }
-
-    .cal-cards .kp-datatable[data-kp-cards] .kp-table td {
-        display: grid;
-        grid-column: 1 / -1;
-        grid-template-columns: subgrid;
-        align-items: baseline;
-        justify-content: normal;
-        gap: 0 var(--kp-space-md, 1rem);
-        text-align: start;
-    }
-
-    .cal-cards .kp-datatable[data-kp-cards] .kp-table td::before {
-        grid-column: 1;
-    }
-
-    .cal-cards .kp-datatable[data-kp-cards] .kp-table td > * {
-        grid-column: 2;
-        justify-self: start;
-        min-inline-size: 0;
-    }
-
-    .cal-cards .kp-datatable[data-kp-cards] .kp-table td > .kp-code {
-        justify-self: stretch;
-    }
 }
 
 /* No problem in the band: its grid takes no room either. */
