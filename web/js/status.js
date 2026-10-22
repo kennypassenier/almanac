@@ -58,27 +58,6 @@ const cardOf = (marker) => /** @type {HTMLElement | null} */ ($(`[${marker}]`)?.
 const journalCard = () => cardOf('data-st-journal');
 const deliveriesTable = () => dataTable(/** @type {HTMLElement} */ ($('#st-table')));
 
-/* A failed or empty table keeps the height it had with its rows, so the page under it does not jump (js/footprint.js holds the
-   states of its own hosts; the data table is not one of them). */
-let tableHeight = 0;
-function holdTableFootprint() {
-    const root = /** @type {HTMLElement} */ ($('#st-table'));
-    new ResizeObserver(() => {
-        const st = root.getAttribute('data-kp-state');
-        if (st && st !== 'ready') return;
-        tableHeight = Math.max(tableHeight, root.getBoundingClientRect().height);
-    }).observe(root);
-    const settle = () => {
-        const empty = $('[data-kp-datatable-empty]', root);
-        const held = ['failed'].includes(root.getAttribute('data-kp-state') ?? '') || (empty !== null && !empty.hasAttribute('hidden'));
-        if (held && tableHeight) root.style.setProperty('min-block-size', `min(${tableHeight}px, var(--kp-footprint-max, 48rem))`);
-        else root.style.removeProperty('min-block-size');
-    };
-    new MutationObserver(settle).observe(root, { attributes: true, attributeFilter: ['data-kp-state'] });
-    const slot = $('[data-kp-datatable-empty]', root);
-    if (slot) new MutationObserver(settle).observe(slot, { attributes: true, attributeFilter: ['hidden'] });
-}
-
 /** The table's own loading state: its busy card over the rows, until the read answers. */
 function tableLoading() {
     const t = deliveriesTable();
@@ -325,26 +304,16 @@ async function loadSources() {
 
 /* ------------------------------------------------------------------ the kit's card states */
 
-/** @type {WeakMap<HTMLElement, { want: string, note?: object }>} */
-const wanted = new WeakMap();
-
 /**
- * The kit's section card is the whole-section state (loading, empty, failed); the kit settles a card with content to "ready"
- * after each of its own reads, which would wipe a state this module still means, so the state it wants is put back.
+ * The kit's section card is the whole-section state (loading, empty, failed). `data-chassis-owned` (chassis-rs 3.10) keeps the
+ * kit from settling it back to ready after each of its own reads, so the state this module sets is the one that stays.
  * @param {HTMLElement} card
  */
 function hold(card) {
-    if (!wanted.has(card)) {
-        wanted.set(card, { want: 'ready' });
-        new MutationObserver(() => {
-            const mine = /** @type {{ want: string, note?: object }} */ (wanted.get(card));
-            if (mine.want !== 'ready' && card.getAttribute('data-kp-state') === 'ready') setCardState(card, /** @type {any} */ (mine.want), mine.note);
-        }).observe(card, { attributes: true, attributeFilter: ['data-kp-state'] });
-    }
+    card.setAttribute('data-chassis-owned', '');
     return {
         /** @param {string} state @param {object} [note] */
         set(state, note) {
-            wanted.set(card, { want: state, note });
             if (card.getAttribute('data-kp-state') !== state) setCardState(card, /** @type {any} */ (state), note);
         },
     };
@@ -388,7 +357,6 @@ if (hasJournal()) {
     // The outcome bar and the trend are never blank before the first answer: the theme's own loading state, at their height.
     const bar = $('#st-outcomes');
     if (bar) setStackbar(bar, { title: 'Outcomes', state: 'loading', parts: [] });
-    holdTableFootprint();
     attachAgo(document);
     joinChips();
     const table = /** @type {HTMLElement} */ ($('#st-table'));

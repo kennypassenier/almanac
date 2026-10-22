@@ -35,7 +35,15 @@ pub const FILES: &[(&str, &[u8])] = &[
     ),
 ];
 
-/// Mounts [`FILES`] at `/ui`.
+/// Mounts [`FILES`] at `/ui`, and has the kit sync the pages' remembered
+/// view state (sorts, toggles, the schedule's list or timeline) across
+/// Kenny's devices (chassis-rs 3.12). Only view state: no key here ever
+/// holds a secret.
 pub fn mount(app: &mut chassis::App) {
     app.webapp(chassis::shell::webapp::WebApp::embedded(FILES).at("/ui"));
+    app.sync_browser_keys(
+        chassis::storage::BrowserKeys::new()
+            .prefix("kp-remember:")
+            .prefix("almanac-"),
+    );
 }
