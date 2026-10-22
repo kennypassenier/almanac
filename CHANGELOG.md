@@ -11,6 +11,30 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Changed
+
+- **chassis-rs 3.9.0 → 3.13.0** (kp-themes 11.2.0). **Breaking for the
+  state directory:** at the first start the kit moves its clients,
+  sessions and passkeys into `almanac-kit.db` and Almanac moves its delivery
+  history from `history.json` into `almanac.db`; each move runs in one
+  transaction, verifies its counts and renames the old file
+  `*.migrated` only after it committed. A downgrade is a restore of the
+  pre-update copy.
+- **Delivery history in the app database**: the History page reads
+  `almanac.db`; the kit's new Storage page shows it as the kind "Delivery
+  log" (budget, size, clean up with a typed confirmation). Rows older than
+  400 days are removed on their own, as before.
+- The pages' remembered view state (sorts, toggles, the schedule's list or
+  timeline) syncs across devices through the kit's preferences.
+- The status sections keep their own card state through the kit's
+  `data-chassis-owned` hook instead of an observer.
+- Page workarounds that kp-themes 11.1/11.2 made unnecessary are gone.
+
+### Security
+
+- webpki-roots 1.0.10 and rustls-webpki 0.103.16 (RUSTSEC-2026-0381,
+  RUSTSEC-2026-0382).
+
 ## [4.4.0] - 2026-10-19
 
 ### Changed
