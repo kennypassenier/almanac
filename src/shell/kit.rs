@@ -326,7 +326,14 @@ pub async fn import_source_tokens(
     use chassis::shell::store::{ClientStore, EncryptedFile, FileClientStore};
 
     let file = state_dir.join("clients.json.enc");
-    if file.exists() || !token_store.exists() {
+    // Since chassis-rs 3.11.0 the kit's clients live in `<name>-kit.db` and
+    // the old sealed file is renamed `clients.json.enc.migrated`. Either one
+    // present means the clients are already in the kit's database: writing a
+    // fresh `clients.json.enc` now would make the kit migrate it a second
+    // time and trip over the duplicate ids.
+    let migrated = state_dir.join("clients.json.enc.migrated");
+    let kit_db = state_dir.join("almanac-kit.db");
+    if file.exists() || migrated.exists() || kit_db.exists() || !token_store.exists() {
         return Ok(0);
     }
     let key_bytes: [u8; 32] = hex::decode(key_hex)
@@ -373,6 +380,15 @@ pub async fn import_source_tokens(
 /// Everything Almanac hangs on the kit, in one place, so the binary and the
 /// in-process test harness assemble the same service (4.0.0).
 pub fn mount(app: &mut App, state: Arc<AppState>) {
+    // The delivery history lives in the kit's app database (4.4.0): the
+    // Storage page shows it as "Delivery log" and prunes its old rows. The
+    // handle opens at start; the state keeps it for the worker and the
+    // History page. history.json is imported once, in one transaction.
+    let app_db = app
+        .app_db(crate::shell::history_store::app_db_spec())
+        .expect("the app database is declared once");
+    app.storage_kind(crate::shell::history_store::kind());
+    state.set_app_db(app_db);
     app.subsystem(JournalSubsystem(Arc::clone(&state)));
     app.metrics_source(AlmanacMetrics(Arc::clone(&state)));
     // The machine API behind the kit's door (per-source client tokens, the
@@ -426,4 +442,26 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
         "application/json",
         r#"{"hello":"from the dashboard"}"#,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tokens_are_not_imported_once_the_kit_holds_the_clients() {
+        let dir = std::env::temp_dir().join(format!("almanac-kit-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tokens = dir.join("tokens.json");
+        std::fs::write(&tokens, b"{}").unwrap();
+        // The key is deliberately invalid: reaching it would be an error, so
+        // Ok(0) proves the early return and that no clients.json.enc is made.
+        std::fs::write(dir.join("almanac-kit.db"), b"").unwrap();
+        assert_eq!(import_source_tokens(&dir, &tokens, "").await, Ok(0));
+        std::fs::remove_file(dir.join("almanac-kit.db")).unwrap();
+        std::fs::write(dir.join("clients.json.enc.migrated"), b"").unwrap();
+        assert_eq!(import_source_tokens(&dir, &tokens, "").await, Ok(0));
+        assert!(!dir.join("clients.json.enc").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
