@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-22
+
 ### Changed
 
 - **chassis-rs 3.9.0 → 3.13.0** (kp-themes 11.2.0). **Breaking for the
