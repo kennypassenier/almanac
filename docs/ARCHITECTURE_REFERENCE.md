@@ -21,10 +21,19 @@ each choice was made and which objection forced it.
    Uptime Kuma ←─/healthz└────────────────────────┘     (notifications)
 ```
 
-One process, one port, one data directory. No database, no message
-broker, no sidecar. The durability that would normally come from a
-queue comes from an append-only file that is fsynced before the request
-is answered.
+One process, one port, one data directory. No message broker, no
+sidecar. The durability that would normally come from a queue comes from
+an append-only file that is fsynced before the request is answered. The
+only database is the kit's SQLite app file (`almanac.db`, plus the kit's
+own `almanac-kit.db`), which holds the per-day delivery history, not the
+queue.
+
+The History page reads the `deliveries` table of `almanac.db` (one row per
+final outcome of a journal entry; a retry replaces its row; at most 500 rows
+per day; rows older than 400 days are pruned by the kit). The kit's Storage
+page lists it as "Delivery log" with filters by result and source. Before
+4.4.0 this was `history.json`; the first start of 4.4.0 imports it in one
+transaction and the kit renames it `history.json.migrated`.
 
 ## 2 · Accepting and delivering
 
@@ -154,7 +163,7 @@ right on a private network and wrong on the internet.
 |---|---|
 | Host | CT 112 on Proxmox, an LXC container, `10.10.10.12:8080` |
 | Supervision | systemd, running the binary under `latch run` |
-| Data | `/opt/almanac/data` — journal, sealed tokens, update state |
+| Data | `/opt/almanac/data` — journal, `almanac.db` (delivery history), `almanac-kit.db` (sources, sessions), update state |
 | Profiles | `/opt/almanac/profiles/*.toml`, holding the real calendar ids |
 | Secrets | a ciphertext-only Latch clone; no credentials on the machine to pull with |
 | Updates | itself, from signed GitHub releases |

@@ -361,16 +361,20 @@ So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
 the moment of the backup, which means deliveries were failing then.
 
-**The data directory is exactly three plain files**, and that is worth
-stating because it is not true of every service: `journal.jsonl`,
-`tokens.json`, and an empty `.lock`. No database, so no companion files
-that carry the recent writes somewhere else — the trap that costs
-people a store is moving a SQLite `.db` without its `-wal` and `-shm`,
-where the database looks tiny and complete while the actual data sits
-in the log beside it. Nothing here works that way; copy the directory
-and you have copied everything.
+**The data directory holds the journal and two SQLite files.** The
+journal (`journal.jsonl`) and an empty `.lock` are plain files. Since
+4.4.0 the delivery history lives in `almanac.db`, and the kit keeps the
+sources, sessions and passkeys in `almanac-kit.db` (chassis-rs 3.11.0).
+SQLite runs in WAL mode, so each database has `-wal` and `-shm`
+companions that carry the recent writes: never copy a `.db` alone. The
+backup pause and the pre-update copy handle this (they checkpoint and
+snapshot with `VACUUM INTO`); a hand copy is only safe with the service
+stopped. The old `history.json` and `clients.json.enc` remain as
+`*.migrated` after their import; delete them after the first
+backup that follows. The Storage page shows what the databases hold
+("Delivery log") and cleans it up.
 
-Copying it while the service runs is safe. The journal is append-only,
+Copying the journal while the service runs is safe. It is append-only,
 so the worst a hot copy can catch is a half-written final line, and
 replay is written to tolerate exactly that — `replay_survives_a_torn_final_line`
 in `shell::journal` is the test that keeps it true. Restore it by

@@ -108,6 +108,10 @@ pub struct AppState {
     /// M13 counters. Shared with the token manager, which is built
     /// before this state exists, so it is an `Arc` rather than owned.
     pub metrics: Arc<Metrics>,
+    /// The kit's app database (`almanac.db`), home of the delivery history.
+    /// Set once by `kit::mount`; the handle opens at start, so a state built
+    /// by a test without the kit simply has none and the history is skipped.
+    app_db: std::sync::OnceLock<chassis::storage::AppDb>,
 }
 
 /// How many recent routes to keep. Enough to debug what just happened;
@@ -144,7 +148,23 @@ impl AppState {
             }),
             routes: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
             metrics: Arc::new(Metrics::default()),
+            app_db: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Hands the state the kit's app database (once; a second call is ignored).
+    pub fn set_app_db(&self, db: chassis::storage::AppDb) {
+        let _ = self.app_db.set(db);
+    }
+
+    /// The app database, or an error when the kit has not provided one.
+    pub fn app_db(&self) -> Result<&chassis::storage::AppDb, chassis::Error> {
+        self.app_db.get().ok_or_else(|| {
+            chassis::Error::internal(
+                "the app database is not attached",
+                "it is attached when the service is mounted on the kit",
+            )
+        })
     }
 
     /// The current profile set. Cheap: an `Arc` clone under a read

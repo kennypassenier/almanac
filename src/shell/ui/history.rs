@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::core::calendar::{EventDateTime, GoogleEvent};
-use crate::core::history::{self, Book, DeliveryResult, ZONE};
+use crate::core::history::{self, DeliveryResult, ZONE};
 use crate::shell::delivery::UPSERT_PROPERTY;
 use crate::shell::history_store;
 use crate::shell::ingest::AppState;
@@ -40,11 +40,6 @@ async fn page(Extension(dash): Extension<Dashboard>) -> Response {
     }
 }
 
-fn read_book(state: &AppState) -> Result<Book, chassis::Error> {
-    history_store::load(&history_store::path_for(state))
-        .map_err(|e| chassis::Error::internal(e.to_string(), e.remedy().to_string()))
-}
-
 fn today(state: &AppState) -> String {
     history::day_key(&(state.now)()).unwrap_or_default()
 }
@@ -58,11 +53,11 @@ fn human(rfc3339: &str) -> String {
 
 /// Every recorded day's counts: the heatmap reads the whole history once.
 async fn days(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis::Error> {
-    let book = read_book(&state)?;
+    let counts = history_store::day_counts(&state).await?;
     Ok(Json(json!({
         "today": today(&state),
-        "first_day": history::first_day(&book),
-        "days": book.days.iter().map(|d| json!({
+        "first_day": counts.first().map(|d| d.date.as_str()),
+        "days": counts.iter().map(|d| json!({
             "date": d.date,
             "accepted": d.accepted,
             "delivered": d.delivered,
@@ -102,37 +97,30 @@ async fn day(
             "pick a day in the calendar",
         ));
     }
-    let book = read_book(&state)?;
+    let counts = history_store::day_counts(&state).await?;
     let names = calendar_names(&state).await;
-    let record = book.days.iter().find(|d| d.date == q.date);
-    let rows: Vec<Value> = record
-        .map(|d| {
-            d.deliveries
-                .iter()
-                .map(|r| {
-                    json!({
-                        "id": r.entry_id,
-                        "delivered": human(&r.at),
-                        "title": r.title,
-                        "source": r.source,
-                        "calendar": names.get(&r.calendar_id)
-                            .cloned()
-                            .unwrap_or_else(|| "A calendar that is no longer there".to_string()),
-                        "result": r.result,
-                        "reason": r.reason,
-                    })
-                })
-                .collect()
+    let record = counts.iter().find(|d| d.date == q.date);
+    let deliveries = history_store::day_rows(&state, &q.date).await?;
+    let rows: Vec<Value> = deliveries
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.entry_id,
+                "delivered": human(&r.at),
+                "title": r.title,
+                "source": r.source,
+                "calendar": names.get(&r.calendar_id)
+                    .cloned()
+                    .unwrap_or_else(|| "A calendar that is no longer there".to_string()),
+                "result": r.result,
+                "reason": r.reason,
+            })
         })
-        .unwrap_or_default();
-    let count = |result: DeliveryResult| {
-        record.map_or(0, |d| {
-            d.deliveries.iter().filter(|r| r.result == result).count()
-        })
-    };
+        .collect();
+    let count = |result: DeliveryResult| deliveries.iter().filter(|r| r.result == result).count();
     Ok(Json(json!({
         "date": q.date,
-        "first_day": history::first_day(&book),
+        "first_day": counts.first().map(|d| d.date.as_str()),
         "accepted": record.map_or(0, |d| d.accepted),
         "created": count(DeliveryResult::Created),
         "updated": count(DeliveryResult::Updated),
@@ -206,18 +194,29 @@ async fn week(
             .unwrap_or_else(|| "A calendar that is no longer there".to_string())
     };
 
-    let book = read_book(&state)?;
-    let latest = history::latest_by_key(&book);
-
-    let mut events = Vec::new();
-    let mut used = std::collections::BTreeMap::new();
+    let mut listed: Vec<(usize, &String, Vec<GoogleEvent>)> = Vec::new();
     for (index, id) in managed.iter().enumerate() {
-        let series = index % SERIES + 1;
         let found: Vec<GoogleEvent> = state
             .client
             .list_events_between(id, &time_min, &time_max)
             .await
             .map_err(|e| chassis::Error::internal(e.to_string(), e.remedy().to_string()))?;
+        listed.push((index, id, found));
+    }
+    // Only this week's keys are looked up, so the page never reads the
+    // whole history for the "delivered" lines.
+    let keys: Vec<String> = listed
+        .iter()
+        .flat_map(|(_, _, found)| found.iter())
+        .filter_map(|e| e.extended_properties.as_ref()?.private.get(UPSERT_PROPERTY))
+        .cloned()
+        .collect();
+    let latest = history_store::latest_by_key(&state, keys).await?;
+
+    let mut events = Vec::new();
+    let mut used = std::collections::BTreeMap::new();
+    for (index, id, found) in listed {
+        let series = index % SERIES + 1;
         for event in found {
             let Some(key) = event
                 .extended_properties
