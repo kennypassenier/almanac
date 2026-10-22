@@ -113,7 +113,10 @@ async fn the_3x_source_tokens_are_imported_once_and_keep_working() {
         page.contains("job-tracker") && page.contains(">Calendar name</th>"),
         "the imported source sits on the one Sources page with its calendar column: {page}"
     );
-    assert!(hub.dir.path().join("clients.json.enc").exists());
+    // chassis-rs 3.11 moves the imported clients into the kit's database
+    // at the first start and keeps the file, renamed, as a sealed backup.
+    assert!(hub.dir.path().join("clients.json.enc.migrated").exists());
+    assert!(hub.dir.path().join("almanac-kit.db").exists());
     hub.shutdown().await;
 }
 
