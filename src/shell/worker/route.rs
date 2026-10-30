@@ -2,7 +2,7 @@
 //! durable per-day history.
 
 use crate::core::observability::{RouteOutcome, RouteRecord};
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// Records one delivery attempt on the K11 debug surface, so the
 /// operator can see how an event was routed — including a failure with

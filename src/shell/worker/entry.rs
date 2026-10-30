@@ -8,8 +8,8 @@ use crate::core::error::AlmanacError;
 use crate::core::journal::Entry;
 use crate::core::profile::Profile;
 use crate::shell::delivery::{Delivered, deliver};
-use crate::shell::ingest::AppState;
 use crate::shell::notify::{Event, Notifier, ops};
+use crate::shell::state::AppState;
 
 /// How one entry ended up in this pass.
 pub(super) enum Settled {

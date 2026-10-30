@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// Builds the application's Axum router.
 pub fn build_router(state: Arc<AppState>) -> Router {

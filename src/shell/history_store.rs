@@ -20,7 +20,7 @@ use crate::core::history::{
     self, Book, DayCount, DeliveryRecord, DeliveryResult, MAX_DELIVERIES_PER_DAY, Row,
 };
 use crate::shell::delivery::Delivered;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// The old file, beside the journal in the state directory.
 const OLD_FILE: &str = "history.json";

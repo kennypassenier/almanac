@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// How often, when nothing says otherwise. An hour: often enough that a
 /// silent service is noticed within one, rare enough that a day of logs

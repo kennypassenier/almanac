@@ -19,7 +19,7 @@ use chassis::Dashboard;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 const CALENDARS_HTML: &str = include_str!("../../templates/calendars.html");
 

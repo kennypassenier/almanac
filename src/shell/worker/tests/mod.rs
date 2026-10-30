@@ -12,9 +12,9 @@ use tokio::sync::watch;
 
 use super::*;
 use crate::shell::calendar_client::GoogleCalendarClient;
-use crate::shell::ingest::AppState;
 use crate::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use crate::shell::notify::{Notifier, ops};
+use crate::shell::state::AppState;
 
 /// A unique scratch directory.
 ///

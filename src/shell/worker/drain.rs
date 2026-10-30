@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use super::entry::{Settled, settle_delivery};
 use super::watch::{FailureKind, watch};
 use crate::core::journal::Entry;
-use crate::shell::ingest::AppState;
 use crate::shell::notify::Notifier;
+use crate::shell::state::AppState;
 
 /// What the pass reports when the journal itself cannot be read: that
 /// counts as exactly one failure, so the loop backs off as for any other

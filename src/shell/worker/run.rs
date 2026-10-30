@@ -11,8 +11,8 @@ use tokio::time::Interval;
 use super::drain::{DrainOutcome, PermanentFailures, drain_once, drain_once_tracking};
 use super::watch::watch as live_watch;
 use crate::core::pacing::{self, DrainSummary, Pacing};
-use crate::shell::ingest::AppState;
 use crate::shell::notify::{Event, Notifier, ops};
+use crate::shell::state::AppState;
 
 /// Compact once the log has grown past this many delivered records,
 /// so a long-running process does not accumulate an unbounded file of

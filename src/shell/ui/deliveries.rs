@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::core::journal::Entry;
 use crate::core::pacing;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 use crate::shell::worker::{self, EntryWatch, FailureKind, WatchSnapshot};
 
 const PAGE_HTML: &str = include_str!("../../../templates/deliveries.html");

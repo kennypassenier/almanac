@@ -18,7 +18,7 @@ use crate::core::calendar::{EventDateTime, GoogleEvent};
 use crate::core::history::{self, DeliveryResult, ZONE};
 use crate::shell::delivery::UPSERT_PROPERTY;
 use crate::shell::history_store;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 const PAGE_HTML: &str = include_str!("../../../templates/history.html");
 

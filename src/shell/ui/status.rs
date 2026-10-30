@@ -14,7 +14,7 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use crate::core::status_view;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()

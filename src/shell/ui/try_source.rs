@@ -26,7 +26,8 @@ use crate::core::journal::Entry;
 use crate::core::mapping::map_payload;
 use crate::core::profile::{FALLBACK_DURATION_MINUTES, Profile};
 use crate::shell::delivery::{UPSERT_PROPERTY, upsert_key};
-use crate::shell::ingest::{AppState, requires_an_id};
+use crate::shell::ingest::requires_an_id;
+use crate::shell::state::AppState;
 
 const PAGE_HTML: &str = include_str!("../../../templates/try.html");
 

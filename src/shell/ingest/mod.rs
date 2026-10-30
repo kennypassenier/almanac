@@ -30,9 +30,7 @@ use axum::Router;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-// `AppState` and its capacity moved to `crate::shell::state`; the old
-// path stays valid so no caller has to change.
-pub use crate::shell::state::{AppState, HISTORY_CAPACITY};
+use crate::shell::state::AppState;
 pub(crate) use request::requires_an_id;
 
 /// Header a source may send to make a redelivery converge instead of
