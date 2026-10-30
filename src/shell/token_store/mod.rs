@@ -7,8 +7,11 @@
 //! one — losing every source's token to a half-written file would take
 //! the whole hub down until each was re-issued.
 //!
-//! Held in memory while running so authenticating a request never
-//! touches the disk; the file is the durable copy.
+//! Since 4.0.0 chassis-rs owns the tokens and the dashboard sessions;
+//! this store is only read, once, to move the 3.x tokens into the kit's
+//! clients (`kit::import_source_tokens`). What is left is what that move
+//! needs: load, list and reveal, plus `issue`, which tests use to build a
+//! 3.x file. Sessions stay in the file format so a rewrite keeps them.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -54,11 +57,7 @@ struct StoreFile {
 ///
 /// `tokens` is always acquired **before** `sessions`. Both maps live in
 /// one encrypted file, so every mutation has to hold both, and two
-/// paths taking them in opposite orders deadlock: a login holding
-/// `sessions` while waiting for `tokens`, against a token issue holding
-/// `tokens` while waiting for `sessions`. Because `verify` also needs
-/// `tokens` and tokio's `RwLock` is write-preferring, that deadlock
-/// takes ingest down with it while `/healthz` keeps answering 200.
+/// paths taking them in opposite orders deadlock.
 ///
 /// Any new method touching both must follow this order.
 pub struct TokenStore {
@@ -131,41 +130,6 @@ impl TokenStore {
         self.persist_with(&tokens, &sessions).await
     }
 
-    /// Removes a source's token. Returns whether there was one — the
-    /// dashboard says "revoked" or "there was nothing to revoke"
-    /// rather than implying it did something it did not.
-    pub async fn revoke(&self, source_id: &str) -> Result<bool, AlmanacError> {
-        let mut tokens = self.tokens.write().await;
-        let existed = tokens.remove(source_id).is_some();
-        if existed {
-            let sessions = self.sessions.read().await;
-            self.persist_with(&tokens, &sessions).await?;
-        }
-        Ok(existed)
-    }
-
-    /// Whether `presented` is the token issued to `source_id`.
-    ///
-    /// Compares the decrypted token rather than re-encrypting the
-    /// candidate: a fresh nonce per record makes two sealings of the
-    /// same value differ, so ciphertext comparison would never match.
-    pub async fn verify(&self, source_id: &str, presented: &str) -> bool {
-        let tokens = self.tokens.read().await;
-        let Some(record) = tokens.get(source_id) else {
-            return false;
-        };
-        match open(&self.key, &record.sealed_token) {
-            Ok(actual) => crate::core::token::constant_time_eq(&actual, presented),
-            Err(e) => {
-                tracing::error!(
-                    source_id = %source_id, error = %e, remedy = %e.remedy(),
-                    "a stored token could not be decrypted; treating it as no match"
-                );
-                false
-            }
-        }
-    }
-
     /// The plaintext token for a source, so the dashboard can render a
     /// working command. The one place that decrypts for display.
     pub async fn reveal(&self, source_id: &str) -> Result<Option<String>, AlmanacError> {
@@ -174,41 +138,6 @@ impl TokenStore {
             Some(record) => open(&self.key, &record.sealed_token).map(Some),
             None => Ok(None),
         }
-    }
-
-    /// Proves at startup that the configured key actually opens this
-    /// store, by decrypting one record.
-    ///
-    /// Without this the failure is silent in exactly the way that
-    /// costs an hour: the file parses fine under a wrong key, startup
-    /// succeeds, and every source then gets a 401 while the store
-    /// looks intact. Latch itself fails loudly on a missing or wrong
-    /// key — this closes the equivalent gap on Almanac's side (Kenny,
-    /// after consulting the Latch project, 2026-08-28).
-    pub async fn verify_key_opens_store(&self) -> Result<(), AlmanacError> {
-        let tokens = self.tokens.read().await;
-        let Some((source_id, record)) = tokens.iter().next() else {
-            // An empty store proves nothing, and there is nothing to
-            // get wrong yet — the first issue() will write under the
-            // current key.
-            return Ok(());
-        };
-
-        open(&self.key, &record.sealed_token).map(|_| ()).map_err(|_| AlmanacError::Config {
-            message: format!(
-                "the encryption key does not open the existing token store ({} holds {} record(s), \
-                 starting with \"{source_id}\")",
-                self.path.display(),
-                tokens.len()
-            ),
-            remedy: format!(
-                "{SECRET_KEY_ENV} is not the key this store was written with. Restore the original \
-                 key (latch has an escrow mechanism for exactly this), or delete {} and re-issue \
-                 every source's token from the dashboard — starting with the wrong key would leave \
-                 every source failing authentication against an intact-looking store",
-                self.path.display()
-            ),
-        })
     }
 
     /// Which sources have a token, and when it was issued. Never
@@ -230,7 +159,6 @@ impl TokenStore {
 mod persist;
 
 use persist::read_store_file;
-mod sessions;
 
 #[cfg(test)]
 mod tests;
