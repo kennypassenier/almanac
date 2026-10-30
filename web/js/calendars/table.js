@@ -1,0 +1,69 @@
+// Section 3 of the Calendars page: the calendars table, with its empty plate.
+import { statePlate } from '/static/kp/js/state-plate.js';
+import { attachDisabledReasons } from '/static/kp/js/reason.js';
+import { attachCodes } from '/static/kp/js/code.js';
+import { attachArt } from '/static/kp/js/art.js';
+import { esc } from '../lib/format.js';
+import { state, hooks, sourcesOf, sourceCardText } from './state.js';
+import { must, table, tableWrap, tbody } from './dom.js';
+import { openNew } from './new-dialog.js';
+
+/** @param {import('./state.js').Calendar} c */
+function calendarRow(c) {
+    const used = sourcesOf(c.id);
+    const tags = used.length
+        ? `<ul class="kp-tag-list" aria-label="Sources that write to ${esc(c.name)}">${used.map((s) => `<li class="kp-tag" tabindex="0" data-kp-hovercard="${esc(sourceCardText(s))}">${esc(s.id)}</li>`).join('')}</ul>`
+        : '<span class="kp-text-muted">No source writes here</span>';
+    const base = `type="button" class="kp-button kp-button--destructive kp-button--sm" data-kp-destructive data-kp-confirm-owner data-cal-delete="${esc(c.id)}"`;
+    const names = used.map((s) => s.id).join(', ');
+    const del = used.length
+        ? `<button ${base} disabled data-kp-disabled-reason="Used by ${esc(names)}. Delete ${used.length === 1 ? 'that source' : 'those sources'} first, on the Sources page.">Delete</button>`
+        : `<button ${base}>Delete</button>`;
+    return `<tr data-kp-row-key="${esc(c.id)}">
+<td data-label="Name" data-kp-sort-value="${esc(c.name)}">${esc(c.name)}</td>
+<td data-label="Calendar id"><figure class="kp-code kp-code--cell" data-kp-code aria-label="Calendar id of ${esc(c.name)}"><pre class="kp-code__body"><code>${esc(c.id)}</code></pre></figure></td>
+<td data-label="Used by" data-kp-sort-value="${used.length}">${tags}</td>
+<td data-label="Actions" class="kp-text-end"><span class="kp-row-actions">${del}</span></td>
+</tr>`;
+}
+
+export function renderTable() {
+    const google = state.google;
+    if (!google) {
+        table.busy({ text: 'Reading the calendars', overlay: true });
+        table.state('loading');
+    } else if (!google.ok) {
+        table.busy(null);
+        table.fail(google.error);
+    } else {
+        tbody.innerHTML = google.calendars.map(calendarRow).join('\n');
+        attachDisabledReasons(tbody);
+        attachCodes(tbody);
+        table.refresh();
+        table.busy(null);
+        table.state('ready');
+    }
+}
+
+/** The table's own empty plate, with a button that opens the new-calendar dialog. */
+function drawEmptyPlate() {
+    const slot = must('[data-kp-datatable-empty]', tableWrap);
+    const plate = statePlate(document, {
+        kind: 'empty',
+        title: 'No calendars yet',
+        text: 'The service account sees none. Make the first one and Almanac shares it with you.',
+        actionLabel: 'New calendar',
+        onAction: () => openNew(),
+    });
+    plate.setAttribute('data-kp-art', 'none');
+    slot.className = plate.className;
+    slot.setAttribute('data-kp-art', 'none');
+    slot.replaceChildren(...plate.childNodes);
+    slot.querySelector('.kp-stateplate__title')?.classList.add('kp-empty__title');
+    attachArt(slot.parentElement ?? document);
+}
+
+export function initTable() {
+    drawEmptyPlate();
+    tableWrap.addEventListener('kp-datatable-retry', () => void hooks.loadGoogle());
+}
