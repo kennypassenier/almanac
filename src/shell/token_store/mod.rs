@@ -11,8 +11,6 @@
 //! touches the disk; the file is the durable copy.
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -20,7 +18,6 @@ use tokio::sync::RwLock;
 
 use crate::core::error::AlmanacError;
 use crate::core::secrets::{KEY_BYTES, open, parse_key, seal};
-use crate::shell::durability::fsync_parent_dir;
 
 /// Environment variable holding the hex encryption key. Mandatory
 /// whenever the bootstrap token is set (AR17): deriving this key from
@@ -113,64 +110,6 @@ impl TokenStore {
             tokens: RwLock::new(BTreeMap::new()),
             sessions: RwLock::new(BTreeMap::new()),
         }
-    }
-
-    async fn persist_with(
-        &self,
-        tokens: &BTreeMap<String, TokenRecord>,
-        sessions: &BTreeMap<String, SessionRecord>,
-    ) -> Result<(), AlmanacError> {
-        // feat-backup-1 (chassis-rs 3.1.0): waits out a backup pause before
-        // the temp-file-plus-rename below, so a nightly `tar` of the state
-        // root never races this write.
-        let _ticket = chassis::shell::backup::writing().await;
-
-        let file = StoreFile {
-            tokens: tokens.clone(),
-            sessions: sessions.clone(),
-        };
-        let body = serde_json::to_string_pretty(&file).map_err(|e| AlmanacError::Config {
-            message: format!("failed to serialize the token store: {e}"),
-            remedy: "this is a bug in almanac".to_string(),
-        })?;
-
-        if let Some(parent) = self.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent).map_err(|e| AlmanacError::Config {
-                message: format!("failed to create {}: {e}", parent.display()),
-                remedy: format!("check permissions on {}", parent.display()),
-            })?;
-        }
-
-        let temp = self.path.with_extension("writing");
-        {
-            let mut handle = File::create(&temp).map_err(|e| AlmanacError::Config {
-                message: format!("failed to create {}: {e}", temp.display()),
-                remedy: "check free disk space and permissions".to_string(),
-            })?;
-            handle
-                .write_all(body.as_bytes())
-                .map_err(|e| AlmanacError::Config {
-                    message: format!("failed to write {}: {e}", temp.display()),
-                    remedy: "check free disk space".to_string(),
-                })?;
-            handle.sync_all().map_err(|e| AlmanacError::Config {
-                message: format!("failed to fsync {}: {e}", temp.display()),
-                remedy: "check disk health".to_string(),
-            })?;
-        }
-
-        std::fs::rename(&temp, &self.path).map_err(|e| AlmanacError::Config {
-            message: format!("failed to replace {}: {e}", self.path.display()),
-            remedy: "check permissions on the store's directory".to_string(),
-        })?;
-
-        // Without this the rename itself can be lost in a real power
-        // cut: the file contents are durable but the directory entry
-        // pointing at them is not (critic's finding, 2026-08-28).
-        fsync_parent_dir(&self.path);
-        Ok(())
     }
 
     /// Stores a source's token, replacing any it already had. Returns
@@ -283,76 +222,15 @@ impl TokenStore {
             .collect()
     }
 
-    /// Records a live dashboard session, dropping any already expired
-    /// so the store does not accumulate them.
-    pub async fn start_session(
-        &self,
-        id: &str,
-        expires_at_unix: u64,
-        now_unix: u64,
-    ) -> Result<(), AlmanacError> {
-        // tokens first, then sessions — the same order as `issue`
-        // and `revoke`. Taking them the other way round here is what
-        // made a login racing a token issue able to deadlock the whole
-        // service, ingest included.
-        let tokens = self.tokens.read().await;
-        let mut sessions = self.sessions.write().await;
-        sessions.retain(|_, s| s.expires_at_unix > now_unix);
-        sessions.insert(id.to_string(), SessionRecord { expires_at_unix });
-        self.persist_with(&tokens, &sessions).await
-    }
-
-    /// Whether this cookie names a live session. Compared in constant
-    /// time: a session id is as good as a password.
-    pub async fn session_is_live(&self, presented: &str, now_unix: u64) -> bool {
-        self.sessions.read().await.iter().any(|(id, s)| {
-            s.expires_at_unix > now_unix && crate::core::token::constant_time_eq(id, presented)
-        })
-    }
-
-    /// Ends a session server-side, so a copied cookie stops working —
-    /// the property a self-validating cookie could not offer.
-    pub async fn end_session(&self, id: &str) -> Result<(), AlmanacError> {
-        let tokens = self.tokens.read().await;
-        let mut sessions = self.sessions.write().await;
-        if sessions.remove(id).is_none() {
-            return Ok(());
-        }
-        self.persist_with(&tokens, &sessions).await
-    }
-
     pub fn path(&self) -> &Path {
         &self.path
     }
 }
 
-type StoreContents = (
-    BTreeMap<String, TokenRecord>,
-    BTreeMap<String, SessionRecord>,
-);
+mod persist;
 
-/// Reads and parses the store file, treating a missing file as empty.
-fn read_store_file(path: &Path) -> Result<StoreContents, AlmanacError> {
-    match std::fs::read_to_string(path) {
-        Ok(contents) => {
-            let parsed: StoreFile =
-                serde_json::from_str(&contents).map_err(|e| AlmanacError::Config {
-                    message: format!("failed to parse the token store {}: {e}", path.display()),
-                    remedy: "the store is damaged; restore it from backup, or delete it and \
-                             re-issue every source's token"
-                        .to_string(),
-                })?;
-            Ok((parsed.tokens, parsed.sessions))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Ok((BTreeMap::new(), BTreeMap::new()))
-        }
-        Err(e) => Err(AlmanacError::Config {
-            message: format!("failed to read the token store {}: {e}", path.display()),
-            remedy: format!("check permissions on {}", path.display()),
-        }),
-    }
-}
+use persist::read_store_file;
+mod sessions;
 
 #[cfg(test)]
 mod tests;
