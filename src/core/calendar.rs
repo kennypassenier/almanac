@@ -160,13 +160,19 @@ pub struct GoogleEvent {
     pub extended_properties: Option<ExtendedProperties>,
 }
 
-/// Wrapper around the `items` array returned by the Calendar v3 events
-/// list endpoint. Google omits the `items` key entirely (not an empty
-/// array) when nothing matches, hence `Option`.
+/// One page of a Calendar v3 list call (events or the calendar list).
+/// Google omits the `items` key entirely (not an empty array) when
+/// nothing matches, hence `Option`, and sends `nextPageToken` only
+/// while more pages follow.
 #[derive(Debug, Deserialize)]
-pub struct EventListResponse {
-    pub items: Option<Vec<GoogleEvent>>,
+pub struct ListPage<T> {
+    pub items: Option<Vec<T>>,
+    #[serde(rename = "nextPageToken")]
+    pub next_page_token: Option<String>,
 }
+
+/// One page of the events list endpoint.
+pub type EventListResponse = ListPage<GoogleEvent>;
 
 #[cfg(test)]
 mod tests;
