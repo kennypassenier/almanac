@@ -26,6 +26,22 @@ pub use sources::{TargetCalendar, create_source, remove_source};
 /// Everything Almanac hangs on the kit, in one place, so the binary and the
 /// in-process test harness assemble the same service (4.0.0).
 pub fn mount(app: &mut App, state: Arc<AppState>) {
+    mount_storage(app, &state);
+    // The machine API behind the kit's door (per-source client tokens, the
+    // admin's login token), the pages behind the admin login (A2-2): `/`
+    // is the kit's status page with a Journal and a Sources section, the
+    // calendars live on /calendars, and the sources — profile, token and
+    // each source's last requests (K13) — on the kit's clients page,
+    // labelled Sources (S1, 4.0.2).
+    app.api_routes(crate::shell::build_router(Arc::clone(&state)));
+    app.dashboard_routes(crate::shell::pages(Arc::clone(&state)));
+    mount_sources_page(app, &state);
+    mount_pages(app, state);
+}
+
+/// The delivery history's database, its Storage-page entry, and the two
+/// subsystems behind `/healthz` and `/metrics`.
+fn mount_storage(app: &mut App, state: &Arc<AppState>) {
     // The delivery history lives in the kit's app database (4.4.0): the
     // Storage page shows it as "Delivery log" and prunes its old rows. The
     // handle opens at start; the state keeps it for the worker and the
@@ -35,16 +51,12 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
         .expect("the app database is declared once");
     app.storage_kind(crate::shell::history_store::kind());
     state.set_app_db(app_db);
-    app.subsystem(JournalSubsystem(Arc::clone(&state)));
-    app.metrics_source(AlmanacMetrics(Arc::clone(&state)));
-    // The machine API behind the kit's door (per-source client tokens, the
-    // admin's login token), the pages behind the admin login (A2-2): `/`
-    // is the kit's status page with a Journal and a Sources section, the
-    // calendars live on /calendars, and the sources — profile, token and
-    // each source's last requests (K13) — on the kit's clients page,
-    // labelled Sources (S1, 4.0.2).
-    app.api_routes(crate::shell::build_router(Arc::clone(&state)));
-    app.dashboard_routes(crate::shell::pages(Arc::clone(&state)));
+    app.subsystem(JournalSubsystem(Arc::clone(state)));
+    app.metrics_source(AlmanacMetrics(Arc::clone(state)));
+}
+
+/// The kit's clients page as Almanac's Sources page.
+fn mount_sources_page(app: &mut App, state: &Arc<AppState>) {
     // S1 (4.0.2): one Sources page — the kit's clients page with a calendar
     // field on the issue form, a Calendar column, and Almanac's profile
     // written and removed through the kit's hooks. `vocabulary` (chassis-rs
@@ -52,13 +64,13 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
     // used to say "client" — the login page, refusals from the clients API,
     // not only the page heading — now says "source"/"sources".
     app.vocabulary("source", "sources");
-    let options = Arc::clone(&state);
+    let options = Arc::clone(state);
     app.client_form_field(chassis::shell::dashboard::ClientFormField::select(
         "calendar",
         "Calendar",
         move || options.calendar_options(),
     ));
-    let issued = Arc::clone(&state);
+    let issued = Arc::clone(state);
     app.on_client_issued(move |client, fields| {
         create_source(
             &issued,
@@ -66,9 +78,13 @@ pub fn mount(app: &mut App, state: Arc<AppState>) {
             fields.get("calendar").map(String::as_str).unwrap_or(""),
         )
     });
-    let deleted = Arc::clone(&state);
+    let deleted = Arc::clone(state);
     app.on_client_deleted(move |client| remove_source(&deleted, &client.name));
-    app.client_column(TargetCalendar(Arc::clone(&state)));
+    app.client_column(TargetCalendar(Arc::clone(state)));
+}
+
+/// The navigation, the project pages and the status-page sections.
+fn mount_pages(app: &mut App, state: Arc<AppState>) {
     // Status stays the first entry, as the brand link's own page; project
     // pages sit at order 0 and would otherwise come before it.
     app.kit_page("status", |page| page.order(-1));

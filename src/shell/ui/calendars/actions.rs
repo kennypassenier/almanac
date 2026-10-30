@@ -39,6 +39,16 @@ pub(crate) async fn make_calendar(
         );
         return Ok((id, name.to_string(), false));
     }
+    ensure_on_google(state, name, owner).await
+}
+
+/// Finds or creates the calendar on Google and remembers a new one, so
+/// the next click inside Google's lag reuses it.
+async fn ensure_on_google(
+    state: &AppState,
+    name: &str,
+    owner: &str,
+) -> Result<(String, String, bool), Error> {
     match state.client.ensure_calendar(name, owner).await {
         Ok((id, created)) => {
             if created {

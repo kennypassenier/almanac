@@ -156,20 +156,7 @@ impl GoogleCalendarClient {
                 return Ok(response);
             }
 
-            let body = response.text().await.unwrap_or_default();
-            let reason = extract_reason(&body);
-            let transient = is_transient(status.as_u16(), reason.as_deref());
-            let err = AlmanacError::GoogleApi {
-                message: format!("Calendar API returned HTTP {status}: {body}"),
-                remedy: if transient {
-                    "transient Google API failure — retrying automatically".to_string()
-                } else {
-                    "check the request payload, event id and calendar id".to_string()
-                },
-                transient,
-            };
-
-            Err(err)
+            Err(failure_from(status, response).await)
         };
 
         attempt
@@ -184,6 +171,26 @@ impl GoogleCalendarClient {
             remedy: "check Google's Calendar API response format hasn't changed".to_string(),
             transient: false,
         })
+    }
+}
+
+/// The error for a Calendar API answer that was not a success, classified
+/// transient or permanent from its status and Google's reason string.
+async fn failure_from(status: reqwest::StatusCode, response: Response) -> AlmanacError {
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("(the response body could not be read: {e})"));
+    let reason = extract_reason(&body);
+    let transient = is_transient(status.as_u16(), reason.as_deref());
+    AlmanacError::GoogleApi {
+        message: format!("Calendar API returned HTTP {status}: {body}"),
+        remedy: if transient {
+            "transient Google API failure — retrying automatically".to_string()
+        } else {
+            "check the request payload, event id and calendar id".to_string()
+        },
+        transient,
     }
 }
 
