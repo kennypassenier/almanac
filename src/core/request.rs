@@ -27,20 +27,17 @@
 
 use serde::Deserialize;
 
-use crate::core::calendar::{
-    EventDateTime, ExtendedProperties, GoogleEvent, ReminderOverride, Reminders,
-};
+use crate::core::calendar::GoogleEvent;
 use crate::core::error::AlmanacError;
 use crate::core::profile::Profile;
 
-/// The three statuses Google accepts, refused here rather than at
-/// Google — a rejected status arrives as a 400 with no field name.
-const STATUSES: [&str; 3] = ["confirmed", "tentative", "cancelled"];
+mod checks;
+mod reminders;
+mod window;
 
-/// Google's own limits on reminder overrides. Checked here so a source
-/// gets a message naming the field instead of a Google 400.
-const MAX_REMINDERS: usize = 5;
-const MAX_REMINDER_MINUTES: i64 = 4 * 7 * 24 * 60;
+use checks::{check_identity, check_status, resolve_color, upsert_marker};
+use reminders::to_reminders;
+use window::{all_day_window, timed_window};
 
 /// Reminders as a source asks for them.
 #[derive(Debug, Deserialize, Clone, PartialEq, Default)]
@@ -147,30 +144,7 @@ pub fn to_google_event(
     profile: &Profile,
     origin: &str,
 ) -> Result<GoogleEvent, AlmanacError> {
-    let invalid = |message: String, remedy: String| AlmanacError::ProfileValidation {
-        message: format!("{origin}: {message}"),
-        remedy,
-    };
-
-    if request.title.trim().is_empty() {
-        return Err(invalid(
-            "\"title\" is empty".to_string(),
-            "send a title — an untitled calendar entry tells nobody anything".to_string(),
-        ));
-    }
-    if request
-        .external_id
-        .as_deref()
-        .is_some_and(|id| id.trim().is_empty())
-    {
-        return Err(invalid(
-            "\"external_id\" is empty".to_string(),
-            "send a stable id for this thing, or leave the field out and send an \
-             Idempotency-Key header instead"
-                .to_string(),
-        ));
-    }
-
+    check_identity(request, origin)?;
     let timezone = request
         .timezone
         .as_deref()
@@ -183,50 +157,17 @@ pub fn to_google_event(
     } else {
         timed_window(request, profile, &timezone, origin)?
     };
-
-    let color_id = match &request.color {
-        Some(requested) => Some(
-            crate::core::colors::resolve(requested)
-                .ok_or_else(|| {
-                    invalid(
-                        format!("\"color\": {requested:?} is not a Google colour"),
-                        format!(
-                            "use one of: {}, or a colour id 1-11",
-                            crate::core::colors::names()
-                        ),
-                    )
-                })?
-                .to_string(),
-        ),
-        None => None,
-    };
-
-    if let Some(status) = &request.status
-        && !STATUSES.contains(&status.as_str())
-    {
-        return Err(invalid(
-            format!("\"status\": {status:?} is not a Google event status"),
-            format!("use one of: {}", STATUSES.join(", ")),
-        ));
-    }
-
-    let reminders = match &request.reminders {
-        Some(asked) => Some(to_reminders(asked, origin)?),
-        None => None,
-    };
-
-    // AR15's pinned upsert-key format: "<source_id>:<external-id>".
-    // Absent when the source sent no external_id — the delivery layer
-    // then fills the marker from the Idempotency-Key header (M7), and
-    // ingest has already refused a call that offered neither.
-    let extended_properties = request.external_id.as_deref().map(|external_id| {
-        let mut private = std::collections::HashMap::new();
-        private.insert(
-            "almanac_source_id".to_string(),
-            format!("{}:{external_id}", profile.source_id),
-        );
-        ExtendedProperties { private }
-    });
+    let color_id = request
+        .color
+        .as_deref()
+        .map(|requested| resolve_color(requested, origin))
+        .transpose()?;
+    check_status(request, origin)?;
+    let reminders = request
+        .reminders
+        .as_ref()
+        .map(|asked| to_reminders(asked, origin))
+        .transpose()?;
 
     Ok(GoogleEvent {
         id: None,
@@ -242,165 +183,6 @@ pub fn to_google_event(
         },
         status: request.status.clone(),
         reminders,
-        extended_properties,
+        extended_properties: upsert_marker(request, profile),
     })
-}
-
-fn to_reminders(asked: &ReminderRequest, origin: &str) -> Result<Reminders, AlmanacError> {
-    let count = asked.popup_minutes_before.len() + asked.email_minutes_before.len();
-    if asked.silent && count > 0 {
-        return Err(AlmanacError::ProfileValidation {
-            message: format!("{origin}: \"reminders\" is silent and also lists reminders"),
-            remedy: "either set silent = true, or give the minutes — not both".to_string(),
-        });
-    }
-    if count > MAX_REMINDERS {
-        return Err(AlmanacError::ProfileValidation {
-            message: format!(
-                "{origin}: \"reminders\" asks for {count}; Google allows {MAX_REMINDERS}"
-            ),
-            remedy: format!("keep at most {MAX_REMINDERS} reminders across popup and email"),
-        });
-    }
-    for minutes in asked
-        .popup_minutes_before
-        .iter()
-        .chain(&asked.email_minutes_before)
-    {
-        if *minutes < 0 || *minutes > MAX_REMINDER_MINUTES {
-            return Err(AlmanacError::ProfileValidation {
-                message: format!("{origin}: \"reminders\" asks for {minutes} minutes before"),
-                remedy: format!(
-                    "Google allows 0 to {MAX_REMINDER_MINUTES} minutes (four weeks) before the start"
-                ),
-            });
-        }
-    }
-    // Silence and overrides both mean "not the calendar's default";
-    // the difference is whether the list is empty. Omitting the block
-    // entirely is the third outcome and never reaches here.
-    Ok(Reminders {
-        use_default: false,
-        overrides: asked
-            .popup_minutes_before
-            .iter()
-            .map(|m| ReminderOverride {
-                method: "popup".to_string(),
-                minutes: *m as u32,
-            })
-            .chain(asked.email_minutes_before.iter().map(|m| ReminderOverride {
-                method: "email".to_string(),
-                minutes: *m as u32,
-            }))
-            .collect(),
-    })
-}
-
-/// The start and end of a timed event.
-///
-/// Precedence: an explicit `end` beats `duration_minutes`, which beats
-/// the profile's default length. An end at or before the start is
-/// refused — Google accepts it and the result appears on no calendar,
-/// which is the worst kind of accepted.
-fn timed_window(
-    request: &EventRequest,
-    profile: &Profile,
-    timezone: &str,
-    origin: &str,
-) -> Result<(EventDateTime, EventDateTime), AlmanacError> {
-    use chrono::DateTime;
-
-    let start = DateTime::parse_from_rfc3339(&request.start).map_err(|e| {
-        AlmanacError::ProfileValidation {
-            message: format!(
-                "{origin}: \"start\" ({:?}) is not a valid RFC3339 timestamp: {e}",
-                request.start
-            ),
-            remedy: "send an RFC3339 timestamp, e.g. 2026-09-03T21:00:00+02:00 — or set \
-                     all_day = true and send a date"
-                .to_string(),
-        }
-    })?;
-
-    let end = match &request.end {
-        Some(raw) => {
-            let end =
-                DateTime::parse_from_rfc3339(raw).map_err(|e| AlmanacError::ProfileValidation {
-                    message: format!(
-                        "{origin}: \"end\" ({raw:?}) is not a valid RFC3339 timestamp: {e}"
-                    ),
-                    remedy: "send an RFC3339 timestamp, or use duration_minutes instead"
-                        .to_string(),
-                })?;
-            if end <= start {
-                return Err(AlmanacError::ProfileValidation {
-                    message: format!(
-                        "{origin}: \"end\" ({raw:?}) is at or before \"start\" ({:?})",
-                        request.start
-                    ),
-                    remedy: "send an end after the start — Google accepts an inverted event and \
-                             then shows it on no calendar at all"
-                        .to_string(),
-                });
-            }
-            end
-        }
-        None => {
-            let minutes = request
-                .duration_minutes
-                .or(profile.default_duration_minutes)
-                .unwrap_or(crate::core::profile::FALLBACK_DURATION_MINUTES);
-            if minutes <= 0 {
-                return Err(AlmanacError::ProfileValidation {
-                    message: format!("{origin}: \"duration_minutes\" is {minutes}"),
-                    remedy: "send a duration greater than zero, or an explicit end".to_string(),
-                });
-            }
-            start + chrono::Duration::minutes(minutes)
-        }
-    };
-
-    Ok((
-        EventDateTime::timed(start.to_rfc3339(), timezone),
-        EventDateTime::timed(end.to_rfc3339(), timezone),
-    ))
-}
-
-/// The start and end of an all-day event.
-///
-/// Accepts either a plain date or a timestamp, so a source that already
-/// sends RFC3339 does not have to change to become an all-day source.
-/// Google's end date is **exclusive**: a one-day event on the 1st ends
-/// on the 2nd, and getting that wrong shortens every all-day event to
-/// nothing.
-fn all_day_window(
-    request: &EventRequest,
-    origin: &str,
-) -> Result<(EventDateTime, EventDateTime), AlmanacError> {
-    use chrono::{DateTime, NaiveDate};
-
-    let start = NaiveDate::parse_from_str(&request.start, "%Y-%m-%d")
-        .or_else(|_| DateTime::parse_from_rfc3339(&request.start).map(|dt| dt.date_naive()))
-        .map_err(|e| AlmanacError::ProfileValidation {
-            message: format!(
-                "{origin}: \"start\" ({:?}) is neither a date nor a timestamp: {e}",
-                request.start
-            ),
-            remedy: "for an all-day event send 2026-09-01, or a full timestamp on that day"
-                .to_string(),
-        })?;
-
-    let days = request.duration_days.unwrap_or(1);
-    if days <= 0 {
-        return Err(AlmanacError::ProfileValidation {
-            message: format!("{origin}: \"duration_days\" is {days}"),
-            remedy: "an all-day event covers at least one day".to_string(),
-        });
-    }
-
-    let end = start + chrono::Duration::days(days);
-    Ok((
-        EventDateTime::all_day(start.format("%Y-%m-%d").to_string()),
-        EventDateTime::all_day(end.format("%Y-%m-%d").to_string()),
-    ))
 }
