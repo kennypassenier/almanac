@@ -100,12 +100,19 @@ fn ensure_upsert_property(event: &mut GoogleEvent, key: &str) {
     }
 }
 
-/// The id Google gave an event. Google always sends one; an answer
-/// without it is logged, since the caller then reports an empty event id.
-fn google_id(id: Option<String>, action: &str) -> String {
-    id.unwrap_or_else(|| {
-        tracing::warn!(action, "Google's answer carried no event id");
-        String::new()
+/// The id Google gave an event. An answer without one is a transient
+/// failure (Kenny, 2026-10-30): the retry's upsert lookup then finds the
+/// event that was written and updates it, instead of storing an empty id
+/// or creating a second event.
+fn google_id(id: Option<String>, action: &str) -> Result<String, AlmanacError> {
+    id.ok_or_else(|| {
+        tracing::warn!(action, "Google's answer carried no event id; retrying");
+        AlmanacError::GoogleApi {
+            message: format!("Google's answer to the {action} carried no event id"),
+            remedy: "retrying automatically; the next try finds the event by its upsert key"
+                .to_string(),
+            transient: true,
+        }
     })
 }
 
@@ -118,7 +125,7 @@ async fn create(
 ) -> Result<Delivered, AlmanacError> {
     let created = client.create_event(calendar_id, event).await?;
     Ok(Delivered {
-        event_id: google_id(created.id, "create"),
+        event_id: google_id(created.id, "create")?,
         created: true,
         upsert_key,
     })
@@ -149,10 +156,14 @@ pub async fn deliver(
     let lock = locks.for_key(&key).await;
     let _guard = lock.lock().await;
 
-    let existing = client
+    let existing = match client
         .find_event_by_property(calendar_id, UPSERT_PROPERTY, &key)
         .await?
-        .and_then(|e| e.id);
+    {
+        // Found but without an id: retry rather than create a second one.
+        Some(found) => Some(google_id(found.id, "lookup")?),
+        None => None,
+    };
 
     match decide(existing) {
         UpsertAction::Create => create(client, calendar_id, &event, Some(key)).await,
