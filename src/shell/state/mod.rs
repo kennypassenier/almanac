@@ -94,6 +94,9 @@ pub struct AppState {
     /// Set once by `kit::mount`; the handle opens at start, so a state built
     /// by a test without the kit simply has none and the history is skipped.
     app_db: std::sync::OnceLock<chassis::storage::AppDb>,
+    /// The worker's live view of the delivery chain, read by the
+    /// Deliveries page. One per state, so tests do not share it.
+    pub watch: crate::shell::worker::Watch,
 }
 
 /// How many recent routes to keep. Enough to debug what just happened;
@@ -139,6 +142,7 @@ impl AppState {
             routes: Mutex::new(RingBuffer::new(HISTORY_CAPACITY)),
             metrics: Arc::new(Metrics::default()),
             app_db: std::sync::OnceLock::new(),
+            watch: crate::shell::worker::Watch::default(),
         }
     }
 

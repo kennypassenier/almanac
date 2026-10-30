@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::entry::{Settled, settle_delivery};
-use super::watch::{FailureKind, watch};
+use super::watch::FailureKind;
 use crate::core::journal::Entry;
 use crate::shell::notify::Notifier;
 use crate::shell::state::AppState;
@@ -53,8 +53,10 @@ pub async fn drain_once_tracking(
         Ok(pending) => pending,
         Err(e) => {
             tracing::error!(error = %e, remedy = %e.remedy(), "cannot read the journal");
-            watch().note_failure(FailureKind::Local);
-            watch().end_pass((state.now_unix)(), 0, UNREADABLE_JOURNAL_FAILURES);
+            state.watch.note_failure(FailureKind::Local);
+            state
+                .watch
+                .end_pass((state.now_unix)(), 0, UNREADABLE_JOURNAL_FAILURES);
             return DrainOutcome {
                 delivered: 0,
                 failed: UNREADABLE_JOURNAL_FAILURES,
@@ -62,10 +64,12 @@ pub async fn drain_once_tracking(
         }
     };
 
-    watch().begin_pass(&pending.iter().map(|e| e.id.clone()).collect::<Vec<_>>());
+    state
+        .watch
+        .begin_pass(&pending.iter().map(|e| e.id.clone()).collect::<Vec<_>>());
 
     if pending.is_empty() {
-        watch().end_pass((state.now_unix)(), 0, 0);
+        state.watch.end_pass((state.now_unix)(), 0, 0);
         return DrainOutcome {
             delivered: 0,
             failed: 0,
@@ -77,7 +81,9 @@ pub async fn drain_once_tracking(
 
     state.metrics.delivered(outcome.delivered as u64);
     state.metrics.failed(outcome.failed as u64);
-    watch().end_pass((state.now_unix)(), outcome.delivered, outcome.failed);
+    state
+        .watch
+        .end_pass((state.now_unix)(), outcome.delivered, outcome.failed);
     outcome
 }
 
@@ -119,5 +125,7 @@ fn report_missing_profile(state: &AppState, entry: &Entry) {
         "journal entry names a source with no profile — restore the profile or move the \
          journal aside; this entry cannot be delivered and will be retried indefinitely"
     );
-    watch().record_failure(&entry.id, FailureKind::Local, 0, (state.now_unix)());
+    state
+        .watch
+        .record_failure(&entry.id, FailureKind::Local, 0, (state.now_unix)());
 }

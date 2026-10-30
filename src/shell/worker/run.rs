@@ -9,7 +9,6 @@ use tokio::sync::watch;
 use tokio::time::Interval;
 
 use super::drain::{DrainOutcome, PermanentFailures, drain_once, drain_once_tracking};
-use super::watch::watch as live_watch;
 use crate::core::pacing::{self, DrainSummary, Pacing};
 use crate::shell::notify::{Event, Notifier, ops};
 use crate::shell::state::AppState;
@@ -134,7 +133,9 @@ async fn reschedule(
     next: &Pacing,
     consecutive_failures: usize,
 ) {
-    live_watch().scheduled((state.now_unix)() + next.wait_secs, consecutive_failures);
+    state
+        .watch
+        .scheduled((state.now_unix)() + next.wait_secs, consecutive_failures);
     let wanted = Duration::from_secs(next.wait_secs);
     if ticker.period() != wanted {
         *ticker = tokio::time::interval(wanted);

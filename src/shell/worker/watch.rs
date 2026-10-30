@@ -70,25 +70,16 @@ pub struct WatchSnapshot {
 }
 
 /// The worker's live state, read by the Deliveries page. Written only
-/// by the loop below; in memory like the strike counts it mirrors, so a
-/// restart starts it empty. A process-wide value because exactly one
-/// worker runs.
+/// by the worker; in memory like the strike counts it mirrors, so a
+/// restart starts it empty. Held on `AppState`, so every state (and so
+/// every test) has its own.
+#[derive(Default)]
 pub struct Watch {
     inner: std::sync::Mutex<WatchSnapshot>,
     /// The failure seen during the pass in progress; it becomes
     /// `last_failure` when the pass ends, so a reader never sees a
     /// healthy chain flicker mid-pass.
     pass_failure: std::sync::Mutex<Option<FailureKind>>,
-}
-
-static WATCH: std::sync::LazyLock<Watch> = std::sync::LazyLock::new(|| Watch {
-    inner: std::sync::Mutex::new(WatchSnapshot::default()),
-    pass_failure: std::sync::Mutex::new(None),
-});
-
-/// The worker's live state.
-pub fn watch() -> &'static Watch {
-    &WATCH
 }
 
 impl Watch {

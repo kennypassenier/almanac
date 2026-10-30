@@ -2,7 +2,7 @@
 //! means (delivered, left pending for a retry, or set aside for good).
 
 use super::route::record_route;
-use super::watch::{DeliveredWatch, FailureKind, entry_title, watch};
+use super::watch::{DeliveredWatch, FailureKind, entry_title};
 use super::{PERMANENT_FAILURES_BEFORE_DEAD, PermanentFailures};
 use crate::core::error::AlmanacError;
 use crate::core::journal::Entry;
@@ -25,9 +25,9 @@ pub(super) async fn settle_delivery(
     permanent: &mut PermanentFailures,
     notifier: &Notifier,
 ) -> Settled {
-    watch().deliver_started(&entry.id);
+    state.watch.deliver_started(&entry.id);
     let result = deliver(entry, profile, &state.client, &state.locks).await;
-    watch().deliver_finished();
+    state.watch.deliver_finished();
     record_route(state, entry, &result).await;
 
     match result {
@@ -37,7 +37,9 @@ pub(super) async fn settle_delivery(
         }
         Err(e) if e.is_transient() => {
             permanent.remove(&entry.id);
-            watch().record_failure(&entry.id, FailureKind::of(&e), 0, (state.now_unix)());
+            state
+                .watch
+                .record_failure(&entry.id, FailureKind::of(&e), 0, (state.now_unix)());
             tracing::warn!(
                 entry_id = %entry.id, error = %e, remedy = %e.remedy(),
                 "delivery failed; entry stays pending for the next pass"
@@ -66,7 +68,7 @@ async fn on_delivered(state: &AppState, entry: &Entry, profile: &Profile, result
         created = result.created,
         "delivered"
     );
-    watch().record_delivered(DeliveredWatch {
+    state.watch.record_delivered(DeliveredWatch {
         entry_id: entry.id.clone(),
         source_id: entry.source_id.clone(),
         title: entry_title(entry, Some(profile)),
@@ -88,7 +90,9 @@ async fn on_permanent_failure(
     let seen = permanent.entry(entry.id.clone()).or_insert(0);
     *seen += 1;
     let seen = *seen;
-    watch().record_failure(&entry.id, FailureKind::of(e), seen, (state.now_unix)());
+    state
+        .watch
+        .record_failure(&entry.id, FailureKind::of(e), seen, (state.now_unix)());
 
     if seen >= PERMANENT_FAILURES_BEFORE_DEAD {
         set_aside(state, entry, e, permanent, notifier).await;
@@ -125,7 +129,7 @@ async fn set_aside(
     }
 
     permanent.remove(&entry.id);
-    watch().record_set_aside(&entry.id);
+    state.watch.record_set_aside(&entry.id);
     state.metrics.dead(1);
     tracing::error!(
         entry_id = %entry.id, source_id = %entry.source_id, reason = %reason,
