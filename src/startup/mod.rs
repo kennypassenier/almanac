@@ -5,3 +5,4 @@ pub mod compat;
 pub mod deliver;
 pub mod hooks;
 pub mod report;
+pub mod state;
