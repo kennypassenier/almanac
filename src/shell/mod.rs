@@ -21,6 +21,7 @@ pub mod journal;
 pub mod kit;
 pub mod notify;
 pub mod profiles;
+pub mod state;
 /// Stubs for Google and the token endpoint.
 ///
 /// Not `#[cfg(test)]`: integration tests in `tests/` link the library
