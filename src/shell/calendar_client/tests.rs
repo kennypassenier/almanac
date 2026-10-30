@@ -145,3 +145,44 @@ async fn sharing_an_existing_calendar_works_on_its_own_too() {
         ]
     );
 }
+
+#[tokio::test]
+async fn an_event_list_longer_than_one_page_comes_back_whole() {
+    // Google pages a list past its page size; reading only the first
+    // page lost the rest without a word.
+    let calendar = CalendarStub::start().await;
+    for n in 0..5 {
+        let mut seeded = serde_json::to_value(event(&format!("event {n}"))).unwrap();
+        seeded["extendedProperties"] = serde_json::json!({"private": {"source_id": "s"}});
+        calendar.seed("household", seeded).await;
+    }
+    calendar.page_by(2);
+    let client = stubbed(&calendar).await;
+
+    let events = client
+        .list_events_by_property("household", "source_id", "s")
+        .await
+        .expect("a paged list must still be read");
+
+    assert_eq!(events.len(), 5, "three pages of 2, 2 and 1");
+}
+
+#[tokio::test]
+async fn a_calendar_list_longer_than_one_page_comes_back_whole() {
+    let calendar = CalendarStub::start().await;
+    let client = stubbed(&calendar).await;
+    for name in ["Alpha", "Beta", "Gamma"] {
+        client
+            .create_calendar(name, "kenny@example.com")
+            .await
+            .unwrap();
+    }
+    calendar.page_by(2);
+
+    let calendars = client
+        .list_calendars()
+        .await
+        .expect("a paged list must still be read");
+
+    assert_eq!(calendars.len(), 3, "two pages of 2 and 1");
+}

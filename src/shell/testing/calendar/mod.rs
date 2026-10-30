@@ -47,6 +47,9 @@ pub struct CalendarState {
     /// Events the stub already holds, keyed by calendar id, returned
     /// from the list endpoint so an upsert can find one.
     pub existing: Mutex<HashMap<String, Vec<Value>>>,
+    /// How many items one list page holds; 0 means everything on one
+    /// page. Set through `page_by` so a test can make Google page.
+    pub page_size: AtomicUsize,
     next_id: AtomicUsize,
 }
 
@@ -161,6 +164,12 @@ impl CalendarStub {
             base_url: format!("http://{address}"),
             state,
         }
+    }
+
+    /// Serve list calls `n` items per page, with a `nextPageToken`
+    /// while more follow, the way Google does past its page size.
+    pub fn page_by(&self, n: usize) {
+        self.state.page_size.store(n, Ordering::SeqCst);
     }
 
     /// Script the next `n` requests to fail with a transient error.

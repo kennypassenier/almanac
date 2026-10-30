@@ -24,6 +24,30 @@ fn permanent_body() -> Value {
                      "message": "the service account cannot access this calendar"}})
 }
 
+/// One page of `items`: the `pageToken` query is the offset to start
+/// from, and `nextPageToken` is sent while items remain. With no page
+/// size set, everything comes back at once.
+fn page(state: &CalendarState, query: &HashMap<String, String>, items: Vec<Value>) -> Value {
+    let size = state.page_size.load(Ordering::SeqCst);
+    if size == 0 {
+        return json!({ "items": items });
+    }
+    let start: usize = query
+        .get("pageToken")
+        .map(|token| {
+            token
+                .parse()
+                .expect("the stub only hands out numeric page tokens")
+        })
+        .unwrap_or(0);
+    let end = (start + size).min(items.len());
+    let mut body = json!({ "items": items[start.min(end)..end] });
+    if end < items.len() {
+        body["nextPageToken"] = json!(end.to_string());
+    }
+    body
+}
+
 pub(super) async fn delete_calendar(
     State(state): State<Arc<CalendarState>>,
     Path(calendar_id): Path<String>,
@@ -37,6 +61,7 @@ pub(super) async fn delete_calendar(
 /// without a live Google.
 pub(super) async fn list_calendars(
     State(state): State<Arc<CalendarState>>,
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
 ) -> (StatusCode, axum::Json<Value>) {
     let calendars = state.calendars.lock().await;
     let items: Vec<Value> = calendars
@@ -44,7 +69,7 @@ pub(super) async fn list_calendars(
         .filter(|(_, created)| created.listed)
         .map(|(id, created)| json!({"id": id, "summary": created.name}))
         .collect();
-    (StatusCode::OK, axum::Json(json!({"items": items})))
+    (StatusCode::OK, axum::Json(page(&state, &query, items)))
 }
 
 pub(super) async fn list_events(
@@ -86,7 +111,7 @@ pub(super) async fn list_events(
         })
         .collect();
 
-    (StatusCode::OK, axum::Json(json!({"items": items})))
+    (StatusCode::OK, axum::Json(page(&state, &query, items)))
 }
 
 pub(super) async fn create_event(
