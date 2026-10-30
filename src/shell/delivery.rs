@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
+use crate::core::calendar::{ExtendedProperties, GoogleEvent};
 use crate::core::error::AlmanacError;
 use crate::core::journal::Entry;
 use crate::core::mapping::map_payload;
@@ -76,10 +77,7 @@ pub struct Delivered {
 /// external id field, or the source's supplied idempotency key (M7)
 /// when it does not. `None` means the source offered neither, and the
 /// event is created unconditionally.
-pub(crate) fn upsert_key(
-    entry: &Entry,
-    event: &crate::core::calendar::GoogleEvent,
-) -> Option<String> {
+pub(crate) fn upsert_key(entry: &Entry, event: &GoogleEvent) -> Option<String> {
     if let Some(props) = &event.extended_properties
         && let Some(key) = props.private.get(UPSERT_PROPERTY)
     {
@@ -89,6 +87,41 @@ pub(crate) fn upsert_key(
         .idempotency_key
         .as_ref()
         .map(|k| format!("{}:{k}", entry.source_id))
+}
+
+/// Puts the upsert key on the event itself when the mapping did not: a
+/// source with no natural external id still needs its idempotency key on
+/// the event, or a redelivery could not find it.
+fn ensure_upsert_property(event: &mut GoogleEvent, key: &str) {
+    if event.extended_properties.is_none() {
+        let mut private = HashMap::new();
+        private.insert(UPSERT_PROPERTY.to_string(), key.to_string());
+        event.extended_properties = Some(ExtendedProperties { private });
+    }
+}
+
+/// The id Google gave an event. Google always sends one; an answer
+/// without it is logged, since the caller then reports an empty event id.
+fn google_id(id: Option<String>, action: &str) -> String {
+    id.unwrap_or_else(|| {
+        tracing::warn!(action, "Google's answer carried no event id");
+        String::new()
+    })
+}
+
+/// Creates the event and reports it, with the key it was filed under.
+async fn create(
+    client: &GoogleCalendarClient,
+    calendar_id: &str,
+    event: &GoogleEvent,
+    upsert_key: Option<String>,
+) -> Result<Delivered, AlmanacError> {
+    let created = client.create_event(calendar_id, event).await?;
+    Ok(Delivered {
+        event_id: google_id(created.id, "create"),
+        created: true,
+        upsert_key,
+    })
 }
 
 /// Delivers one entry. Idempotent with respect to the upsert key: a
@@ -102,29 +135,15 @@ pub async fn deliver(
 ) -> Result<Delivered, AlmanacError> {
     let origin = format!("profile {}", profile.source_id);
     let mut event = map_payload(&entry.payload, profile, &origin)?;
-
     let key = upsert_key(entry, &event);
-
-    // A source with no natural external id still needs its idempotency
-    // key on the event itself, or a redelivery could not find it.
-    if let Some(key) = &key
-        && event.extended_properties.is_none()
-    {
-        let mut private = HashMap::new();
-        private.insert(UPSERT_PROPERTY.to_string(), key.clone());
-        event.extended_properties = Some(crate::core::calendar::ExtendedProperties { private });
+    if let Some(key) = &key {
+        ensure_upsert_property(&mut event, key);
     }
-
     let calendar_id = &profile.target_calendar_id;
 
     let Some(key) = key else {
         // Nothing to deduplicate against — create and return.
-        let created = client.create_event(calendar_id, &event).await?;
-        return Ok(Delivered {
-            event_id: created.id.unwrap_or_default(),
-            created: true,
-            upsert_key: None,
-        });
+        return create(client, calendar_id, &event, None).await;
     };
 
     let lock = locks.for_key(&key).await;
@@ -136,14 +155,7 @@ pub async fn deliver(
         .and_then(|e| e.id);
 
     match decide(existing) {
-        UpsertAction::Create => {
-            let created = client.create_event(calendar_id, &event).await?;
-            Ok(Delivered {
-                event_id: created.id.unwrap_or_default(),
-                created: true,
-                upsert_key: Some(key),
-            })
-        }
+        UpsertAction::Create => create(client, calendar_id, &event, Some(key)).await,
         UpsertAction::Update(google_id) => {
             let updated = client.update_event(calendar_id, &google_id, &event).await?;
             Ok(Delivered {

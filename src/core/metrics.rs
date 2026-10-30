@@ -70,65 +70,72 @@ impl Metrics {
     /// `_version` stays in the signature for callers; the kit emits
     /// `almanac_build_info{version}` itself since 3.0.0.
     pub fn render(&self, pending: Option<u64>, _version: &str) -> String {
+        let counts = self.snapshot();
         let mut out = String::new();
-
         for (name, help, value) in [
             (
                 "almanac_events_accepted_total",
                 "Payloads accepted at ingest and written to the journal.",
-                self.accepted.load(Ordering::Relaxed),
+                counts.accepted,
             ),
             (
                 "almanac_events_delivered_total",
                 "Journal entries delivered to Google Calendar.",
-                self.delivered.load(Ordering::Relaxed),
+                counts.delivered,
             ),
             (
                 "almanac_deliveries_failed_total",
                 "Delivery attempts that failed, including ones later retried successfully.",
-                self.failed.load(Ordering::Relaxed),
+                counts.failed,
             ),
             (
                 "almanac_entries_dead_total",
                 "Entries given up on after repeated permanent failures.",
-                self.dead.load(Ordering::Relaxed),
+                counts.dead,
             ),
             (
                 "almanac_token_refreshes_total",
                 "Access tokens fetched from Google.",
-                self.token_refreshes.load(Ordering::Relaxed),
+                counts.token_refreshes,
             ),
         ] {
-            out.push_str(&format!(
-                "# HELP {name} {help}\n# TYPE {name} counter\n{name} {value}\n"
-            ));
+            push_counter(&mut out, name, help, value);
         }
-
-        out.push_str(
-            "# HELP almanac_journal_pending Entries accepted but not yet delivered.\n\
-             # TYPE almanac_journal_pending gauge\n",
-        );
-        match pending {
-            Some(n) => out.push_str(&format!("almanac_journal_pending {n}\n")),
-            None => out.push_str("# journal unreadable at scrape time; gauge omitted\n"),
-        }
-
-        out.push_str(
-            "# HELP almanac_journal_readable Whether the journal could be read for this scrape.\n\
-             # TYPE almanac_journal_readable gauge\n",
-        );
-        out.push_str(&format!(
-            "almanac_journal_readable {}\n",
-            u8::from(pending.is_some())
-        ));
-
+        push_journal_gauges(&mut out, pending);
         // The conventional way to expose a version: a constant 1 with
         // the version as a label, so a dashboard can group by it and an
         // alert can fire on a fleet running mixed versions.
         // almanac_build_info is emitted by the kit since 3.0.0 (same name, same label).
-
         out
     }
+}
+
+/// Appends one counter family: help line, type line, value line.
+fn push_counter(out: &mut String, name: &str, help: &str, value: u64) {
+    out.push_str(&format!(
+        "# HELP {name} {help}\n# TYPE {name} counter\n{name} {value}\n"
+    ));
+}
+
+/// Appends the two journal gauges: the depth (omitted when unreadable) and
+/// whether the journal could be read at all.
+fn push_journal_gauges(out: &mut String, pending: Option<u64>) {
+    out.push_str(
+        "# HELP almanac_journal_pending Entries accepted but not yet delivered.\n\
+         # TYPE almanac_journal_pending gauge\n",
+    );
+    match pending {
+        Some(n) => out.push_str(&format!("almanac_journal_pending {n}\n")),
+        None => out.push_str("# journal unreadable at scrape time; gauge omitted\n"),
+    }
+    out.push_str(
+        "# HELP almanac_journal_readable Whether the journal could be read for this scrape.\n\
+         # TYPE almanac_journal_readable gauge\n",
+    );
+    out.push_str(&format!(
+        "almanac_journal_readable {}\n",
+        u8::from(pending.is_some())
+    ));
 }
 
 /// The counters at one moment, for something that wants to report them

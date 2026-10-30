@@ -137,14 +137,9 @@ impl Notifier {
     /// reporting about.
     pub async fn send(&self, event: Event) {
         let Some(url) = &self.webhook else {
-            tracing::info!(
-                op = event.op, ok = event.ok, version = %event.version,
-                error = ?event.error,
-                "operational event (no notification webhook configured)"
-            );
+            log_unconfigured(&event);
             return;
         };
-
         let result = self
             .http
             .post(url)
@@ -152,28 +147,41 @@ impl Notifier {
             .json(&event)
             .send()
             .await;
+        log_outcome(&event, result);
+    }
+}
 
-        match result {
-            Ok(response) if response.status().is_success() => {
-                tracing::info!(op = event.op, ok = event.ok, "notified home assistant");
-            }
-            Ok(response) => {
-                // A webhook answers 200 whether or not the automation
-                // did anything, so anything else means it never
-                // arrived at all.
-                tracing::warn!(
-                    op = event.op,
-                    status = %response.status(),
-                    "the notification webhook refused the event — check that the automation is on \
-                     and that this host is on the LAN, since the webhook is local_only"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    op = event.op, error = %e,
-                    "could not reach the notification webhook; the event is in this log only"
-                );
-            }
+/// Logs an event that has nowhere to go because no webhook is set.
+fn log_unconfigured(event: &Event) {
+    tracing::info!(
+        op = event.op, ok = event.ok, version = %event.version,
+        error = ?event.error,
+        "operational event (no notification webhook configured)"
+    );
+}
+
+/// Logs what became of a post: delivered, refused, or unreachable.
+fn log_outcome(event: &Event, result: Result<reqwest::Response, reqwest::Error>) {
+    match result {
+        Ok(response) if response.status().is_success() => {
+            tracing::info!(op = event.op, ok = event.ok, "notified home assistant");
+        }
+        Ok(response) => {
+            // A webhook answers 200 whether or not the automation
+            // did anything, so anything else means it never
+            // arrived at all.
+            tracing::warn!(
+                op = event.op,
+                status = %response.status(),
+                "the notification webhook refused the event — check that the automation is on \
+                 and that this host is on the LAN, since the webhook is local_only"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                op = event.op, error = %e,
+                "could not reach the notification webhook; the event is in this log only"
+            );
         }
     }
 }

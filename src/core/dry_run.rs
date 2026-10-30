@@ -76,33 +76,62 @@ fn unreached(title: &'static str, note: &str) -> Hop {
     hop(title, note, "unknown", None)
 }
 
+/// Hop note for the event step when it was never reached.
+const EVENT_NOTE: &str = "checks every field of the call";
+/// Hop note for the calendar step when it was never reached.
+const CALENDAR_NOTE: &str = "where the event would go";
+
+/// The first step: the call itself, always allowed.
+fn call_hop() -> Hop {
+    hop("Call", "from the dashboard session", "allowed", None)
+}
+
+/// The profile step of a source that exists.
+fn profile_hop(source_id: &str, calendar_name: &str) -> Hop {
+    hop(
+        "Profile",
+        &format!("{source_id} writes to {calendar_name}"),
+        "allowed",
+        None,
+    )
+}
+
+/// The calendar step of a call that maps: what would happen there, or that
+/// the calendar could not be looked in.
+fn calendar_hop(calendar_name: &str, verdict: Option<Verdict>) -> Hop {
+    let note = match verdict {
+        Some(Verdict::Create) => format!("{calendar_name}: would be created, nothing was"),
+        Some(Verdict::Update) => format!("{calendar_name}: would be updated, nothing was"),
+        Some(Verdict::NoChange) => format!("{calendar_name}: already up to date"),
+        None => format!("{calendar_name}: could not be looked in"),
+    };
+    let result = if verdict.is_some() {
+        "allowed"
+    } else {
+        "unknown"
+    };
+    hop("Calendar", &note, result, None)
+}
+
 /// The four steps of a call: the call, the source's profile, the event, the calendar.
 pub fn hops(source_id: &str, calendar_name: &str, outcome: &Outcome<'_>) -> Vec<Hop> {
-    let call = hop("Call", "from the dashboard session", "allowed", None);
-    let event_note = "checks every field of the call";
-    let calendar_note = "where the event would go";
     match outcome {
         Outcome::UnknownSource { source_id } => vec![
-            call,
+            call_hop(),
             hop(
                 "Profile",
                 &format!("no profile for {source_id}"),
                 "refused",
                 Some("known source".to_string()),
             ),
-            unreached("Event", event_note),
-            unreached("Calendar", calendar_note),
+            unreached("Event", EVENT_NOTE),
+            unreached("Calendar", CALENDAR_NOTE),
         ],
         Outcome::Refused { rule, note } => vec![
-            call,
-            hop(
-                "Profile",
-                &format!("{source_id} writes to {calendar_name}"),
-                "allowed",
-                None,
-            ),
+            call_hop(),
+            profile_hop(source_id, calendar_name),
             hop("Event", note, "refused", Some(rule.clone())),
-            unreached("Calendar", calendar_note),
+            unreached("Calendar", CALENDAR_NOTE),
         ],
         Outcome::Mapped {
             summary,
@@ -110,31 +139,11 @@ pub fn hops(source_id: &str, calendar_name: &str, outcome: &Outcome<'_>) -> Vec<
             verdict,
         } => {
             let kind = if *all_day { "all day" } else { "timed" };
-            let calendar = match verdict {
-                Some(Verdict::Create) => format!("{calendar_name}: would be created, nothing was"),
-                Some(Verdict::Update) => format!("{calendar_name}: would be updated, nothing was"),
-                Some(Verdict::NoChange) => format!("{calendar_name}: already up to date"),
-                None => format!("{calendar_name}: could not be looked in"),
-            };
             vec![
-                call,
-                hop(
-                    "Profile",
-                    &format!("{source_id} writes to {calendar_name}"),
-                    "allowed",
-                    None,
-                ),
+                call_hop(),
+                profile_hop(source_id, calendar_name),
                 hop("Event", &format!("{summary}, {kind}"), "allowed", None),
-                hop(
-                    "Calendar",
-                    &calendar,
-                    if verdict.is_some() {
-                        "allowed"
-                    } else {
-                        "unknown"
-                    },
-                    None,
-                ),
+                calendar_hop(calendar_name, *verdict),
             ]
         }
     }
