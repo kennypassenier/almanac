@@ -8,8 +8,6 @@ import { runsEl, ganttEl, schedSaid, shapeEl } from './dom.js';
 import { events, tries } from './words.js';
 import { LIT } from './chain.js';
 
-/** The number of permanent refusals after which Almanac sets an entry aside. Mirrors the server's limit. */
-const STRIKES_LIMIT = 3;
 /** Space left on both sides of the timeline's data, so the first and last points are not on its edge. */
 const GANTT_PADDING_MS = 6 * MINUTE;
 const NOTHING_WAITING = 'Nothing is waiting. Every event Almanac accepted has reached its calendar.';
@@ -78,8 +76,8 @@ function plannedPoints(entry, schedule) {
     return points;
 }
 
-/** The received point and the failed tries of one entry. @param {any} entry */
-function pastPoints(entry) {
+/** The received point and the failed tries of one entry; `limit` is the server's strikes limit. @param {any} entry @param {number} limit */
+function pastPoints(entry, limit) {
     const points = [{ id: `${entry.id}-in`, lane: entry.id, at: entry.received, kind: 'received', label: `${entry.title}: received ${moment(entry.received)}` }];
     const firstStrike = entry.tries.length - entry.strikes;
     entry.tries.forEach((/** @type {number} */ at, /** @type {number} */ i) =>
@@ -89,7 +87,7 @@ function pastPoints(entry) {
             at,
             kind: 'refused',
             label: `${entry.title}: try ${i + 1} failed`,
-            detail: entry.limited && i >= firstStrike ? `Permanent refusal ${i - firstStrike + 1} of ${STRIKES_LIMIT}.` : 'Almanac keeps trying.',
+            detail: entry.limited && i >= firstStrike ? `Permanent refusal ${i - firstStrike + 1} of ${limit}.` : 'Almanac keeps trying.',
         }),
     );
     return points;
@@ -102,7 +100,7 @@ function ganttData(schedule) {
         label: entry.title,
         sub: entry.limited ? `${entry.source} · ${tries(entry.left)} left` : `${entry.source} · no limit`,
     }));
-    const points = schedule.entries.flatMap((/** @type {any} */ entry) => [...pastPoints(entry), ...plannedPoints(entry, schedule)]);
+    const points = schedule.entries.flatMap((/** @type {any} */ entry) => [...pastPoints(entry, schedule.strikes_limit), ...plannedPoints(entry, schedule)]);
     return { points, lanes };
 }
 

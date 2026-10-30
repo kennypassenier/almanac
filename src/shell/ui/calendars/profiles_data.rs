@@ -131,6 +131,7 @@ fn trend(points: &[Point], now: i64) -> Value {
         "total": total,
         "busiest": busiest,
         "truncated": truncated,
+        "ring_size": HISTORY_CAPACITY,
     })
 }
 
