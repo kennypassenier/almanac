@@ -17,7 +17,7 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::core::mapping::map_payload;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 use chassis::Caller;
 
 /// Environment variable holding the bootstrap token. Absent means the

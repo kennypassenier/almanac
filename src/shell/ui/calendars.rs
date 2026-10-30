@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::core::observability::RouteOutcome;
-use crate::shell::ingest::{AppState, HISTORY_CAPACITY};
+use crate::shell::state::{AppState, HISTORY_CAPACITY};
 
 /// Hours the trend tile covers.
 const TREND_HOURS: usize = 24;

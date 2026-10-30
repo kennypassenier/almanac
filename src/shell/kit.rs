@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use chassis::{App, ScrapeSource, Subsystem, SubsystemStatus};
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// `journal`: readable, with the number of undelivered entries. This is
 /// deliberately NOT Google's reachability (M1): the health check going red

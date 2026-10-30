@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 pub mod calendars;
 pub mod deliveries;
