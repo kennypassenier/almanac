@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use super::*;
 use serde_json::json;
 
