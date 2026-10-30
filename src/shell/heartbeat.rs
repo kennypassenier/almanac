@@ -58,6 +58,41 @@ pub fn interval_from(get: impl Fn(&str) -> Option<String>) -> Option<Duration> {
     }
 }
 
+/// What the `pending` field says when the journal could not be read.
+const PENDING_UNREADABLE: i64 = -1;
+
+/// The journal depth for the heartbeat. Read here rather than carried: it
+/// is the one number that says whether the worker is keeping up, and it is
+/// I/O. An unreadable journal is reported as unreadable, not as zero:
+/// "nothing is waiting" and "I cannot tell you what is waiting" are
+/// opposite kinds of news, and the metrics surface already refuses to
+/// conflate them.
+fn pending_depth(state: &AppState) -> i64 {
+    match state.journal.pending() {
+        Ok(entries) => entries.len() as i64,
+        Err(e) => {
+            tracing::warn!(error = %e, "the heartbeat could not read the journal");
+            PENDING_UNREADABLE
+        }
+    }
+}
+
+/// Writes the one "alive" line.
+fn log_alive(state: &AppState, started: Instant) {
+    let counts = state.metrics.snapshot();
+    let pending = pending_depth(state);
+    tracing::info!(
+        accepted = counts.accepted,
+        delivered = counts.delivered,
+        failed = counts.failed,
+        dead = counts.dead,
+        pending,
+        sources = state.profiles().len(),
+        uptime_secs = started.elapsed().as_secs(),
+        "alive"
+    );
+}
+
 /// Logs one line per interval until shutdown.
 ///
 /// The first line comes after one interval, not at startup: the startup
@@ -75,32 +110,11 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, ever
 
     loop {
         tokio::select! {
-            _ = ticker.tick() => {
-                let counts = state.metrics.snapshot();
-                // Read here rather than carried: the journal depth is
-                // the one number that says whether the worker is
-                // keeping up, and it is I/O.
-                // An unreadable journal is reported as unreadable, not
-                // as zero: "nothing is waiting" and "I cannot tell you
-                // what is waiting" are opposite kinds of news, and the
-                // metrics surface already refuses to conflate them.
-                let pending: i64 = match state.journal.pending() {
-                    Ok(entries) => entries.len() as i64,
-                    Err(_) => -1,
-                };
-                tracing::info!(
-                    accepted = counts.accepted,
-                    delivered = counts.delivered,
-                    failed = counts.failed,
-                    dead = counts.dead,
-                    pending,
-                    sources = state.profiles().len(),
-                    uptime_secs = started.elapsed().as_secs(),
-                    "alive"
-                );
-            }
-            _ = shutdown.changed() => {
-                if *shutdown.borrow() {
+            _ = ticker.tick() => log_alive(&state, started),
+            changed = shutdown.changed() => {
+                // A dropped sender means nobody can ask us to stop any
+                // more; looping on would spin on the closed channel.
+                if changed.is_err() || *shutdown.borrow() {
                     return;
                 }
             }
