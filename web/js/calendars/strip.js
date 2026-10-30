@@ -7,8 +7,6 @@ import { esc, moment, plural } from '../lib/format.js';
 import { state, hooks, sources, sourcesOf } from './state.js';
 import { page, strip, line } from './dom.js';
 
-/** How many deliveries the server keeps for the trend; the tile says so when the ring is full. Mirrors the server's ring size. */
-const TREND_RING_SIZE = 100;
 /** The kit flips `aria-pressed` in its own click handler; we read it after that has run (next task). */
 const AFTER_KIT_TOGGLE_MS = 0;
 
@@ -21,7 +19,7 @@ const toggleTile = (/** @type {string} */ key, /** @type {string} */ label, /** 
 /** The fourth tile: deliveries per hour, from the route ring (the latest deliveries since Almanac started). */
 function trendTile() {
     const t = /** @type {any} */ (state.profiles).trend;
-    const note = t.truncated ? `per hour, latest ${TREND_RING_SIZE} deliveries` : 'per hour';
+    const note = t.truncated ? `per hour, latest ${t.ring_size} deliveries` : 'per hour';
     const busiest = t.busiest ? `Busiest hour ${plural(t.busiest.count, 'event', 'events')} at ${moment(t.busiest.hour_ms).slice(11, 13)}:00` : 'Nothing delivered yet';
     const data = JSON.stringify({ unit: 'events', digits: 0, series: [{ label: 'Events delivered', start: t.start_ms, step: t.step_ms, values: t.values }] });
     const chart = t.total

@@ -23,8 +23,8 @@ const PAGE_HTML: &str = include_str!("../../../templates/deliveries.html");
 
 /// How many coming passes the schedule shows.
 const COMING_PASSES: usize = 4;
-/// Permanent refusals after which an entry is set aside (mirrors the worker).
-const STRIKES_LIMIT: usize = 3;
+/// Permanent refusals after which the worker sets an entry aside.
+const STRIKES_LIMIT: usize = crate::shell::worker::PERMANENT_FAILURES_BEFORE_DEAD;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -143,7 +143,7 @@ fn chain(waiting: &[(&Entry, String)], watch: &WatchSnapshot) -> Value {
 
 fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Value {
     if waiting.is_empty() {
-        return json!({"next": [], "entries": [], "outage_since": Value::Null});
+        return json!({"next": [], "entries": [], "outage_since": Value::Null, "strikes_limit": STRIKES_LIMIT});
     }
     let next_at = watch
         .next_pass
@@ -175,6 +175,7 @@ fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Va
         "next": passes.iter().map(|s| millis(*s)).collect::<Vec<_>>(),
         "entries": entries,
         "outage_since": watch.outage_since.map(millis),
+        "strikes_limit": STRIKES_LIMIT,
     })
 }
 

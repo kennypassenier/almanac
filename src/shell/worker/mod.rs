@@ -40,4 +40,4 @@ pub use watch::{
 /// spread over the backoff ladder is long enough that a genuinely
 /// transient misclassification has recovered, and short enough that a
 /// dead payload does not hold the hub back for hours.
-const PERMANENT_FAILURES_BEFORE_DEAD: usize = 3;
+pub(crate) const PERMANENT_FAILURES_BEFORE_DEAD: usize = 3;
