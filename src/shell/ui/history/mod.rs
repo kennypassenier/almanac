@@ -95,7 +95,8 @@ async fn day(
     let counts = history_store::day_counts(&state).await?;
     let names = calendar_names(&state).await;
     let record = counts.iter().find(|d| d.date == q.date);
-    let deliveries = history_store::day_rows(&state, &q.date).await?;
+    let read = history_store::day_rows(&state, &q.date).await?;
+    let deliveries = read.rows;
     let rows: Vec<Value> = deliveries
         .iter()
         .map(|r| {
@@ -121,6 +122,7 @@ async fn day(
         "updated": count(DeliveryResult::Updated),
         "failed": record.map_or(0, |d| d.failed),
         "rows": rows,
+        "unreadable": read.unreadable,
     })))
 }
 

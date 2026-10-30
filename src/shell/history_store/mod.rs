@@ -20,7 +20,7 @@ mod rows;
 mod spec;
 
 pub use import::import_from;
-pub use queries::{day_counts, day_rows, latest_by_key};
+pub use queries::{Partial, day_counts, day_rows, latest_by_key};
 pub use record::note;
 pub use rows::insert;
 pub use spec::{app_db_spec, kind, migrations};

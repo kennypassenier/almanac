@@ -102,6 +102,12 @@ async function loadMonth() {
     }
 }
 
+/** A summary line for rows that could not be read, only when there are any; the log names them. @param {number} n */
+function unreadableLine(n) {
+    if (!n) return [];
+    return [['Could not be read', `<span class="kp-badge kp-badge--warning">${n} ${n === 1 ? 'row' : 'rows'}</span> left out; the log names them`]];
+}
+
 /** @param {string} iso */
 async function showDay(iso) {
     pickedDay = iso;
@@ -116,6 +122,7 @@ async function showDay(iso) {
         fillKv(byId('hist-day-summary'), [
             ['Accepted', `${data.accepted} <span class="kp-sr-only">events</span>`],
             ['Created / updated / failed', `${data.created} / ${data.updated} / ${data.failed}`],
+            ...unreadableLine(data.unreadable),
         ]);
         byId('hist-rows').innerHTML = data.rows
             .map((/** @type {any} */ r) => {
@@ -171,7 +178,8 @@ async function loadWeek() {
             weekEl,
             data.calendars.map((/** @type {any} */ c) => ({ series: c.series, label: c.name })),
         );
-        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
+        const left = data.unreadable ? ` ${data.unreadable} delivery ${data.unreadable === 1 ? 'record' : 'records'} could not be read; those events show no delivery time.` : '';
+        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: `Open an event in the week to see its details.${left}` });
         if (!events.length) setWeekState(weekEl, 'empty', 'Almanac wrote nothing in this week.');
     } catch {
         if (token !== weekToken) return;

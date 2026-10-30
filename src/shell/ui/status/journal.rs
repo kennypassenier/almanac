@@ -48,14 +48,14 @@ fn store_is_writable(path: &std::path::Path) -> bool {
     }
 }
 
-/// The ids of the entries set aside as dead. A failed read is logged and
-/// treated as none, so the page still renders.
-fn dead_ids(dead: Result<Vec<(Entry, String, String)>, AlmanacError>) -> HashSet<String> {
+/// The ids of the entries set aside as dead, or `None` when they could
+/// not be read: logged, and the page says so rather than showing none.
+fn dead_ids(dead: Result<Vec<(Entry, String, String)>, AlmanacError>) -> Option<HashSet<String>> {
     match dead {
-        Ok(d) => d.into_iter().map(|(e, _, _)| e.id).collect(),
+        Ok(d) => Some(d.into_iter().map(|(e, _, _)| e.id).collect()),
         Err(e) => {
             tracing::warn!(error = %e, "could not read the dead entries for the status page");
-            HashSet::new()
+            None
         }
     }
 }
@@ -143,6 +143,8 @@ pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
         .ok()
         .map(|p| p.iter().map(|e| e.id.clone()).collect());
     let dead_ids = dead_ids(dead);
+    let dead_readable = dead_ids.is_some();
+    let dead_ids = dead_ids.unwrap_or_default();
 
     let rows = status_view::fold_deliveries(&routes, pending_ids.as_ref(), &dead_ids);
     let outcomes = status_view::outcomes(&rows);
@@ -155,6 +157,7 @@ pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
         "accepted": counts.accepted,
         "delivered": counts.delivered,
         "gaveUp": counts.dead,
+        "deadReadable": dead_readable,
         "journal": journal_mark(&pending),
         "store": { "state": store.0, "text": store.1 },
         "outcomes": outcomes_json(&outcomes, counts.delivered),

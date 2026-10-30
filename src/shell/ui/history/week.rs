@@ -72,7 +72,8 @@ pub(super) async fn week(
         .flat_map(|(_, found)| found.iter())
         .filter_map(|e| upsert_key_of(e).cloned())
         .collect();
-    let latest = history_store::latest_by_key(&state, keys).await?;
+    let read = history_store::latest_by_key(&state, keys).await?;
+    let latest = read.rows;
 
     let name_of = |id: &str| {
         names
@@ -93,6 +94,7 @@ pub(super) async fn week(
     }
     Ok(Json(json!({
         "start": first.format("%Y-%m-%d").to_string(),
+        "unreadable": read.unreadable,
         "events": events,
         "calendars": used.into_iter()
             .map(|(series, name)| json!({ "series": series, "name": name }))

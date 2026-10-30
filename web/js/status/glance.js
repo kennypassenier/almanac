@@ -31,10 +31,16 @@ function drawCounts(d) {
     setText('st-failed', String(d.gaveUp));
     setText('st-per-hour', String(d.trend.lastHour));
     setTone('#st-kpi-waiting', waiting ? 'warning' : null);
-    setTone('#st-kpi-failed', d.gaveUp > 0 ? 'destructive' : null);
+    setTone('#st-kpi-failed', d.gaveUp > 0 ? 'destructive' : d.deadReadable ? null : 'warning');
     setText('st-waiting-note', waitingNote(waiting));
     setText('st-delivered-note', `${d.accepted} accepted in all`);
-    setText('st-failed-note', d.gaveUp === 0 ? 'None gave up' : 'Gave up; see Recent deliveries');
+    setText('st-failed-note', failedNote(d));
+}
+
+/** What the gave-up tile says under its number; it names an unreadable set-aside list instead of claiming none. @param {any} d */
+function failedNote(d) {
+    if (!d.deadReadable) return 'The set-aside list could not be read; the log says why';
+    return d.gaveUp === 0 ? 'None gave up' : 'Gave up; see Recent deliveries';
 }
 
 /** @param {any} d */

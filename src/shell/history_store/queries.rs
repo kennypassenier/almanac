@@ -41,17 +41,45 @@ pub async fn day_counts(state: &AppState) -> Result<Vec<DayCount>, chassis::Erro
         .await
 }
 
+/// A read that kept going past rows it could not read: what it read,
+/// and how many rows it left out (each is in the log). The page says
+/// how many are missing rather than failing whole or hiding them.
+pub struct Partial<T> {
+    pub rows: T,
+    pub unreadable: usize,
+}
+
+/// One row of a query, or `None` after logging why it was left out.
+fn readable<T>(row: chassis::storage::rusqlite::Result<Option<T>>, what: &str) -> Option<T> {
+    match row {
+        Ok(Some(row)) => Some(row),
+        // `read_row` has already logged the result word it did not know.
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, what, "a delivery row could not be read; it is left out");
+            None
+        }
+    }
+}
+
 /// One day's rows in the order they were recorded.
-pub async fn day_rows(state: &AppState, date: &str) -> Result<Vec<DeliveryRecord>, chassis::Error> {
+pub async fn day_rows(
+    state: &AppState,
+    date: &str,
+) -> Result<Partial<Vec<DeliveryRecord>>, chassis::Error> {
     let date = date.to_string();
     state
         .app_db()?
         .read(move |c| {
             let mut stmt = c.prepare(&format!("{SELECT_ROW} WHERE day = ?1 ORDER BY rowid"))?;
-            let mut out = Vec::new();
+            let mut out = Partial {
+                rows: Vec::new(),
+                unreadable: 0,
+            };
             for row in stmt.query_map([&date], read_row)? {
-                if let Some(row) = row? {
-                    out.push(row.to_record());
+                match readable(row, "day") {
+                    Some(row) => out.rows.push(row.to_record()),
+                    None => out.unreadable += 1,
                 }
             }
             Ok(out)
@@ -63,20 +91,25 @@ pub async fn day_rows(state: &AppState, date: &str) -> Result<Vec<DeliveryRecord
 pub async fn latest_by_key(
     state: &AppState,
     keys: Vec<String>,
-) -> Result<HashMap<String, DeliveryRecord>, chassis::Error> {
+) -> Result<Partial<HashMap<String, DeliveryRecord>>, chassis::Error> {
     state
         .app_db()?
         .read(move |c| {
             let mut stmt = c.prepare(&format!(
                 "{SELECT_ROW} WHERE upsert_key = ?1 ORDER BY delivered_at DESC, rowid DESC LIMIT 1"
             ))?;
-            let mut out = HashMap::new();
+            let mut out = Partial {
+                rows: HashMap::new(),
+                unreadable: 0,
+            };
             for key in keys {
-                // The query returns at most one row (LIMIT 1); a row this
-                // build cannot read is `None` and the key simply has no record.
+                // The query returns at most one row (LIMIT 1).
                 for row in stmt.query_map([&key], read_row)? {
-                    if let Some(row) = row? {
-                        out.insert(key.clone(), row.to_record());
+                    match readable(row, "latest") {
+                        Some(row) => {
+                            out.rows.insert(key.clone(), row.to_record());
+                        }
+                        None => out.unreadable += 1,
                     }
                 }
             }
