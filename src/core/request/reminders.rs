@@ -14,6 +14,39 @@ pub(super) fn to_reminders(
     asked: &ReminderRequest,
     origin: &str,
 ) -> Result<Reminders, AlmanacError> {
+    check_reminders(asked, origin)?;
+    // Silence and overrides both mean "not the calendar's default";
+    // the difference is whether the list is empty. Omitting the block
+    // entirely is the third outcome and never reaches here.
+    let overrides = asked
+        .popup_minutes_before
+        .iter()
+        .map(|m| override_of("popup", *m))
+        .chain(
+            asked
+                .email_minutes_before
+                .iter()
+                .map(|m| override_of("email", *m)),
+        )
+        .collect();
+    Ok(Reminders {
+        use_default: false,
+        overrides,
+    })
+}
+
+/// One reminder override. The minutes were checked to lie in 0 to
+/// MAX_REMINDER_MINUTES, so the conversion cannot lose anything.
+fn override_of(method: &str, minutes: i64) -> ReminderOverride {
+    ReminderOverride {
+        method: method.to_string(),
+        minutes: minutes as u32,
+    }
+}
+
+/// Silence or minutes, never both; at most MAX_REMINDERS; each within
+/// Google's range.
+fn check_reminders(asked: &ReminderRequest, origin: &str) -> Result<(), AlmanacError> {
     let count = asked.popup_minutes_before.len() + asked.email_minutes_before.len();
     if asked.silent && count > 0 {
         return Err(AlmanacError::ProfileValidation {
@@ -43,22 +76,5 @@ pub(super) fn to_reminders(
             });
         }
     }
-    // Silence and overrides both mean "not the calendar's default";
-    // the difference is whether the list is empty. Omitting the block
-    // entirely is the third outcome and never reaches here.
-    Ok(Reminders {
-        use_default: false,
-        overrides: asked
-            .popup_minutes_before
-            .iter()
-            .map(|m| ReminderOverride {
-                method: "popup".to_string(),
-                minutes: *m as u32,
-            })
-            .chain(asked.email_minutes_before.iter().map(|m| ReminderOverride {
-                method: "email".to_string(),
-                minutes: *m as u32,
-            }))
-            .collect(),
-    })
+    Ok(())
 }

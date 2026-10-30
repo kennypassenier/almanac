@@ -33,47 +33,59 @@ pub(super) fn timed_window(
     })?;
 
     let end = match &request.end {
-        Some(raw) => {
-            let end =
-                DateTime::parse_from_rfc3339(raw).map_err(|e| AlmanacError::ProfileValidation {
-                    message: format!(
-                        "{origin}: \"end\" ({raw:?}) is not a valid RFC3339 timestamp: {e}"
-                    ),
-                    remedy: "send an RFC3339 timestamp, or use duration_minutes instead"
-                        .to_string(),
-                })?;
-            if end <= start {
-                return Err(AlmanacError::ProfileValidation {
-                    message: format!(
-                        "{origin}: \"end\" ({raw:?}) is at or before \"start\" ({:?})",
-                        request.start
-                    ),
-                    remedy: "send an end after the start — Google accepts an inverted event and \
-                             then shows it on no calendar at all"
-                        .to_string(),
-                });
-            }
-            end
-        }
-        None => {
-            let minutes = request
-                .duration_minutes
-                .or(profile.default_duration_minutes)
-                .unwrap_or(crate::core::profile::FALLBACK_DURATION_MINUTES);
-            if minutes <= 0 {
-                return Err(AlmanacError::ProfileValidation {
-                    message: format!("{origin}: \"duration_minutes\" is {minutes}"),
-                    remedy: "send a duration greater than zero, or an explicit end".to_string(),
-                });
-            }
-            start + chrono::Duration::minutes(minutes)
-        }
+        Some(raw) => explicit_end(raw, start, &request.start, origin)?,
+        None => start + chrono::Duration::minutes(length_minutes(request, profile, origin)?),
     };
 
     Ok((
         EventDateTime::timed(start.to_rfc3339(), timezone),
         EventDateTime::timed(end.to_rfc3339(), timezone),
     ))
+}
+
+/// An explicit end, which must come after the start.
+fn explicit_end(
+    raw: &str,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    raw_start: &str,
+    origin: &str,
+) -> Result<chrono::DateTime<chrono::FixedOffset>, AlmanacError> {
+    let end =
+        chrono::DateTime::parse_from_rfc3339(raw).map_err(|e| AlmanacError::ProfileValidation {
+            message: format!("{origin}: \"end\" ({raw:?}) is not a valid RFC3339 timestamp: {e}"),
+            remedy: "send an RFC3339 timestamp, or use duration_minutes instead".to_string(),
+        })?;
+    if end <= start {
+        return Err(AlmanacError::ProfileValidation {
+            message: format!(
+                "{origin}: \"end\" ({raw:?}) is at or before \"start\" ({raw_start:?})"
+            ),
+            remedy: "send an end after the start — Google accepts an inverted event and \
+                     then shows it on no calendar at all"
+                .to_string(),
+        });
+    }
+    Ok(end)
+}
+
+/// The length when no end was sent: the call's, else the profile's,
+/// else the fallback. Zero or less is refused.
+fn length_minutes(
+    request: &EventRequest,
+    profile: &Profile,
+    origin: &str,
+) -> Result<i64, AlmanacError> {
+    let minutes = request
+        .duration_minutes
+        .or(profile.default_duration_minutes)
+        .unwrap_or(crate::core::profile::FALLBACK_DURATION_MINUTES);
+    if minutes <= 0 {
+        return Err(AlmanacError::ProfileValidation {
+            message: format!("{origin}: \"duration_minutes\" is {minutes}"),
+            remedy: "send a duration greater than zero, or an explicit end".to_string(),
+        });
+    }
+    Ok(minutes)
 }
 
 /// The start and end of an all-day event.
