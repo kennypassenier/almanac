@@ -66,7 +66,7 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
         .journal
         .dead()
         .map_err(|e| chassis::Error::internal(e.to_string(), e.remedy().to_string()))?;
-    let watch = worker::watch().snapshot();
+    let watch = state.watch.snapshot();
     let profiles = state.profiles();
     let now = (state.now_unix)();
     let counts = state.metrics.snapshot();

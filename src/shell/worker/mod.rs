@@ -27,9 +27,7 @@ pub use drain::{
 };
 pub use route::record_route;
 pub use run::run;
-pub use watch::{
-    DeliveredWatch, EntryWatch, FailureKind, Watch, WatchSnapshot, entry_title, watch,
-};
+pub use watch::{DeliveredWatch, EntryWatch, FailureKind, Watch, WatchSnapshot, entry_title};
 
 /// How many times an entry may fail *permanently* before it is set
 /// aside (T1).
