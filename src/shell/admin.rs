@@ -17,7 +17,7 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::core::mapping::map_payload;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 use chassis::Caller;
 
 /// Environment variable holding the bootstrap token. Absent means the
@@ -53,16 +53,13 @@ fn require_admin(caller: &Caller) -> Result<(), Reply> {
     }
 }
 
-/// `GET /v1/debug/status` (K11) — what is loaded, what is waiting, and
-/// how the recent events were routed.
-async fn debug_status(State(state): State<Arc<AppState>>, caller: Caller) -> Reply {
-    if let Err(reply) = require_admin(&caller) {
-        return reply;
-    }
-
+/// The loaded profiles for the debug view, sorted by source id.
+fn profiles_json(state: &AppState) -> Vec<Value> {
     let loaded = state.profiles();
-    let mut profiles: Vec<_> = loaded
-        .values()
+    let mut profiles: Vec<_> = loaded.values().collect();
+    profiles.sort_by(|a, b| a.source_id.cmp(&b.source_id));
+    profiles
+        .into_iter()
         .map(|p| {
             json!({
                 "source_id": p.source_id,
@@ -70,10 +67,13 @@ async fn debug_status(State(state): State<Arc<AppState>>, caller: Caller) -> Rep
                 "schema_version": p.schema_version,
             })
         })
-        .collect();
-    profiles.sort_by_key(|p| p["source_id"].as_str().unwrap_or_default().to_string());
+        .collect()
+}
 
-    let pending = match state.journal.pending() {
+/// The journal block of the debug view: the backlog and its oldest entry,
+/// or the read error with its remedy.
+fn journal_json(state: &AppState) -> Value {
+    match state.journal.pending() {
         Ok(pending) => json!({
             "count": pending.len(),
             "oldest": pending.first().map(|e| json!({
@@ -83,8 +83,17 @@ async fn debug_status(State(state): State<Arc<AppState>>, caller: Caller) -> Rep
             })),
         }),
         Err(e) => json!({"error": e.to_string(), "remedy": e.remedy()}),
-    };
+    }
+}
 
+/// `GET /v1/debug/status` (K11) — what is loaded, what is waiting, and
+/// how the recent events were routed.
+async fn debug_status(State(state): State<Arc<AppState>>, caller: Caller) -> Reply {
+    if let Err(reply) = require_admin(&caller) {
+        return reply;
+    }
+    let profiles = profiles_json(&state);
+    let journal = journal_json(&state);
     let routes: Vec<_> = state.routes.lock().await.iter().cloned().collect();
 
     (
@@ -92,7 +101,7 @@ async fn debug_status(State(state): State<Arc<AppState>>, caller: Caller) -> Rep
         Json(json!({
             "status": "ok",
             "profiles": profiles,
-            "journal": pending,
+            "journal": journal,
             "recent_routes": routes,
         })),
     )

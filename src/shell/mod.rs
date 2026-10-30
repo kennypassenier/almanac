@@ -21,6 +21,7 @@ pub mod journal;
 pub mod kit;
 pub mod notify;
 pub mod profiles;
+pub mod state;
 /// Stubs for Google and the token endpoint.
 ///
 /// Not `#[cfg(test)]`: integration tests in `tests/` link the library
@@ -39,7 +40,7 @@ use std::sync::Arc;
 
 use axum::Router;
 
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 
 /// Builds the application's Axum router.
 pub fn build_router(state: Arc<AppState>) -> Router {

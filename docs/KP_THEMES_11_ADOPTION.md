@@ -87,11 +87,11 @@ packages, and the page CSS that stood in for them is gone (dialog section
 padding, the 30rem table height, the phone-card subgrid, the Copy and Try
 again `nowrap`). What stays, each for an entry that is still open:
 
-1. `holdTableFootprint()` in `web/js/status.js`: a table driven into empty or
+1. `holdTableFootprint()` in `web/js/status/footprint.js`: a table driven into empty or
    failed after it loaded still shrinks (gap 32).
 2. The phone-width aside rule beside `--kp-calendar-aside` in
    `web/css/history.css` (gap 14).
-3. `joinChips()` in `web/js/status.js`: no chips-plus-table filter part
+3. `joinChips()` in `web/js/status/deliveries.js`: no chips-plus-table filter part
    (gap 11).
 4. The attention band's form-grid tracks in `web/css/calendars.css` (gap 21;
    the package's `data-kp-subgrid` may make it unnecessary, not yet tried).

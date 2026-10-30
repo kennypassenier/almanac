@@ -16,15 +16,15 @@ use serde_json::{Value, json};
 
 use crate::core::journal::Entry;
 use crate::core::pacing;
-use crate::shell::ingest::AppState;
+use crate::shell::state::AppState;
 use crate::shell::worker::{self, EntryWatch, FailureKind, WatchSnapshot};
 
 const PAGE_HTML: &str = include_str!("../../../templates/deliveries.html");
 
 /// How many coming passes the schedule shows.
 const COMING_PASSES: usize = 4;
-/// Permanent refusals after which an entry is set aside (mirrors the worker).
-const STRIKES_LIMIT: usize = 3;
+/// Permanent refusals after which the worker sets an entry aside.
+const STRIKES_LIMIT: usize = crate::shell::worker::PERMANENT_FAILURES_BEFORE_DEAD;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -66,7 +66,7 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
         .journal
         .dead()
         .map_err(|e| chassis::Error::internal(e.to_string(), e.remedy().to_string()))?;
-    let watch = worker::watch().snapshot();
+    let watch = state.watch.snapshot();
     let profiles = state.profiles();
     let now = (state.now_unix)();
     let counts = state.metrics.snapshot();
@@ -88,7 +88,18 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
         "chain": chain(&waiting, &watch),
         "schedule": schedule(&waiting, &watch, now),
         "aside": aside(&dead, &state),
+        "marks": marks(&profiles),
     })))
+}
+
+/// Each source's mark from its profile, where the profile sets one; the
+/// page derives the rest from the id.
+fn marks(profiles: &std::collections::HashMap<String, crate::core::profile::Profile>) -> Value {
+    profiles
+        .iter()
+        .filter_map(|(id, p)| p.mark.as_ref().map(|m| (id.clone(), json!(m))))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 /// The stage that is failing, from the latest pass, and why.
@@ -143,7 +154,7 @@ fn chain(waiting: &[(&Entry, String)], watch: &WatchSnapshot) -> Value {
 
 fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Value {
     if waiting.is_empty() {
-        return json!({"next": [], "entries": [], "outage_since": Value::Null});
+        return json!({"next": [], "entries": [], "outage_since": Value::Null, "strikes_limit": STRIKES_LIMIT});
     }
     let next_at = watch
         .next_pass
@@ -175,6 +186,7 @@ fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Va
         "next": passes.iter().map(|s| millis(*s)).collect::<Vec<_>>(),
         "entries": entries,
         "outage_since": watch.outage_since.map(millis),
+        "strikes_limit": STRIKES_LIMIT,
     })
 }
 

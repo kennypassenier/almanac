@@ -113,6 +113,7 @@ default_duration_minutes = 60
 | `target_calendar_id` | yes | Which calendar this source's events land on (K3). |
 | `timezone` | no | The zone timestamps are read in when a call does not say. Defaults to `Europe/Brussels`; checked when the profile loads (M4). |
 | `default_duration_minutes` | no | How long events last when a call gives neither an end nor a duration. Defaults to 60. |
+| `mark` | no | The one to three letters or digits the Deliveries page shows for this source, such as `"HA"`. Absent, the page takes the first two letters of `source_id`. |
 
 **Everything else is in the call.** What an event *is* — its title,
 length, colour, whether it is all-day — is something the source knows

@@ -25,8 +25,8 @@ use almanac::core::profile::Profile;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
 use almanac::shell::delivery::UPSERT_PROPERTY;
-use almanac::shell::ingest::AppState;
 use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::state::AppState;
 use serde_json::json;
 
 fn scratch_dir(name: &str) -> std::path::PathBuf {

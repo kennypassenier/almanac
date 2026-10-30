@@ -13,10 +13,14 @@ use backon::{ExponentialBuilder, Retryable};
 use reqwest::{Client, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 
-use crate::core::calendar::{EventListResponse, GoogleEvent};
+use crate::core::calendar::GoogleEvent;
 use crate::core::error::AlmanacError;
 use crate::core::retry::{extract_reason, is_transient};
 use crate::shell::auth::TokenManager;
+
+mod calendars;
+mod events;
+mod paging;
 
 /// Also the calendars *collection* endpoint (`POST` here creates a
 /// calendar) — `{CALENDAR_EVENTS_BASE}/{calendar_id}/events` is the
@@ -152,20 +156,7 @@ impl GoogleCalendarClient {
                 return Ok(response);
             }
 
-            let body = response.text().await.unwrap_or_default();
-            let reason = extract_reason(&body);
-            let transient = is_transient(status.as_u16(), reason.as_deref());
-            let err = AlmanacError::GoogleApi {
-                message: format!("Calendar API returned HTTP {status}: {body}"),
-                remedy: if transient {
-                    "transient Google API failure — retrying automatically".to_string()
-                } else {
-                    "check the request payload, event id and calendar id".to_string()
-                },
-                transient,
-            };
-
-            Err(err)
+            Err(failure_from(status, response).await)
         };
 
         attempt
@@ -181,421 +172,27 @@ impl GoogleCalendarClient {
             transient: false,
         })
     }
+}
 
-    pub async fn create_event(
-        &self,
-        calendar_id: &str,
-        event: &GoogleEvent,
-    ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{}/{calendar_id}/events", self.base_url);
-        let response = self
-            .send_with_retry(|http, token| http.post(&url).bearer_auth(token).json(event))
-            .await?;
-        Self::parse_event(response).await
-    }
-
-    pub async fn get_event(
-        &self,
-        calendar_id: &str,
-        event_id: &str,
-    ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
-        let response = self
-            .send_with_retry(|http, token| http.get(&url).bearer_auth(token))
-            .await?;
-        Self::parse_event(response).await
-    }
-
-    /// Full resource replacement (Google's PUT semantics): the caller
-    /// must resend every field it wants kept, not only what changed.
-    pub async fn update_event(
-        &self,
-        calendar_id: &str,
-        event_id: &str,
-        event: &GoogleEvent,
-    ) -> Result<GoogleEvent, AlmanacError> {
-        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
-        let response = self
-            .send_with_retry(|http, token| http.put(&url).bearer_auth(token).json(event))
-            .await?;
-        Self::parse_event(response).await
-    }
-
-    pub async fn delete_event(
-        &self,
-        calendar_id: &str,
-        event_id: &str,
-    ) -> Result<(), AlmanacError> {
-        let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
-        self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
-            .await?;
-        Ok(())
-    }
-
-    /// Finds an event by a private extended-property key/value pair —
-    /// the mechanism K2's upsert lookup and AR15's `source_id` tagging
-    /// depend on. Returns the first match, or `None`.
-    pub async fn find_event_by_property(
-        &self,
-        calendar_id: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<Option<GoogleEvent>, AlmanacError> {
-        Ok(self
-            .list_events_by_property(calendar_id, key, value)
-            .await?
-            .into_iter()
-            .next())
-    }
-
-    /// Every event carrying the given private extended property.
-    /// `find_event_by_property` is the upsert path and only needs the
-    /// first; this exists so a test can assert how many events a
-    /// redelivery actually left behind, rather than inferring it.
-    pub async fn list_events_by_property(
-        &self,
-        calendar_id: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<Vec<GoogleEvent>, AlmanacError> {
-        let url = format!("{}/{calendar_id}/events", self.base_url);
-        let filter = format!("{key}={value}");
-        let response = self
-            .send_with_retry(|http, token| {
-                http.get(&url)
-                    .bearer_auth(token)
-                    .query(&[("privateExtendedProperty", filter.as_str())])
-            })
-            .await?;
-
-        let list: EventListResponse =
-            response.json().await.map_err(|e| AlmanacError::GoogleApi {
-                message: format!("failed to parse the Calendar API's event list response: {e}"),
-                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
-                transient: false,
-            })?;
-
-        Ok(list.items.unwrap_or_default())
-    }
-
-    /// Every event that starts in `[time_min, time_max)` (RFC 3339), repeats
-    /// expanded, oldest first. Read-only: the History page's week agenda
-    /// filters these to the ones carrying Almanac's own property.
-    pub async fn list_events_between(
-        &self,
-        calendar_id: &str,
-        time_min: &str,
-        time_max: &str,
-    ) -> Result<Vec<GoogleEvent>, AlmanacError> {
-        let url = format!("{}/{calendar_id}/events", self.base_url);
-        let response = self
-            .send_with_retry(|http, token| {
-                http.get(&url).bearer_auth(token).query(&[
-                    ("timeMin", time_min),
-                    ("timeMax", time_max),
-                    ("singleEvents", "true"),
-                    ("orderBy", "startTime"),
-                    ("maxResults", "2500"),
-                ])
-            })
-            .await?;
-
-        let list: EventListResponse =
-            response.json().await.map_err(|e| AlmanacError::GoogleApi {
-                message: format!("failed to parse the Calendar API's event list response: {e}"),
-                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
-                transient: false,
-            })?;
-
-        Ok(list.items.unwrap_or_default())
-    }
-
-    /// Creates a new secondary calendar owned by the authenticated
-    /// service account and returns its id. A small forward-borrow from
-    /// K3 (multiple calendars, landing properly in L2): used here as a
-    /// one-off setup step (see `examples/create_test_calendar.rs`) so
-    /// standing rule 14's scratch calendar can be provisioned entirely
-    /// through the API — no manual Google Calendar UI step, no sharing
-    /// step, since a calendar the service account creates is already
-    /// its own.
-    /// Creates a calendar and immediately gives `share_with` ownership
-    /// of it.
-    ///
-    /// The two steps are one method on purpose. A calendar this service
-    /// account creates is owned by the service account and invisible to
-    /// every other human being, and that is easy not to notice — the
-    /// `almanac-test` calendar from L1 sat that way for months while
-    /// the live tests wrote into it, and the first two real calendars
-    /// were created the same way an hour before this was written.
-    /// Making sharing a separate call is how that keeps happening, so
-    /// the caller has to name an owner to create anything at all.
-    pub async fn create_calendar(
-        &self,
-        summary: &str,
-        share_with: &str,
-    ) -> Result<String, AlmanacError> {
-        let body = NewCalendar { summary };
-        let response = self
-            .send_with_retry(|http, token| http.post(&self.base_url).bearer_auth(token).json(&body))
-            .await?;
-
-        let parsed: CalendarResource =
-            response.json().await.map_err(|e| AlmanacError::GoogleApi {
-                message: format!("failed to parse the created calendar response: {e}"),
-                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
-                transient: false,
-            })?;
-
-        self.share_calendar(&parsed.id, share_with).await?;
-        Ok(parsed.id)
-    }
-
-    /// Every calendar this account can see, as `(id, display name)`,
-    /// sorted by name.
-    ///
-    /// The dashboard offers these in a dropdown (K21): a calendar id is
-    /// an opaque string nobody types on purpose, and having to go and
-    /// find one before adding a source was most of the chore.
-    pub async fn list_calendars(&self) -> Result<Vec<(String, String)>, AlmanacError> {
-        let response = self
-            .send_with_retry(|http, token| http.get(&self.calendar_list_url).bearer_auth(token))
-            .await?;
-
-        let parsed: serde_json::Value =
-            response.json().await.map_err(|e| AlmanacError::GoogleApi {
-                message: format!("failed to parse the calendar list: {e}"),
-                remedy: "check Google's Calendar API response format hasn't changed".to_string(),
-                transient: false,
-            })?;
-
-        let mut calendars: Vec<(String, String)> = parsed["items"]
-            .as_array()
-            .unwrap_or(&Vec::new())
-            .iter()
-            .filter_map(|c| {
-                Some((
-                    c["id"].as_str()?.to_string(),
-                    c["summary"].as_str()?.to_string(),
-                ))
-            })
-            .collect();
-        calendars.sort_by(|a, b| a.1.cmp(&b.1));
-        Ok(calendars)
-    }
-
-    /// Finds a calendar this account can see by its display name, or
-    /// `None`.
-    pub async fn find_calendar_by_summary(
-        &self,
-        summary: &str,
-    ) -> Result<Option<String>, AlmanacError> {
-        Ok(self
-            .list_calendars()
-            .await?
-            .into_iter()
-            .find(|(_, name)| name == summary)
-            .map(|(id, _)| id))
-    }
-
-    /// The id of the calendar called `summary`, creating and sharing it
-    /// if this account cannot see one (K21).
-    ///
-    /// Matching on the name before creating is what stops a second
-    /// "Almanac · Huishouden" appearing every time someone adds a
-    /// source to it — and a duplicate calendar is close to invisible:
-    /// events land, nothing errors, and half of them are on a calendar
-    /// nobody has open.
-    pub async fn ensure_calendar(
-        &self,
-        summary: &str,
-        share_with: &str,
-    ) -> Result<(String, bool), AlmanacError> {
-        if let Some(id) = self.find_calendar_by_summary(summary).await? {
-            return Ok((id, false));
-        }
-        let id = self.create_calendar(summary, share_with).await?;
-        Ok((id, true))
-    }
-
-    /// Deletes a calendar and everything on it (K24).
-    ///
-    /// Irreversible at Google's end — this is not "remove it from my
-    /// list", it is the calendar and every event ever put on it. The
-    /// dashboard only offers it for a calendar no source writes to, and
-    /// that guard is the reason this is safe to expose at all.
-    pub async fn delete_calendar(&self, calendar_id: &str) -> Result<(), AlmanacError> {
-        let url = format!("{}/{calendar_id}", self.base_url);
-        self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
-            .await?;
-        Ok(())
-    }
-
-    /// Gives `user` ownership of a calendar. Idempotent at Google's end:
-    /// re-granting what someone already has is not an error.
-    ///
-    /// Owner rather than writer, so losing the service account never
-    /// strands a calendar somebody depends on — the grantee can rename,
-    /// share onward and delete it without us.
-    pub async fn share_calendar(&self, calendar_id: &str, user: &str) -> Result<(), AlmanacError> {
-        let url = format!("{}/{calendar_id}/acl", self.base_url);
-        let rule = serde_json::json!({
-            "role": "owner",
-            "scope": {"type": "user", "value": user}
-        });
-
-        self.send_with_retry(|http, token| http.post(&url).bearer_auth(token).json(&rule))
-            .await?;
-        Ok(())
+/// The error for a Calendar API answer that was not a success, classified
+/// transient or permanent from its status and Google's reason string.
+async fn failure_from(status: reqwest::StatusCode, response: Response) -> AlmanacError {
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("(the response body could not be read: {e})"));
+    let reason = extract_reason(&body);
+    let transient = is_transient(status.as_u16(), reason.as_deref());
+    AlmanacError::GoogleApi {
+        message: format!("Calendar API returned HTTP {status}: {body}"),
+        remedy: if transient {
+            "transient Google API failure — retrying automatically".to_string()
+        } else {
+            "check the request payload, event id and calendar id".to_string()
+        },
+        transient,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::calendar::GoogleEvent;
-    use crate::shell::testing::{CalendarStub, TokenStub, stub_credentials};
-
-    /// A client wired to both stubs.
-    async fn stubbed(calendar: &CalendarStub) -> GoogleCalendarClient {
-        let tokens = TokenStub::start(3600).await;
-        GoogleCalendarClient::with_base_url(
-            Client::new(),
-            TokenManager::new(Client::new(), stub_credentials(&tokens.url)),
-            &calendar.base_url,
-        )
-    }
-
-    fn event(title: &str) -> GoogleEvent {
-        use crate::core::calendar::EventDateTime;
-        GoogleEvent {
-            id: None,
-            summary: title.to_string(),
-            description: None,
-            location: None,
-            color_id: None,
-            start: EventDateTime::timed(
-                "2026-08-28T09:00:00+00:00".to_string(),
-                "Europe/Brussels".to_string(),
-            ),
-            end: EventDateTime::timed(
-                "2026-08-28T10:00:00+00:00".to_string(),
-                "Europe/Brussels".to_string(),
-            ),
-            transparency: None,
-            status: None,
-            reminders: None,
-            extended_properties: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn a_transient_failure_is_retried_and_the_event_still_lands() {
-        // M3's acceptance criterion, written when the feature was
-        // frozen and never built until now: "simulate a 429/503
-        // followed by success; the event still lands."
-        let calendar = CalendarStub::start().await;
-        calendar.fail_next(2);
-        let client = stubbed(&calendar).await;
-
-        let created = client
-            .create_event("household", &event("dentist"))
-            .await
-            .expect("two 503s in a row must not lose the event");
-
-        assert!(!created.id.unwrap_or_default().is_empty());
-        assert_eq!(
-            calendar.state.request_count().await,
-            3,
-            "two failures and the successful third attempt"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_permanent_failure_is_not_retried() {
-        // The other half of the classification: hammering a 403 that
-        // says "this service account cannot access this calendar"
-        // would burn the retry window on something that will never
-        // succeed, and delay every other pending entry behind it.
-        let calendar = CalendarStub::start().await;
-        calendar.reject_next(99);
-        let client = stubbed(&calendar).await;
-
-        let error = client
-            .create_event("household", &event("dentist"))
-            .await
-            .unwrap_err();
-
-        assert!(!error.is_transient());
-        assert_eq!(
-            calendar.state.request_count().await,
-            1,
-            "a permanent rejection must be attempted exactly once"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_transient_failure_on_the_lookup_is_retried_too() {
-        // The upsert path reads before it writes; a 503 on the read
-        // must not surface as a failed delivery.
-        let calendar = CalendarStub::start().await;
-        calendar.fail_next(1);
-        let client = stubbed(&calendar).await;
-
-        let found = client
-            .find_event_by_property("household", "almanac_source_id", "home-assistant:42")
-            .await
-            .expect("a transient failure on the lookup must be ridden out");
-
-        assert!(found.is_none());
-        assert_eq!(calendar.state.request_count().await, 2);
-    }
-
-    #[tokio::test]
-    async fn creating_a_calendar_shares_it_in_the_same_breath() {
-        // A calendar this service account creates is invisible to every
-        // other human until it is shared, and that is easy not to
-        // notice: the almanac-test calendar sat that way for months
-        // while the live tests wrote into it, and the first two real
-        // calendars were created the same way. The two steps are one
-        // method so they cannot drift apart again.
-        let calendar = CalendarStub::start().await;
-        let client = stubbed(&calendar).await;
-
-        let id = client
-            .create_calendar("Almanac · Huishouden", "mendax1@example.com")
-            .await
-            .unwrap();
-
-        assert!(!id.is_empty());
-        assert_eq!(
-            calendar.shared_with("Almanac · Huishouden").await,
-            vec!["mendax1@example.com".to_string()],
-            "a calendar created without being shared is a calendar nobody can see"
-        );
-    }
-
-    #[tokio::test]
-    async fn sharing_an_existing_calendar_works_on_its_own_too() {
-        // For the calendars that already exist and were created before
-        // the two steps were joined.
-        let calendar = CalendarStub::start().await;
-        let client = stubbed(&calendar).await;
-
-        let id = client
-            .create_calendar("Almanac · Infra", "first@example.com")
-            .await
-            .unwrap();
-        client
-            .share_calendar(&id, "second@example.com")
-            .await
-            .unwrap();
-
-        assert_eq!(
-            calendar.shared_with("Almanac · Infra").await,
-            vec![
-                "first@example.com".to_string(),
-                "second@example.com".to_string()
-            ]
-        );
-    }
-}
+mod tests;
