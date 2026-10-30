@@ -88,7 +88,18 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
         "chain": chain(&waiting, &watch),
         "schedule": schedule(&waiting, &watch, now),
         "aside": aside(&dead, &state),
+        "marks": marks(&profiles),
     })))
+}
+
+/// Each source's mark from its profile, where the profile sets one; the
+/// page derives the rest from the id.
+fn marks(profiles: &std::collections::HashMap<String, crate::core::profile::Profile>) -> Value {
+    profiles
+        .iter()
+        .filter_map(|(id, p)| p.mark.as_ref().map(|m| (id.clone(), json!(m))))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 /// The stage that is failing, from the latest pass, and why.

@@ -40,8 +40,8 @@ function noteOf(card) {
 
 /** @param {any} card */
 function cardOf(card) {
-    if (card.lane === 'google') return { id: card.id, lane: 'google', title: card.title, sub: card.source, meta: moment(card.at), mark: markOf(card.source) };
-    return { id: card.id, lane: card.lane, title: card.title, sub: `${card.source} · ${noteOf(card)}`, meta: `Received ${moment(card.at)}`, mark: markOf(card.source) };
+    if (card.lane === 'google') return { id: card.id, lane: 'google', title: card.title, sub: card.source, meta: moment(card.at), mark: markOf(card.source, state.data.marks) };
+    return { id: card.id, lane: card.lane, title: card.title, sub: `${card.source} · ${noteOf(card)}`, meta: `Received ${moment(card.at)}`, mark: markOf(card.source, state.data.marks) };
 }
 
 /** @param {any} counts @param {number} listed @param {{ said: string } | null} lit */

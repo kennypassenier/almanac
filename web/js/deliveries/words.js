@@ -3,6 +3,6 @@ export const times = (/** @type {number} */ n) => `${n} ${n === 1 ? 'time' : 'ti
 export const tries = (/** @type {number} */ n) => `${n} ${n === 1 ? 'try' : 'tries'}`;
 export const events = (/** @type {number} */ n) => `${n} ${n === 1 ? 'event' : 'events'}`;
 
-/** The marks of the sources the household knows; any other source gets the first two letters of its id. */
-const MARKS = { 'home-assistant': 'HA', homelab: 'HL', 'claude-sessions': 'CS', kyu: 'KY' };
-export const markOf = (/** @type {string} */ source) => /** @type {Record<string, string>} */ (MARKS)[source] ?? source.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase();
+/** A source's mark: the one its profile sets (`marks`, from the server), else the first two letters of its id. */
+export const markOf = (/** @type {string} */ source, /** @type {Record<string, string>} */ marks = {}) =>
+    marks[source] ?? source.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase();

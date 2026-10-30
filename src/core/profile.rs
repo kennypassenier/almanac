@@ -33,6 +33,12 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 2;
 /// appointment"; a source that means otherwise says so.
 pub const FALLBACK_DURATION_MINUTES: i64 = 60;
 
+mod mark;
+mod template;
+
+use mark::validate_mark;
+pub use template::default_profile_toml;
+
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -51,6 +57,10 @@ pub struct Profile {
     /// [`FALLBACK_DURATION_MINUTES`].
     #[serde(default)]
     pub default_duration_minutes: Option<i64>,
+    /// The short mark the Deliveries page shows for this source, such as
+    /// "HA". Absent, the page takes the first two letters of the id.
+    #[serde(default)]
+    pub mark: Option<String>,
 }
 
 fn default_timezone() -> String {
@@ -99,6 +109,7 @@ impl Profile {
             });
         }
         validate_timezone(&self.timezone, origin)?;
+        validate_mark(self.mark.as_deref(), origin)?;
         if let Some(minutes) = self.default_duration_minutes
             && minutes <= 0
         {
@@ -181,29 +192,6 @@ pub fn validate_timezone(timezone: &str, origin: &str) -> Result<(), AlmanacErro
         });
     }
     Ok(())
-}
-
-/// The profile the dashboard writes when someone adds a source with
-/// nothing but a name and a calendar (K21).
-///
-/// Since 2.0.0 this is the whole file. There is no field mapping to
-/// fill in and no per-event setting to guess at: the source says what
-/// each event is when it sends it.
-pub fn default_profile_toml(source_id: &str, calendar_id: &str) -> String {
-    format!(
-        r#"# Written from the dashboard.
-#
-# A profile says where a source's events land. What each event IS —
-# its title, start, length, colour, whether it is all-day — comes from
-# the source in the call itself. See docs/USER_GUIDE.md.
-
-schema_version = {SUPPORTED_SCHEMA_VERSION}
-source_id = "{source_id}"
-target_calendar_id = "{calendar_id}"
-timezone = "Europe/Brussels"
-default_duration_minutes = {FALLBACK_DURATION_MINUTES}
-"#
-    )
 }
 
 /// Whether a `source_id` may be used as-is in a URL path and as a file
