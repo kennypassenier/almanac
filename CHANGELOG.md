@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-10-31
+
 ### Migration
 
 - Profiles: to keep a source's mark on the Deliveries page, add
