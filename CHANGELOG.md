@@ -69,6 +69,9 @@ against before it installs anything.
 
 - tokio 1.53.1 → 1.54.1 (RUSTSEC-2026-0386, AsyncFd).
 - ctutils 0.4.2 → 0.4.7 (RUSTSEC-2026-0385).
+- RUSTSEC-2026-0387 (crypto-bigint 0.5.5) is a reviewed exception: it comes
+  only through jsonwebtoken's ECDSA code, which Almanac never uses (it signs
+  RS256), and no fixed 0.5.x exists.
 
 ## [5.0.0] - 2026-10-22
 
