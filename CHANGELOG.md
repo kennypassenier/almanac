@@ -11,6 +11,48 @@ against before it installs anything.
 
 ## [Unreleased]
 
+Planned as 6.0.0 (Kenny, 2026-10-31: a major release on the next
+chassis-rs major). The chassis-rs bump lands with the release.
+
+### Changed
+
+- **Code split along the engineering rules**: no source file over 250
+  lines (31 before), functions over 40 lines from 42 to 15. Behaviour,
+  routes and file formats are unchanged except as listed below.
+- **Profiles take an optional `mark`** (one to three letters or digits,
+  such as `"HA"`) that the Deliveries page shows for the source. The
+  page's built-in table of four source names is gone: a profile without
+  `mark` shows the first two letters of its id, so the live profiles of
+  home-assistant, homelab, claude-sessions and kyu need `mark` set to keep
+  HA, HL, CS and KY.
+- The History and Status pages show what they could read and say what
+  they could not: unreadable history rows are counted on the day summary
+  and the week card, and an unreadable set-aside list turns the gave-up
+  tile amber instead of reading as none.
+- The trend's ring size and the three-refusal limit come from the server
+  instead of copies in the pages.
+- The worker's live view lives on the app state instead of a process-wide
+  static.
+- The 3.x token store is reduced to what the one-time token import needs.
+
+### Fixed
+
+- Google lists were read one page deep: past the first page (100
+  calendars, or 2500 events in a week) items were dropped silently. Every
+  page is now read, with a hard stop after 100 pages.
+- The journal's 64 MiB cap was skipped when the file size could not be
+  read; such an append is now refused with the reason.
+- Try a source dropped an Idempotency-Key that is not a valid header
+  value and then reported the call as lacking an id; it now says the key
+  is invalid.
+- An answer from Google without an event id stored an empty id, and a
+  found event without one led to a second event; both are now a transient
+  failure that is retried.
+- The heartbeat loop stops when its shutdown channel closes instead of
+  spinning.
+- More than 30 failures that were swallowed silently now log a warning or
+  return an error.
+
 ## [5.0.0] - 2026-10-22
 
 ### Changed
