@@ -65,6 +65,10 @@ against before it installs anything.
 - More than 30 failures that were swallowed silently now log a warning or
   return an error.
 
+### Security
+
+- tokio 1.53.1 → 1.54.1 (RUSTSEC-2026-0386, AsyncFd).
+
 ## [5.0.0] - 2026-10-22
 
 ### Changed
