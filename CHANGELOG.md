@@ -11,11 +11,11 @@ against before it installs anything.
 
 ## [Unreleased]
 
-Planned as 6.0.0 (Kenny, 2026-10-31: a major release on the next
-chassis-rs major). The chassis-rs bump lands with the release.
-
 ### Changed
 
+- **chassis-rs 3.13.0 → 4.0.0** (kp-themes 12). kp-themes now comes as one
+  bundle: every page script and the four page templates load
+  `/static/kp/dist/kp-themes.min.js` instead of the per-module tree.
 - **Code split along the engineering rules**: no source file over 250
   lines (31 before), functions over 40 lines from 42 to 15. Behaviour,
   routes and file formats are unchanged except as listed below.
