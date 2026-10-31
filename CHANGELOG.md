@@ -11,6 +11,18 @@ against before it installs anything.
 
 ## [Unreleased]
 
+### Migration
+
+- Profiles: to keep a source's mark on the Deliveries page, add
+  `mark = "HA"` (or its own) to its profile; without it the page shows the
+  first two letters of the id. The live set needs `mark` for
+  home-assistant (HA), homelab (HL), claude-sessions (CS) and kyu (KY).
+- Behind the home route (Traefik), add `10.10.10.4` to
+  `ALMANAC_TRUSTED_PROXIES` so `ALMANAC_TRUSTED_ADMINS` also works on the
+  hostname (chassis-rs 4.0.0).
+- Nothing else changes for an operator: state files, the journal and the
+  profile format are read as before.
+
 ### Changed
 
 - **chassis-rs 3.13.0 → 4.0.0** (kp-themes 12). kp-themes now comes as one
