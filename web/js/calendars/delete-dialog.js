@@ -1,6 +1,5 @@
 // Section 4 of the Calendars page: the typed delete of a calendar.
-import { runFlashButton } from '/static/kp/js/flash.js';
-import { buildTypeConfirm } from '/static/kp/js/components.js';
+import { runFlashButton, buildTypeConfirm } from '/static/kp/dist/kp-themes.min.js';
 import { api, flavour, said } from './api.js';
 import { state, hooks } from './state.js';
 import { must, tbody } from './dom.js';

@@ -1,9 +1,5 @@
 // The event editor and the Try call: the JSON field, the dry run, and the states it moves the cards through.
-import { setCardState } from '/static/kp/js/card-state.js';
-import { setCode } from '/static/kp/js/code.js';
-import { trace } from '/static/kp/js/path-trace.js';
-import { jsonField } from '/static/kp/js/json-field.js';
-import { form as formOf, VALID_EVENT } from '/static/kp/js/forms.js';
+import { setCardState, setCode, trace, jsonField, form as formOf, VALID_EVENT } from '/static/kp/dist/kp-themes.min.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { setAlert, refusalWords } from './words.js';

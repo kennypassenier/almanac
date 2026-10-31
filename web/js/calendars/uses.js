@@ -1,7 +1,5 @@
 // Section 7 of the Calendars page: the uses map, as a matrix ("lines") or a graph.
-import { setMatrix } from '/static/kp/js/heat.js';
-import { setGraphData, setGraphState } from '/static/kp/js/graph.js';
-import { setSegmentedValues } from '/static/kp/js/segmented.js';
+import { setMatrix, setGraphData, setGraphState, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
 import { plural } from '../lib/format.js';
 import { state, hooks, sources, sourcesOf, sourceCardText } from './state.js';
 import { lines, graph, switcher, USES_SKELETON_ROWS } from './dom.js';

@@ -1,14 +1,11 @@
 // Section 3 of the deliveries page: the entries set aside. The states are the package's: the busy card over the
 // skeleton, the empty plate, the failed plate with Try again.
-import { setProblems } from '/static/kp/js/problems.js';
-import { attachArt } from '/static/kp/js/art.js';
-import { statePlate } from '/static/kp/js/state-plate.js';
-import { openBusyCard } from '/static/kp/js/busy-card.js';
+import { setProblems, attachArt, statePlate, openBusyCard } from '/static/kp/dist/kp-themes.min.js';
 import { moment } from '../lib/format.js';
 import { state } from './state.js';
 import { asideEl, asideLoading, asideEmpty, asideFailed } from './dom.js';
 
-/** @type {import('/static/kp/js/busy-card.js').BusyCard | null} */
+/** @type {import('/static/kp/dist/kp-themes.min.js').BusyCard | null} */
 let asideBusy = null;
 
 /** @param {() => void} onRetry reads the journal again */

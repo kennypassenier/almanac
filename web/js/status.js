@@ -3,12 +3,7 @@
 // /status/sources, reads them again on the kit's refresh, and keeps rows updating in place by their stable id.
 // The parts live in js/status/*.js.
 
-import { setStackbar } from '/static/kp/js/stackbar.js';
-import { attachSegmented } from '/static/kp/js/segmented.js';
-import { attachAgo } from '/static/kp/js/freshness.js';
-import { attachSparklines, attachKpiToggles, attachKpiStrips } from '/static/kp/js/kpi.js';
-import { attachCharts } from '/static/kp/js/chart.js';
-import { attachTicks } from '/static/kp/js/tick.js';
+import { setStackbar, attachSegmented, attachAgo, attachSparklines, attachKpiToggles, attachKpiStrips, attachCharts, attachTicks } from '/static/kp/dist/kp-themes.min.js';
 import { tableHandle } from './status/read.js';
 import { $, hold, journalCard, sourcesCard } from './status/card.js';
 import { journal, sources } from './status/state.js';

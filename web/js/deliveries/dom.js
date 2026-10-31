@@ -1,8 +1,5 @@
 // The deliveries page's elements and the package parts attached to them. Importing this waits for the package.
-import { attachGantts } from '/static/kp/js/gantt.js';
-import { attachPipelines } from '/static/kp/js/pipeline.js';
-import { attachProblems } from '/static/kp/js/problems.js';
-import { attachRuns } from '/static/kp/js/runs.js';
+import { attachGantts, attachPipelines, attachProblems, attachRuns } from '/static/kp/dist/kp-themes.min.js';
 import { autoReady } from '../lib/ready.js';
 
 await autoReady;

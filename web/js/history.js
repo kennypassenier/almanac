@@ -1,8 +1,5 @@
 // history page: kp-themes 11.0.0 components wired to Almanac JSON routes.
-import { setCalendarDays, setCalendarState, setCalendarLegend, setCalendarCaption, calendarSelect } from '/static/kp/js/calendar.js';
-import { setWeekEvents, setWeekState, setWeekLegend } from '/static/kp/js/week.js';
-import { setCardState } from '/static/kp/js/card-state.js';
-import { dataTable } from '/static/kp/js/datatable.js';
+import { setCalendarDays, setCalendarState, setCalendarLegend, setCalendarCaption, calendarSelect, setWeekEvents, setWeekState, setWeekLegend, setCardState, dataTable } from '/static/kp/dist/kp-themes.min.js';
 
 /** Resolves once js/auto.js has attached everything the page carries. */
 const ready = new Promise((resolve) => {
@@ -77,7 +74,7 @@ async function loadMonth() {
             showDay(data.today);
             return;
         }
-        /** @type {Record<string, import('/static/kp/js/calendar.js').CalendarDay>} */
+        /** @type {Record<string, import('/static/kp/dist/kp-themes.min.js').CalendarDay>} */
         const days = {};
         for (let iso = shift(firstDay, -62); iso < firstDay; iso = shift(iso, 1)) {
             days[iso] = { tone: 'before', label: `${human(iso)}: before Almanac started` };
