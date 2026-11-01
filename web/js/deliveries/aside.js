@@ -1,10 +1,10 @@
 // Section 3 of the deliveries page: the entries set aside, one alert per cause with the events as a data table under it.
 // The states are the package's: the busy card over the skeleton, the empty plate, the failed plate with Try again.
-import { attachArt, attachDataTables, statePlate, openBusyCard } from '/static/kp/dist/kp-themes.min.js';
-import { esc, moment } from '../lib/format.js';
+import { attachArt, attachDataTables, attachSelectionBars, statePlate, openBusyCard } from '/static/kp/dist/kp-themes.min.js';
 import { state } from './state.js';
 import { asideEl, asideLoading, asideEmpty, asideFailed } from './dom.js';
-import { events } from './words.js';
+import { groupByCause, groupHtml } from './groups.js';
+import { act, held, initActions } from './actions.js';
 
 /** @type {import('/static/kp/dist/kp-themes.min.js').BusyCard | null} */
 let asideBusy = null;
@@ -13,8 +13,12 @@ let drawnFrom = '';
 /** Lets the tables on screen go before new ones are made. @type {(() => void) | null} */
 let detachTables = null;
 
-/** @param {() => void} onRetry reads the journal again */
-export function initAside(onRetry) {
+/**
+ * @param {() => void} onRetry reads the journal again, behind the loading state
+ * @param {() => Promise<void>} reload reads it quietly */
+export function initAside(onRetry, reload) {
+    initActions({ redraw: renderAside, reload });
+    asideEl.addEventListener('click', onRowAction);
     statePlate(document, { kind: 'empty', title: 'Nothing has been set aside', text: 'Every event Almanac accepted is either delivered or still being tried.', into: asideEmpty });
     asideEmpty.setAttribute('data-kp-art', 'done');
     attachArt(asideEmpty.parentElement ?? document);
@@ -31,53 +35,35 @@ function syncBusyCard() {
     }
 }
 
-/** The set-aside events by cause, the cause met first first (the list is newest first). @param {any[]} list */
-export function groupByCause(list) {
-    /** @type {Map<string, { key: string, cause: string, remedy: string, items: any[] }>} */
-    const groups = new Map();
-    for (const item of list) {
-        const key = `${item.cause}\n${item.remedy}`;
-        const group = groups.get(key) ?? { key, cause: item.cause, remedy: item.remedy, items: [] };
-        group.items.push(item);
-        groups.set(key, group);
+/** The keys of the rows ticked now, so a redraw gives the ticks back. */
+function tickedKeys() {
+    const boxes = /** @type {NodeListOf<HTMLInputElement>} */ (asideEl.querySelectorAll('[data-kp-select-row]:checked'));
+    return [...boxes].map((box) => box.closest('tr')?.getAttribute('data-kp-row-key') ?? '');
+}
+
+/** @param {string[]} keys */
+function tick(keys) {
+    for (const row of asideEl.querySelectorAll('tr[data-kp-row-key]')) {
+        if (!keys.includes(row.getAttribute('data-kp-row-key') ?? '')) continue;
+        const box = /** @type {HTMLInputElement | null} */ (row.querySelector('[data-kp-select-row]'));
+        if (!box) continue;
+        box.checked = true;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    return [...groups.values()];
 }
 
-/** @param {any} item */
-function rowOf(item) {
-    return `<tr data-kp-row-key="${esc(item.id)}">
-<td data-label="Event">${esc(item.title)}</td>
-<td data-label="Source">${esc(item.source)}</td>
-<td data-label="Set aside" data-kp-sort-value="${item.at}">${moment(item.at)}</td>
-<td data-label="Reason">${esc(item.short)}</td>
-</tr>`;
+/** A selection bar's Retry or Dismiss: act on the keys it carries. @param {Event} event */
+function onBarAction(event) {
+    const { action, keys } = /** @type {CustomEvent} */ (event).detail;
+    if (action === 'retry' || action === 'dismiss') act(action, keys);
 }
 
-/** @param {{ key: string, cause: string, remedy: string, items: any[] }} group @param {number} index */
-function groupHtml(group, index) {
-    const sources = [...new Set(group.items.map((item) => item.source))];
-    const what = `${events(group.items.length)} from ${sources.join(', ')} ${group.items.length === 1 ? 'was' : 'were'} set aside`;
-    return `<article class="ad-group" data-ad-group="${index}">
-<div class="kp-alert kp-alert--destructive" role="group" aria-label="${esc(what)}">
-<strong class="kp-alert__what">${esc(what)}</strong>
-<span class="kp-alert__why">${esc(group.cause)}</span>
-<span class="kp-alert__remedy"><span class="kp-alert__remedy-label">What now</span> ${esc(group.remedy)}</span>
-</div>
-<div class="kp-datatable ad-group__table" data-kp-datatable>
-<div class="kp-table-wrap"><table class="kp-table">
-<caption class="kp-sr-only">${esc(what)}: ${esc(group.cause)}</caption>
-<thead><tr>
-<th scope="col" data-kp-sort="text">Event</th>
-<th scope="col" data-kp-sort="text">Source</th>
-<th scope="col" data-kp-sort="number">Set aside</th>
-<th scope="col" data-kp-sort="text">Reason</th>
-</tr></thead>
-<tbody>${group.items.map(rowOf).join('\n')}</tbody>
-</table></div>
-<p class="kp-datatable__status" data-kp-datatable-status role="status" aria-live="polite"></p>
-</div>
-</article>`;
+/** A row's own Retry or Dismiss button. @param {MouseEvent} event */
+function onRowAction(event) {
+    const button = /** @type {HTMLElement | null} */ ((/** @type {HTMLElement} */ (event.target)).closest('[data-ad-act]'));
+    const kind = button?.getAttribute('data-ad-act');
+    const key = button?.getAttribute('data-ad-key');
+    if (key && (kind === 'retry' || kind === 'dismiss')) act(kind, [key]);
 }
 
 /** @param {any[]} list */
@@ -85,16 +71,27 @@ function drawGroups(list) {
     const from = JSON.stringify(list.map((item) => [item.id, item.cause, item.remedy]));
     if (from === drawnFrom) return;
     drawnFrom = from;
+    const ticked = tickedKeys();
     detachTables?.();
     asideEl.innerHTML = groupByCause(list).map(groupHtml).join('\n');
-    detachTables = attachDataTables(asideEl);
+    const detachData = attachDataTables(asideEl);
+    const detachBars = attachSelectionBars(asideEl);
+    detachTables = () => {
+        detachBars();
+        detachData();
+    };
+    for (const bar of asideEl.querySelectorAll('[data-kp-selection]')) bar.addEventListener('kp-selection-action', onBarAction);
+    tick(ticked);
 }
 
 export function renderAside() {
     syncBusyCard();
     asideLoading.hidden = state.status !== 'loading';
     asideFailed.hidden = state.status !== 'error';
-    const list = state.status === 'ready' ? state.data.aside : [];
+    const all = state.status === 'ready' ? state.data.aside : [];
+    // An id the journal no longer lists has been dealt with; it needs no holding any more.
+    for (const id of held) if (!all.some((item) => item.id === id)) held.delete(id);
+    const list = all.filter((item) => !held.has(item.id));
     asideEl.hidden = list.length === 0;
     asideEmpty.hidden = !(state.status === 'ready' && list.length === 0);
     drawGroups(list);

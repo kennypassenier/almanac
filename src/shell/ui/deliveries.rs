@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use chassis::Dashboard;
 use serde_json::{Value, json};
@@ -19,6 +19,7 @@ use crate::core::pacing;
 use crate::shell::state::AppState;
 use crate::shell::worker::{self, EntryWatch, FailureKind, WatchSnapshot};
 
+mod actions;
 mod aside;
 
 const PAGE_HTML: &str = include_str!("../../../templates/deliveries.html");
@@ -32,6 +33,8 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/deliveries", get(page))
         .route("/deliveries/data", get(data))
+        .route("/deliveries/retry", post(actions::retry))
+        .route("/deliveries/dismiss", post(actions::dismiss))
 }
 
 async fn page(Extension(dash): Extension<Dashboard>) -> Response {

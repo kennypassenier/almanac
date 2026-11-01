@@ -10,7 +10,7 @@ import { load, render, startPolling } from './deliveries/load.js';
 const retry = () => load(true);
 initChain(retry);
 initSchedule(retry);
-initAside(retry);
+initAside(retry, () => load());
 render();
 load();
 startPolling();

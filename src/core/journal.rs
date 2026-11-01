@@ -57,6 +57,11 @@ pub enum Record {
 }
 
 /// Entries set aside as undeliverable, most recent last.
+///
+/// An entry whose id has a `Done` marker is no longer listed: that is how
+/// a set-aside entry is retried (a new entry stands in for it) or
+/// dismissed, without a new record kind an older binary could not read.
+/// Compaction drops such an entry's payload, because it reads this list.
 pub fn dead(records: &[Record]) -> Vec<(&Entry, &str, &str)> {
     let reasons: std::collections::HashMap<&str, (&str, &str)> = records
         .iter()
@@ -65,16 +70,34 @@ pub fn dead(records: &[Record]) -> Vec<(&Entry, &str, &str)> {
             _ => None,
         })
         .collect();
+    let finished: std::collections::HashSet<&str> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Done { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
 
     records
         .iter()
         .filter_map(|r| match r {
-            Record::Entry(e) => reasons
+            Record::Entry(e) if !finished.contains(e.id.as_str()) => reasons
                 .get(e.id.as_str())
                 .map(|(reason, at)| (e, *reason, *at)),
             _ => None,
         })
         .collect()
+}
+
+/// The entry that stands in for a set-aside one when it is retried: a
+/// fresh id, received now, with the same source, payload and
+/// idempotency key, so Google converges on one event.
+pub fn requeued(old: &Entry, new_id: String, now: &str) -> Entry {
+    Entry {
+        id: new_id,
+        received_at: now.to_string(),
+        ..old.clone()
+    }
 }
 
 /// Reconstructs the still-undelivered entries from a replayed log, in
@@ -214,6 +237,20 @@ mod tests {
         assert_eq!(dead[0].0.id, "a");
         assert_eq!(dead[0].1, "mapping.title_field is missing");
         assert_eq!(dead[0].2, "2026-08-29T09:00:00+00:00");
+    }
+
+    #[test]
+    fn a_dead_entry_with_a_later_done_marker_is_no_longer_listed() {
+        // Retry and dismiss both end a set-aside entry with a `Done`.
+        let records = vec![
+            entry("a"),
+            entry("b"),
+            dead_marker("a", "unmappable"),
+            dead_marker("b", "unmappable"),
+            done("a"),
+        ];
+        let ids: Vec<_> = dead(&records).iter().map(|d| d.0.id.as_str()).collect();
+        assert_eq!(ids, vec!["b"]);
     }
 
     #[test]

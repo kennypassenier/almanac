@@ -29,6 +29,9 @@ pub struct Journal {
     /// Serializes writers so two appends can never interleave a
     /// partial line into the file.
     write_lock: Mutex<()>,
+    /// Serializes retry and dismiss, which read the set-aside list and
+    /// then append: two clicks on the same event must not retry it twice.
+    requeue_lock: Mutex<()>,
 }
 
 impl Journal {
@@ -37,6 +40,7 @@ impl Journal {
             path,
             max_bytes,
             write_lock: Mutex::new(()),
+            requeue_lock: Mutex::new(()),
         }
     }
 
@@ -96,6 +100,9 @@ impl Journal {
 mod append;
 mod compact;
 mod read;
+mod requeue;
+
+pub use requeue::RequeueError;
 
 #[cfg(test)]
 mod tests;

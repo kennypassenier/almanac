@@ -141,3 +141,91 @@ async fn entries_replay_in_acceptance_order() {
     assert_eq!(ids, vec!["a", "b", "c"]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A journal holding entry `id` set aside, with a reason.
+async fn journal_with_dead(name: &str, ids: &[&str]) -> (Journal, PathBuf) {
+    let (journal, dir) = temp_journal(name);
+    for id in ids {
+        let mut e = entry(id);
+        e.idempotency_key = Some(format!("key-{id}"));
+        journal.accept(&e).await.unwrap();
+        journal
+            .mark_dead(id, "title is missing", "2026-08-29T09:00:00+00:00")
+            .await
+            .unwrap();
+    }
+    (journal, dir)
+}
+
+#[tokio::test]
+async fn retrying_a_set_aside_entry_queues_a_new_one_and_retires_the_old() {
+    let (journal, dir) = journal_with_dead("retry", &["a", "b"]).await;
+
+    let n = journal
+        .retry_dead(&["a".to_string()], "2026-11-01T10:00:00+00:00")
+        .await
+        .unwrap();
+
+    assert_eq!(n, 1);
+    let pending = journal.pending().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_ne!(pending[0].id, "a", "the retry has a fresh id");
+    assert_eq!(pending[0].source_id, "home-assistant");
+    assert_eq!(pending[0].payload, json!({"title": "t"}));
+    assert_eq!(pending[0].idempotency_key.as_deref(), Some("key-a"));
+    assert_eq!(pending[0].received_at, "2026-11-01T10:00:00+00:00");
+    let dead = journal.dead().unwrap();
+    assert_eq!(dead.len(), 1, "only b is still set aside");
+    assert_eq!(dead[0].0.id, "b");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn dismissing_removes_it_from_the_list_and_compaction_drops_its_payload() {
+    let (journal, dir) = journal_with_dead("dismiss", &["a", "b"]).await;
+
+    let n = journal
+        .dismiss_dead(&["a".to_string(), "a".to_string()])
+        .await
+        .unwrap();
+
+    assert_eq!(n, 1, "a repeated id counts once");
+    assert!(
+        journal.pending().unwrap().is_empty(),
+        "dismiss queues nothing"
+    );
+    assert_eq!(journal.dead().unwrap().len(), 1);
+    journal.compact().await.unwrap();
+    let text = std::fs::read_to_string(journal.path()).unwrap();
+    assert!(!text.contains("\"id\":\"a\""), "the payload went: {text}");
+    assert!(text.contains("\"id\":\"b\""));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn an_id_that_is_not_set_aside_refuses_the_whole_call_and_writes_nothing() {
+    let (journal, dir) = journal_with_dead("refuse", &["a"]).await;
+    journal.accept(&entry("waiting")).await.unwrap();
+    let before = std::fs::read_to_string(journal.path()).unwrap();
+
+    for ids in [vec!["a", "waiting"], vec!["a", "nope"]] {
+        let ids: Vec<String> = ids.into_iter().map(String::from).collect();
+        match journal.retry_dead(&ids, "t").await {
+            Err(RequeueError::NotSetAside(refused)) => assert_eq!(refused, vec![ids[1].clone()]),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(matches!(
+            journal.dismiss_dead(&ids).await,
+            Err(RequeueError::NotSetAside(_))
+        ));
+    }
+
+    assert_eq!(std::fs::read_to_string(journal.path()).unwrap(), before);
+    // A second retry of an id that was already retried is refused too.
+    journal.retry_dead(&["a".to_string()], "t").await.unwrap();
+    assert!(matches!(
+        journal.retry_dead(&["a".to_string()], "t").await,
+        Err(RequeueError::NotSetAside(_))
+    ));
+    std::fs::remove_dir_all(&dir).ok();
+}

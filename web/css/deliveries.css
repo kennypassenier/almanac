@@ -110,3 +110,14 @@
     gap: var(--kp-space-sm, 0.5rem);
     min-inline-size: 0;
 }
+
+/* Retry and Dismiss share one column and one width, so they line up from row to row whatever their labels. */
+.ad-row-acts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(5.5rem, 1fr));
+    gap: var(--kp-space-xs, 0.25rem);
+}
+
+.ad-group .kp-selection {
+    min-inline-size: 0;
+}
