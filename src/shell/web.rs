@@ -7,6 +7,33 @@
 /// 404 in the binary, so a new page script is added in both places.
 pub const FILES: &[(&str, &[u8])] = &[
     ("index.html", include_bytes!("../../web/index.html")),
+    // The approved app icon (2026-11-01); the kit serves pwa/* as the
+    // install icons once the web app is installable.
+    (
+        "pwa/icon-180.png",
+        include_bytes!("../../web/pwa/icon-180.png"),
+    ),
+    (
+        "pwa/icon-192.png",
+        include_bytes!("../../web/pwa/icon-192.png"),
+    ),
+    (
+        "pwa/icon-512.png",
+        include_bytes!("../../web/pwa/icon-512.png"),
+    ),
+    (
+        "pwa/icon-maskable-192.png",
+        include_bytes!("../../web/pwa/icon-maskable-192.png"),
+    ),
+    (
+        "pwa/icon-maskable-512.png",
+        include_bytes!("../../web/pwa/icon-maskable-512.png"),
+    ),
+    (
+        "pwa/icon-monochrome-512.png",
+        include_bytes!("../../web/pwa/icon-monochrome-512.png"),
+    ),
+    ("pwa/icon.svg", include_bytes!("../../web/pwa/icon.svg")),
     ("css/states.css", include_bytes!("../../web/css/states.css")),
     (
         "js/calendars.js",
@@ -204,33 +231,4 @@ pub fn mount(app: &mut chassis::App) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::FILES;
-    use std::path::Path;
-
-    fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
-        for entry in std::fs::read_dir(dir).expect("web/ is readable") {
-            let path = entry.expect("a web/ entry").path();
-            if path.is_dir() {
-                walk(&path, root, out);
-            } else {
-                let rel = path.strip_prefix(root).expect("under web/");
-                out.push(rel.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-
-    /// A file on disk that is not in FILES is a 404 in the binary: the
-    /// Deliveries page once shipped without its actions and groups scripts.
-    #[test]
-    fn every_web_file_is_embedded() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
-        let mut on_disk = Vec::new();
-        walk(&root, &root, &mut on_disk);
-        let missing: Vec<_> = on_disk
-            .iter()
-            .filter(|f| !FILES.iter().any(|(name, _)| name == f))
-            .collect();
-        assert!(missing.is_empty(), "not embedded in FILES: {missing:?}");
-    }
-}
+mod tests;
