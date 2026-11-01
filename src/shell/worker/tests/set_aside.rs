@@ -35,6 +35,9 @@ async fn an_entry_that_can_never_be_delivered_is_eventually_set_aside() {
         !dead[0].1.is_empty(),
         "with the reason, which is what makes it fixable"
     );
+    // The error's text already carries its remedy; the stored reason must not add it a second time.
+    let remedy_marks = dead[0].1.matches(" — ").count();
+    assert_eq!(remedy_marks, 1, "one remedy, not two: {}", dead[0].1);
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -115,7 +115,8 @@ async fn set_aside(
     permanent: &mut PermanentFailures,
     notifier: &Notifier,
 ) {
-    let reason = format!("{e} — {}", e.remedy());
+    // The error's own text already ends in " — <remedy>"; adding the remedy again doubled it.
+    let reason = e.to_string();
     if let Err(write_error) = state
         .journal
         .mark_dead(&entry.id, &reason, &(state.now)())
