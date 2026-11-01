@@ -55,8 +55,25 @@ pub(crate) async fn list_calendars(
 
 /// `GET /calendars/data/google`. A failed list is a 200 with `ok: false` and
 /// the words to show, so the card can offer Retry without a transport error.
+/// How long the page waits for Google before it says Google does not
+/// answer. The client's own retry budget is a minute, and the kit ends a
+/// request after 30 s with a bare 408, so without this the page sat on
+/// "Reading…" for half a minute in an outage (UX review 2026-11-01).
+const PAGE_GOOGLE_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
 async fn google_data(State(state): State<Arc<AppState>>) -> Json<Value> {
-    match list_calendars(&state).await {
+    let listed = match tokio::time::timeout(PAGE_GOOGLE_WAIT, list_calendars(&state)).await {
+        Ok(listed) => listed,
+        Err(_) => Err(crate::core::error::AlmanacError::GoogleApi {
+            message: format!(
+                "Google did not answer within {} s",
+                PAGE_GOOGLE_WAIT.as_secs()
+            ),
+            remedy: "check again in a moment".to_string(),
+            transient: true,
+        }),
+    };
+    match listed {
         Ok(calendars) => Json(json!({
             "ok": true,
             "can_create": state.calendar_owner.is_some(),
