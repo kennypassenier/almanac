@@ -145,12 +145,23 @@ function saySchedule() {
         : `Nothing is waiting (${counts.pending} in the journal).`;
 }
 
+/**
+ * Both views stay in the layout, stacked in one grid cell, and only the chosen one is seen and reachable: the section is
+ * as high as the higher of the two, so switching never moves what follows.
+ * @param {HTMLElement} view @param {boolean} shown
+ */
+function showView(view, shown) {
+    view.style.visibility = shown ? '' : 'hidden';
+    view.inert = !shown;
+    view.setAttribute('aria-hidden', String(!shown));
+}
+
 export function renderSchedule() {
-    runsEl.hidden = state.shape !== 'runs';
-    ganttEl.hidden = state.shape !== 'gantt';
+    showView(runsEl, state.shape === 'runs');
+    showView(ganttEl, state.shape === 'gantt');
     saySchedule();
-    if (state.shape === 'runs') renderRuns();
-    else renderGantt();
+    renderRuns();
+    renderGantt();
 }
 
 /** @param {() => void} onRetry reads the journal again */

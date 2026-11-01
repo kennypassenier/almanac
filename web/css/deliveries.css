@@ -122,6 +122,17 @@
     min-inline-size: 0;
 }
 
+/* List and Timeline share one grid cell: the section is as high as the higher of the two in either view. */
+.ad-stack {
+    display: grid;
+    min-inline-size: 0;
+}
+
+.ad-stack > * {
+    grid-area: 1 / 1;
+    min-inline-size: 0;
+}
+
 /* "+N more" opens a lane in place: the lane scrolls inside a fixed height (about four cards) instead of growing,
    so nothing below the board moves. The toggle stays in view at the foot of the scroll area. */
 #ad-chain {
