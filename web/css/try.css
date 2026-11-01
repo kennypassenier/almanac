@@ -64,12 +64,40 @@
     justify-self: start;
 }
 
-/* The facts, then the file under them: both start on the card's left edge, so the facts' tracks and the file's edge read as one column. */
+/* The facts and the file side by side on a wide card, the file under the facts on a narrow one. */
 .try-profile {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
     gap: var(--kp-space-lg, 1.5rem);
+    align-items: start;
     min-inline-size: 0;
+}
+
+/* Editor left, verdict right: what was sent and what Almanac would do stay in view together. Under 64rem they stack. */
+.try-work {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--kp-space-xl, 2rem);
+    align-items: start;
+    min-inline-size: 0;
+}
+
+.try-work > .try-sec {
+    grid-column: span 6;
+}
+
+.try-verdict {
+    grid-column: span 6;
+    display: grid;
+    gap: var(--kp-space-xl, 2rem);
+    min-inline-size: 0;
+}
+
+@media (max-width: 64rem) {
+    .try-work > .try-sec,
+    .try-verdict {
+        grid-column: 1 / -1;
+    }
 }
 
 /* The form grid does the tracks; the field takes the whole control-to-actions span. */

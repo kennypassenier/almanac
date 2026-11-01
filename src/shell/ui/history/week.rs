@@ -63,7 +63,7 @@ pub(super) async fn week(
 ) -> Result<Json<Value>, chassis::Error> {
     let first = week_start(&state, q.start.as_deref())?;
     let names = calendar_names(&state).await;
-    let managed = managed_calendars(&state, &names);
+    let managed = managed_calendars(&state, names.map());
     let listed = list_week(&state, &managed, first).await?;
     // Only this week's keys are looked up, so the page never reads the
     // whole history for the "delivered" lines.
@@ -75,12 +75,7 @@ pub(super) async fn week(
     let read = history_store::latest_by_key(&state, keys).await?;
     let latest = read.rows;
 
-    let name_of = |id: &str| {
-        names
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| "A calendar that is no longer there".to_string())
-    };
+    let name_of = |id: &str| names.name_of(id);
     let mut events = Vec::new();
     let mut used = BTreeMap::new();
     for (index, (id, found)) in listed.iter().enumerate() {

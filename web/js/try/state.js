@@ -1,4 +1,4 @@
-// What the Try page remembers: the sources and which one each picker has chosen.
+// What the Try page remembers: the sources and the one the page's picker has chosen.
 export const state = {
     /** @type {any[]} */
     sources: [],

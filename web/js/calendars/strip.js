@@ -42,6 +42,10 @@ function applyFilter() {
     line.textContent = filterWords(state.filterKey);
 }
 
+/** A count that cannot be known right now: a dash, and why, without its own retry. @param {string} label @param {string} why */
+const unknownTile = (label, why) =>
+    `<div class="kp-kpi" data-kp-tone="warning"><span class="kp-kpi__label">${label}</span><span class="kp-kpi__value">–</span><span class="kp-kpi__trend">${esc(why)}</span></div>`;
+
 function drawWaiting() {
     strip.setAttribute('aria-busy', 'true');
     strip.innerHTML = waiting('Calendars') + waiting('Sources') + waiting('Profile files not served') + waiting('Events delivered');
@@ -53,24 +57,25 @@ function drawFailed() {
         statePlate(document, {
             kind: 'error',
             title: 'The counts could not be read',
-            text: 'Almanac could not ask Google or read the profiles folder.',
+            text: 'Almanac could not read the profiles folder.',
             actionLabel: 'Try again',
             onAction: () => void hooks.load(),
         }),
     );
-    line.textContent = 'Nothing to filter.';
+    line.textContent = '';
 }
 
 /** @param {{ calendars: import('./state.js').Calendar[] }} google @param {{ unserved: any[] }} profiles */
 function drawCounts(google, profiles) {
-    const calendars = google.calendars;
+    // Google down: the calendars tile has no number to show; the alert above says why and holds the one Check again.
+    const calendars = google.ok ? google.calendars : [];
     const unusedCalendars = calendars.filter((c) => !sourcesOf(c.id).length).length;
     const silent = sources().filter((s) => !s.delivered).length;
     const files = profiles.unserved;
-    const calendarsTrend = !calendars.length ? 'Make the first one' : unusedCalendars ? `${unusedCalendars} ${unusedCalendars === 1 ? 'is' : 'are'} used by no source` : 'Every calendar is used';
+    const calendarsTrend = !google.ok ? 'Google did not answer' : !calendars.length ? 'Make the first one' : unusedCalendars ? `${unusedCalendars} ${unusedCalendars === 1 ? 'is' : 'are'} used by no source` : 'Every calendar is used';
     const sourcesTrend = !sources().length ? 'Add one on the Sources page' : silent ? `${silent} delivered nothing since the start` : 'Every source has delivered';
     strip.innerHTML = [
-        toggleTile('calendars', 'Calendars', calendars.length, calendarsTrend),
+        google.ok ? toggleTile('calendars', 'Calendars', calendars.length, calendarsTrend) : unknownTile('Calendars', calendarsTrend),
         toggleTile('sources', 'Sources', sources().length, sourcesTrend),
         toggleTile('unserved', 'Profile files not served', files.length, files.length ? files[0].file : 'Every profile file is served', files.length ? 'warning' : ''),
         trendTile(),
@@ -84,7 +89,7 @@ export function renderStrip() {
     strip.removeAttribute('aria-busy');
     const { google, profiles } = state;
     if (!google || !profiles) return drawWaiting();
-    if (!google.ok || !profiles.ok) return drawFailed();
+    if (!profiles.ok) return drawFailed();
     drawCounts(google, profiles);
 }
 

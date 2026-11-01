@@ -1,9 +1,9 @@
-// The Try page's sources: the two pickers, the profile card, and the read of /try/api/sources that every card waits on.
+// The Try page's sources: the one source picker, the profile card, and the read of /try/api/sources that every card waits on.
 import { setCardState, setCode, attachPatterns, setSegmentedItems, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { factRow } from './words.js';
-import { $, profileCard, profileToml, editorCard, resultCard, traceBody } from './dom.js';
+import { $, profileCard, profileToml, editorCard, editorSource, resultCard, traceBody } from './dom.js';
 import { idle, idleTrace, emptyResult } from './result.js';
 import { refreshTry } from './try-button.js';
 
@@ -26,12 +26,12 @@ function drawProfile() {
     else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, size: `${new Blob([s.toml]).size} B` });
 }
 
-function drawPickers() {
+/** One picker for the page: the profile shown and the source Try sends as are always the same. */
+function drawPicker() {
     const items = state.sources.map((s) => ({ value: s.source_id, label: s.source_id }));
-    for (const [id, value] of [['profile-picker', state.profileSource], ['editor-picker', state.editorSource]]) {
-        setSegmentedItems($(id), items);
-        setSegmentedValues($(id), value ? [value] : []);
-    }
+    setSegmentedItems($('profile-picker'), items);
+    setSegmentedValues($('profile-picker'), state.profileSource ? [state.profileSource] : []);
+    editorSource.textContent = `Sends as ${state.profileSource}`;
 }
 
 /** Everything on the page waits on the profiles (Try needs a source), so the whole page is loading, or failed, with them. */
@@ -92,8 +92,8 @@ export async function loadSources() {
         setCardState(profileCard, 'empty', { title: 'No sources loaded', text: 'Almanac serves a source only when its profile file is in the profiles folder.', action: reloadButton() });
     } else {
         if (!sourceById(state.profileSource)) state.profileSource = state.sources[0].source_id;
-        if (!sourceById(state.editorSource)) state.editorSource = state.sources[0].source_id;
-        drawPickers();
+        state.editorSource = state.profileSource;
+        drawPicker();
         drawProfile();
         setCardState(profileCard, 'ready');
     }
@@ -104,10 +104,9 @@ export async function loadSources() {
 export function initSources() {
     $('profile-picker').addEventListener('kp-segmented-change', (event) => {
         state.profileSource = /** @type {CustomEvent} */ (event).detail.value;
+        state.editorSource = state.profileSource;
+        editorSource.textContent = `Sends as ${state.profileSource}`;
         drawProfile();
-    });
-    $('editor-picker').addEventListener('kp-segmented-change', (event) => {
-        state.editorSource = /** @type {CustomEvent} */ (event).detail.value;
         idle();
     });
     profileCard.addEventListener('kp-card-retry', loadSources);
