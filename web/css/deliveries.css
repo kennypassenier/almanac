@@ -97,3 +97,16 @@
         min-block-size: 43rem;
     }
 }
+
+/* One alert per cause with its events under it; the groups stand in a column of equal blocks. */
+.ad-groups {
+    display: grid;
+    gap: var(--kp-space-lg, 1.5rem);
+    min-inline-size: 0;
+}
+
+.ad-group {
+    display: grid;
+    gap: var(--kp-space-sm, 0.5rem);
+    min-inline-size: 0;
+}
