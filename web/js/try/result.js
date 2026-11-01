@@ -1,8 +1,9 @@
 // The Path and Result cards: filled by the last Try, and their idle, refused and ready faces.
-import { setCardState, setCode, setTrace, trace, attachCommands, attachPatterns, statePlate } from '/static/kp/dist/kp-themes.min.js';
+import { setCardState, setCode, setTrace, trace, attachPatterns, statePlate } from '/static/kp/dist/kp-themes.min.js';
 import { esc } from '../lib/format.js';
 import { factRow, setAlert, refusalWords } from './words.js';
 import { specRows, diffLines, curlFor } from './spec.js';
+import { state } from './state.js';
 import { $, badge, note, specArea, diffArea, curlArea, resultCard, traceEl, traceBody, traceHttp } from './dom.js';
 
 /** Back to the untried state, as after a change of source. */
@@ -20,14 +21,12 @@ const badgeTone = (tone, text) => {
 
 /** @param {any} data @param {unknown} payload */
 function drawCurl(data, payload) {
-    const command = document.createElement('div');
-    command.className = 'kp-command';
-    command.setAttribute('data-kp-command', 'bash');
-    command.setAttribute('data-kp-command-where', 'a shell with ALMANAC_TOKEN set');
-    command.innerHTML = '<pre class="kp-command__code"><code></code></pre>';
-    /** @type {HTMLElement} */ (command.querySelector('code')).textContent = curlFor(data.urls.dry_run, payload);
-    curlArea.replaceChildren(command);
-    attachCommands(curlArea);
+    const code = document.createElement('figure');
+    code.className = 'kp-code';
+    code.setAttribute('data-kp-code', '');
+    curlArea.replaceChildren(code);
+    // Copied from the card's Copy menu, so the block shows no Copy of its own.
+    setCode(code, { text: curlFor(data.urls.dry_run, payload), title: 'In a shell with ALMANAC_TOKEN set', language: 'bash', wrap: true, copy: false });
 }
 
 /** @param {any} data */
@@ -37,7 +36,7 @@ function drawRefused(data) {
     $('result-spec-title').textContent = 'The answer';
     $('result-diff-title').textContent = 'Against the calendar';
     specArea.innerHTML = '<figure class="kp-code" data-kp-code id="result-refusal"></figure>';
-    setCode(/** @type {HTMLElement} */ (specArea.firstElementChild), { text: JSON.stringify(data.answer, null, 2), title: `Answer · HTTP ${data.http}`, language: 'JSON', lines: true, wrap: true });
+    setCode(/** @type {HTMLElement} */ (specArea.firstElementChild), { text: JSON.stringify(data.answer, null, 2), title: `Answer · HTTP ${data.http}`, language: 'JSON', lines: true, wrap: true, copy: false });
     diffArea.replaceChildren(statePlate(document, { kind: 'empty', title: 'Nothing to compare', text: 'The call was refused, so no event would be written.' }));
 }
 
@@ -76,7 +75,7 @@ function drawAccepted(data, calendarName, onRetry) {
     const event = data.answer.event;
     $('result-spec-title').textContent = 'The event';
     specArea.innerHTML = `<div class="kp-formgrid" data-kp-formgrid-lines="lines" role="group" aria-label="The calendar event">${specRows(event, calendarName)
-        .map(([label, value]) => factRow(label, value, label === 'Marker'))
+        .map(([label, value]) => factRow(label, value))
         .join('')}</div>`;
     attachPatterns(specArea);
     if (data.lookup_failed) {
@@ -94,6 +93,7 @@ function drawAccepted(data, calendarName, onRetry) {
 
 /** @param {any} data @param {unknown} payload @param {() => void} onRetry asks again */
 export function drawResult(data, payload, onRetry) {
+    state.last = { data, payload };
     if (data.http !== 200) drawRefused(data);
     else drawAccepted(data, data.calendar_name ?? '', onRetry);
     drawCurl(data, payload);
@@ -107,7 +107,7 @@ export function drawTrace(data) {
     traceHttp.className = data.http === 200 ? 'kp-badge kp-badge--success' : 'kp-badge kp-badge--destructive';
     // The event is left out of the accepted answer here: it is the result's subject, above.
     const shown = data.http === 200 ? { ...data.answer, event: 'shown in the result above' } : data.answer;
-    setCode(traceBody, { text: JSON.stringify(shown, null, 2), title: `Answer · HTTP ${data.http}`, language: 'JSON', lines: true, wrap: true });
+    setCode(traceBody, { text: JSON.stringify(shown, null, 2), title: `Answer · HTTP ${data.http}`, language: 'JSON', lines: true, wrap: true, copy: false });
 }
 
 export function idleTrace() {
@@ -117,6 +117,7 @@ export function idleTrace() {
 }
 
 export function emptyResult() {
+    state.last = null;
     badge.hidden = true;
     setCardState(resultCard, 'empty', { title: 'Nothing tried yet', text: 'Write an event call in the editor and press Try it; the result shows here.', action: null });
 }

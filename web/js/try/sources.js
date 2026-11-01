@@ -13,17 +13,17 @@ function drawProfile() {
     $('profile-title').textContent = `Profile of ${s.source_id}`;
     const kv = $('profile-kv');
     kv.innerHTML = [
-        factRow('Source id', s.source_id, true),
-        factRow('Calendar', s.calendar_name, false),
-        factRow('Calendar id', s.calendar_id, true),
-        factRow('Time zone', s.timezone, false),
-        factRow('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? " (Almanac's own default)" : ''}`, false),
-        factRow('Schema version', String(s.schema_version), false),
-        factRow('File', s.file_name ?? 'Not found', Boolean(s.file_name)),
+        factRow('Source id', s.source_id),
+        factRow('Calendar', s.calendar_name),
+        factRow('Calendar id', s.calendar_id),
+        factRow('Time zone', s.timezone),
+        factRow('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? " (Almanac's own default)" : ''}`),
+        factRow('Schema version', String(s.schema_version)),
+        factRow('File', s.file_name ?? 'Not found'),
     ].join('');
     attachPatterns(kv);
     if (s.toml == null) setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read' });
-    else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, size: `${new Blob([s.toml]).size} B` });
+    else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, copy: false, size: `${new Blob([s.toml]).size} B` });
 }
 
 /** One picker for the page: the profile shown and the source Try sends as are always the same. */

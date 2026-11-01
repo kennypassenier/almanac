@@ -1,16 +1,10 @@
 // Small pieces of markup and wording shared by the Try page's sections: fact rows, alerts, refusals.
 import { esc } from '../lib/format.js';
 
-let serial = 0;
 
-/** A fact row on the form grid's tracks: label | value (control) | Copy (actions, only when `copy` is set). @param {string} label @param {string} value @param {boolean} copy */
-export function factRow(label, value, copy) {
-    const id = `try-fact-${(serial += 1)}`;
-    const body = copy ? `<span class="kp-copyable__value" id="${id}-v">${esc(value)}</span>` : esc(value);
-    const action = copy
-        ? `<div class="kp-formgrid__actions"><button type="button" class="kp-button kp-button--sm kp-button--ghost kp-copyable__button" data-kp-copy="${id}-v" aria-describedby="${id}-l">Copy</button></div>`
-        : '';
-    return `<div class="kp-formgrid__row"><span class="kp-formgrid__label" id="${id}-l">${esc(label)}</span><div class="kp-formgrid__control"><span>${body}</span></div>${action}</div>`;
+/** A fact row on the form grid's tracks: label | value. Copying is the card's Copy menu. @param {string} label @param {string} value */
+export function factRow(label, value) {
+    return `<div class="kp-formgrid__row"><span class="kp-formgrid__label">${esc(label)}</span><div class="kp-formgrid__control"><span>${esc(value)}</span></div></div>`;
 }
 
 /** @param {HTMLElement} alert @param {'info' | 'success' | 'warning' | 'destructive'} tone @param {string} label @param {string} text */

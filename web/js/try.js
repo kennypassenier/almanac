@@ -3,7 +3,9 @@
 // failed with a working Retry). The sections live in js/try/*.js.
 import { initSources, loadSources } from './try/sources.js';
 import { initEditor } from './try/editor.js';
+import { initCopies } from './try/copies.js';
 
 initSources();
 initEditor();
+initCopies();
 await loadSources();
