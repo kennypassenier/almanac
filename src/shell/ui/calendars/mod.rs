@@ -87,6 +87,7 @@ async fn google_data(State(state): State<Arc<AppState>>) -> Json<Value> {
             Json(json!({
                 "ok": false,
                 "can_create": state.calendar_owner.is_some(),
+                "calendars": [],
                 "error": "Google did not answer, so the calendars could not be listed.",
                 "remedy": "Almanac keeps the events and delivers them when Google answers again.",
             }))

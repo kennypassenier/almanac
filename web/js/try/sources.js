@@ -22,7 +22,7 @@ function drawProfile() {
         factRow('File', s.file_name ?? 'Not found'),
     ].join('');
     attachPatterns(kv);
-    if (s.toml == null) setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read' });
+    if (s.toml == null) setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read', copy: false });
     else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, copy: false, size: `${new Blob([s.toml]).size} B` });
 }
 
@@ -32,23 +32,24 @@ function drawPicker() {
     setSegmentedItems($('profile-picker'), items);
     setSegmentedValues($('profile-picker'), state.profileSource ? [state.profileSource] : []);
     editorSource.textContent = `Sends as ${state.profileSource}`;
+    editorSource.hidden = !state.profileSource;
 }
 
 /** Everything on the page waits on the profiles (Try needs a source), so the whole page is loading, or failed, with them. */
 function pageWaits() {
     setCardState(profileCard, 'loading');
-    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'loading', loadingWords: 'Reading the profile file' });
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'loading', loadingWords: 'Reading the profile file', copy: false });
     setCardState(editorCard, 'loading');
     setCardState(resultCard, 'loading');
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Reading the profiles' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Reading the profiles', copy: false });
 }
 
 function pageFailed() {
     setCardState(profileCard, 'error', { title: 'Could not read the profiles', text: 'Almanac did not answer. Nothing else is affected.' });
-    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profiles could not be read' });
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profiles could not be read', copy: false });
     setCardState(editorCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
     setCardState(resultCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'The profiles could not be read' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'The profiles could not be read', copy: false });
 }
 
 /** The page is ready for a first Try: the editor is open, nothing was tried. */

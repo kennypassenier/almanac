@@ -113,7 +113,7 @@ export function drawTrace(data) {
 export function idleTrace() {
     traceHttp.hidden = true;
     trace(traceEl)?.setState('empty');
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'empty', message: 'No answer yet' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'empty', message: 'No answer yet', copy: false });
 }
 
 export function emptyResult() {

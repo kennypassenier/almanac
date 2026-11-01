@@ -25,14 +25,14 @@ function askingNow() {
     setCardState(editorCard, 'loading');
     setCardState(resultCard, 'loading');
     trace(traceEl)?.setState('running');
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Waiting for the answer' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Waiting for the answer', copy: false });
 }
 
 function askFailed() {
     setCardState(editorCard, 'error', { title: 'Almanac did not answer', text: 'The dry-run call did not get an answer. Your event call is still in the field.' });
     formOf(editorForm)?.errors({ body: 'Almanac did not answer the dry-run call. Your event call is still here; try again.' });
     trace(traceEl)?.setState('error', { message: 'Almanac did not answer the dry-run call.' });
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'There is no answer to show' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'There is no answer to show', copy: false });
     setCardState(resultCard, 'error', { title: 'Could not ask Almanac', text: 'The dry-run call did not get an answer.' });
 }
 
