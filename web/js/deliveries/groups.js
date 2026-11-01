@@ -23,7 +23,6 @@ function rowOf(item) {
 <td data-label="Event">${esc(item.title)}</td>
 <td data-label="Source">${esc(item.source)}</td>
 <td data-label="Set aside" data-kp-sort-value="${item.at}">${moment(item.at)}</td>
-<td data-label="Reason">${esc(item.short)}</td>
 <td data-label="Actions"><div class="ad-row-acts">
 <button type="button" class="kp-button" data-ad-act="retry" data-ad-key="${esc(item.id)}" aria-label="Retry ${esc(item.title)}">Retry</button>
 <button type="button" class="kp-button kp-button--ghost" data-ad-act="dismiss" data-ad-key="${esc(item.id)}" aria-label="Dismiss ${esc(item.title)}">Dismiss</button>
@@ -54,14 +53,13 @@ export function groupHtml(group, index) {
 </div>
 ${barHtml(tableId, what)}
 <div class="kp-datatable ad-group__table" id="${tableId}" data-kp-datatable>
-<div class="kp-table-wrap"><table class="kp-table">
+<div class="kp-table-wrap"><table class="kp-table" data-kp-cards>
 <caption class="kp-sr-only">${esc(what)}: ${esc(group.cause)}</caption>
 <thead><tr>
 <th scope="col"><input class="kp-field__check" type="checkbox" data-kp-select-all aria-label="Select every event of this cause" /></th>
 <th scope="col" data-kp-sort="text">Event</th>
 <th scope="col" data-kp-sort="text">Source</th>
 <th scope="col" data-kp-sort="number">Set aside</th>
-<th scope="col" data-kp-sort="text">Reason</th>
 <th scope="col">Actions</th>
 </tr></thead>
 <tbody>${group.items.map(rowOf).join('\n')}</tbody>

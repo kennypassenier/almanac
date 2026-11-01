@@ -52,7 +52,8 @@ export function renderUses() {
     }
     const ids = new Set(google.calendars.map((c) => c.id));
     const writing = sources().filter((s) => ids.has(s.calendar_id));
-    if (!google.ok || !profiles.ok) return usesMessage('error', 'The set-up could not be read');
+    if (!google.ok) return usesMessage('error', 'Google Calendar does not answer, so it is not known which calendar each source writes to');
+    if (!profiles.ok) return usesMessage('error', 'The set-up could not be read');
     if (!writing.length) return usesMessage('empty', 'No source writes to a calendar yet');
     drawMatrix(google.calendars, writing);
     drawGraph(google.calendars, writing);

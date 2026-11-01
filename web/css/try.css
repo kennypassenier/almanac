@@ -58,6 +58,12 @@
     min-inline-size: 0;
 }
 
+/* Hidden while there is no source to pick or copy. */
+.try-picker[hidden],
+[data-try-copy][hidden] {
+    display: none;
+}
+
 .try-picker > .kp-segmented {
     min-inline-size: 0;
     max-inline-size: 100%;

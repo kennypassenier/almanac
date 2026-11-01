@@ -29,3 +29,8 @@
     font-size: var(--kp-text-md);
     max-inline-size: 36ch;
 }
+
+/* The plate's large text is for its title; an action in it stays a normal-size button. */
+.kp-card__empty .kp-button {
+    font-size: var(--kp-text-md);
+}

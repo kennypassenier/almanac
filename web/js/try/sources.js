@@ -89,7 +89,11 @@ export async function loadSources() {
         pageFailed();
         return;
     }
-    if (!state.sources.length) {
+    // With no source there is nothing to pick or copy; the empty card says why.
+    const none = !state.sources.length;
+    /** @type {HTMLElement} */ (document.querySelector('.try-picker')).hidden = none;
+    /** @type {HTMLElement} */ (document.querySelector('[data-try-copy="profile"]')).hidden = none;
+    if (none) {
         setCardState(profileCard, 'empty', { title: 'No sources loaded', text: 'Almanac serves a source only when its profile file is in the profiles folder.', action: reloadButton() });
     } else {
         if (!sourceById(state.profileSource)) state.profileSource = state.sources[0].source_id;
