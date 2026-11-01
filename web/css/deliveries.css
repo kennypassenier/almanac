@@ -121,3 +121,21 @@
 .ad-group .kp-selection {
     min-inline-size: 0;
 }
+
+/* "+N more" opens a lane in place: the lane scrolls inside a fixed height (about four cards) instead of growing,
+   so nothing below the board moves. The toggle stays in view at the foot of the scroll area. */
+#ad-chain {
+    --ad-lane-scroll: 18rem;
+}
+
+#ad-chain .kp-pipeline__cards:has(> .kp-pipeline__more[aria-expanded='true']) {
+    max-block-size: var(--ad-lane-scroll);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+#ad-chain .kp-pipeline__more[aria-expanded='true'] {
+    position: sticky;
+    inset-block-end: 0;
+    background: var(--muted);
+}
