@@ -11,6 +11,45 @@ against before it installs anything.
 
 ## [Unreleased]
 
+The UX review round: every page Kenny uses daily, checked by two
+reviewers and fixed as he chose. No migration: state files, the journal
+and the profile format are unchanged.
+
+### Added
+
+- **Deliveries: Retry and Dismiss on set-aside events.** Retry sends an
+  event through again (a fresh journal entry stands in for the old one);
+  Dismiss marks it handled and removes it from the list. Both work per row
+  or for a ticked selection per cause, with a six-second undo toast.
+- **Try: one Copy menu per card** (source id, calendar id, profile file,
+  event text, curl command, trace answer) instead of seven loose buttons.
+
+### Changed
+
+- Deliveries: one alert per cause with its events in a table under it,
+  instead of one full alert per event; on a narrow screen the rows become
+  cards so Retry and Dismiss stay visible.
+- Deliveries: "+N more" opens a lane in place into a fixed-height scroll
+  area; List and Timeline of the retry schedule keep one footprint.
+- Try: one source picker drives the whole page, the editor says which
+  source it sends as, and editor and verdict sit side by side.
+- Calendars: a Google outage is one alert with Check again; the counts
+  stay, the table says why it is empty, New calendar is disabled with the
+  reason, and the profiles table shows source, calendar and a Fine or
+  Failed badge for the latest delivery.
+- History: the day table spans the full width (column "Tried"), event
+  details open beside the event, future days are plain text, and the
+  month buttons share one width.
+
+### Fixed
+
+- The Deliveries board no longer contradicts itself when every event is
+  set aside; lane counts and cards come from one source.
+- A set-aside reason stores its remedy once instead of twice.
+- With Google unreachable, Calendars answers after 8 s instead of 30 s and
+  no longer breaks on the missing calendar list; History says "not known"
+  instead of "a calendar that is no longer there".
+
 ## [6.0.0] - 2026-10-31
 
 ### Migration
