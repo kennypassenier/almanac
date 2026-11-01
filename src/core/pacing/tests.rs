@@ -152,3 +152,26 @@ fn the_warning_threshold_is_half_the_cap() {
 fn a_zero_cap_does_not_divide_by_anything_silly() {
     assert!(journal_is_filling(0, 0));
 }
+
+#[test]
+fn a_reason_stored_with_its_remedy_twice_reads_the_remedy_once() {
+    let (_, next) = plain_set_aside_reason(
+        "Calendar API returned HTTP 400 Bad Request: {} — check the request payload — check the request payload",
+    );
+    assert_eq!(
+        next,
+        "Check the request payload, then send the event again from its source."
+    );
+}
+
+#[test]
+fn a_short_reason_names_the_kind_of_refusal() {
+    assert_eq!(
+        short_set_aside_reason("Calendar API returned HTTP 403 Forbidden: {} — x"),
+        "Not allowed"
+    );
+    assert_eq!(
+        short_set_aside_reason("title is missing"),
+        "Cannot be built"
+    );
+}

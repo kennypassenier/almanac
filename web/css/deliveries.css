@@ -58,12 +58,6 @@
     color: var(--muted-foreground);
 }
 
-/* The lit stage of the delivery chain: the package's own stage colour knob, set to the destructive colour. */
-.kp-pipeline .kp-pipeline__lane[data-ad-lit] {
-    --kp-pipeline-tone: var(--destructive);
-    border-color: var(--destructive);
-}
-
 /* The lanes keep room for the waiting cards of an outage, so the board changes least between states. */
 #ad-chain {
     --kp-pipeline-min: 20rem;

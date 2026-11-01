@@ -126,22 +126,8 @@ pub fn projected_passes(next_at: u64, consecutive_failures: usize, count: usize)
 /// What a set-aside entry's stored reason ("<message> — <remedy>") says,
 /// in plain words: why Google or Almanac gave up, and what to do.
 pub fn plain_set_aside_reason(reason: &str) -> (String, String) {
-    let (message, remedy) = reason
-        .split_once(" — ")
-        .map_or((reason, ""), |(m, r)| (m, r));
-    let cause = match message
-        .strip_prefix("Calendar API returned HTTP ")
-        .and_then(|rest| rest.get(..3))
-    {
-        Some("400") => "Google said the event is not valid.",
-        Some("401") => "Google did not accept Almanac's sign-in.",
-        Some("403") => "Almanac is not allowed to write to that calendar.",
-        Some("404") => "The calendar or the event no longer exists.",
-        Some("410") => "The event was removed from the calendar.",
-        Some(_) => "Google refused the event.",
-        None if message.contains("Calendar API") => "Google's answer could not be read.",
-        None => "The event could not be turned into a calendar entry.",
-    };
+    let (message, remedy) = split_reason(reason);
+    let (cause, _) = classify(message);
     let remedy = remedy.trim();
     let next = if remedy.is_empty() {
         "Send the event again from its source.".to_string()
@@ -155,6 +141,49 @@ pub fn plain_set_aside_reason(reason: &str) -> (String, String) {
         )
     };
     (cause.to_string(), next)
+}
+
+/// A few words for a table cell: what kind of refusal set the entry aside.
+pub fn short_set_aside_reason(reason: &str) -> &'static str {
+    classify(split_reason(reason).0).1
+}
+
+/// The message and the remedy of a stored reason ("<message> — <remedy>").
+/// Reasons written before the remedy was fixed at the source carry it twice
+/// ("<message> — <remedy> — <remedy>"); the last part is the remedy either way.
+fn split_reason(reason: &str) -> (&str, &str) {
+    match reason.split_once(" — ") {
+        Some((message, rest)) => (message, rest.rsplit(" — ").next().unwrap_or(rest)),
+        None => (reason, ""),
+    }
+}
+
+/// The plain sentence and the short label of a refusal message.
+fn classify(message: &str) -> (&'static str, &'static str) {
+    match message
+        .strip_prefix("Calendar API returned HTTP ")
+        .and_then(|rest| rest.get(..3))
+    {
+        Some("400") => ("Google said the event is not valid.", "Not valid"),
+        Some("401") => (
+            "Google did not accept Almanac's sign-in.",
+            "Sign-in refused",
+        ),
+        Some("403") => (
+            "Almanac is not allowed to write to that calendar.",
+            "Not allowed",
+        ),
+        Some("404") => ("The calendar or the event no longer exists.", "Not found"),
+        Some("410") => ("The event was removed from the calendar.", "Removed"),
+        Some(_) => ("Google refused the event.", "Refused"),
+        None if message.contains("Calendar API") => {
+            ("Google's answer could not be read.", "Unreadable answer")
+        }
+        None => (
+            "The event could not be turned into a calendar entry.",
+            "Cannot be built",
+        ),
+    }
 }
 
 /// Whether a journal of `size` bytes against `cap` is filling up.

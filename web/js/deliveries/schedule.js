@@ -3,12 +3,11 @@ import { setGanttKinds, setGanttPoints, setGanttState, setGanttWindow, setGanttZ
 import { moment } from '../lib/format.js';
 import { state, SECOND, MINUTE } from './state.js';
 import { runsEl, ganttEl, schedSaid, shapeEl } from './dom.js';
-import { events, tries } from './words.js';
+import { events, tries, nothingWaiting } from './words.js';
 import { LIT } from './chain.js';
 
 /** Space left on both sides of the timeline's data, so the first and last points are not on its edge. */
 const GANTT_PADDING_MS = 6 * MINUTE;
-const NOTHING_WAITING = 'Nothing is waiting. Every event Almanac accepted has reached its calendar.';
 
 const KINDS = [
     { kind: 'received', label: 'received', shape: 'square', tone: 'muted' },
@@ -106,7 +105,7 @@ function renderRuns() {
     if (state.status === 'loading') return setRunsState(runsEl, 'loading');
     if (state.status === 'error') return setRunsState(runsEl, 'error', { title: 'Could not read the retry schedule', text: 'The journal did not answer.' });
     const { schedule } = state.data;
-    if (!schedule.entries.length) return setRuns(runsEl, [], { reason: NOTHING_WAITING });
+    if (!schedule.entries.length) return setRuns(runsEl, [], { reason: nothingWaiting(state.data.counts, state.data.aside.length) });
     setRuns(runsEl, runsData(schedule));
 }
 
@@ -117,14 +116,14 @@ function renderGantt() {
     setGanttKinds(ganttEl, KINDS);
     if (!schedule.entries.length) {
         setGanttPoints(ganttEl, [], []);
-        return setGanttState(ganttEl, 'empty', NOTHING_WAITING);
+        return setGanttState(ganttEl, 'empty', nothingWaiting(state.data.counts, state.data.aside.length));
     }
     const { points, lanes } = ganttData(schedule);
     const lit = stages.lit ? /** @type {any} */ (LIT)[stages.lit.reason] : null;
     setGanttZones(
         ganttEl,
         schedule.outage_since
-            ? [{ from: schedule.outage_since, to: now, label: `${lit ? lit.label.split(' · ')[0] : 'Delivery'} failing since ${moment(schedule.outage_since).slice(11)}`, tone: 'warning' }]
+            ? [{ from: schedule.outage_since, to: now, label: `${lit ? lit.name : 'Delivery'} failing since ${moment(schedule.outage_since).slice(11)}`, tone: 'warning' }]
             : [],
     );
     setGanttPoints(ganttEl, points, lanes);

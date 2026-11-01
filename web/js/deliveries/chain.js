@@ -1,4 +1,4 @@
-// Section 1 of the deliveries page: the delivery chain (received, journal, worker, Google), with the failing lane lit.
+// Section 1 of the deliveries page: the delivery chain (received, journal, worker, Google), with the failing lane flagged.
 import { setPipeline, setPipelineState } from '/static/kp/dist/kp-themes.min.js';
 import { moment } from '../lib/format.js';
 import { state } from './state.js';
@@ -10,25 +10,15 @@ const LANES = [
     { key: 'journal', label: 'Journal', tone: 2 },
     { key: 'worker', label: 'Worker', tone: 3 },
     { key: 'google', label: 'Google Calendar', tone: 4 },
-    { key: 'dead', label: 'Set aside · never retried', closed: true },
+    { key: 'dead', label: 'Set aside · not tried again', closed: true },
 ];
-/** What the server's reason for a stalled chain lights, and what it says about it. */
+/** What the server's reason for a stalled chain lights (`stage`), what the stage is called in a sentence, and what it says about it. */
 export const LIT = {
-    temporary: { stage: 'google', label: 'Google · refusing', said: 'Google is not accepting the events right now. The waiting ones are tried again.' },
-    refused: { stage: 'google', label: 'Google · refusing', said: 'Google refuses at least one event for good. It is set aside after the third refusal; the others are tried again.' },
-    token: { stage: 'worker', label: 'Worker · no token', said: 'The worker cannot get a Google token, so no call to Google is made. The events wait in the journal.' },
-    local: { stage: 'worker', label: 'Worker · cannot build event', said: 'Almanac cannot turn a waiting event into a calendar entry. The events wait in the journal.' },
+    temporary: { stage: 'google', name: 'Google', said: 'Google is not accepting the events right now. The waiting ones are tried again.' },
+    refused: { stage: 'google', name: 'Google', said: 'Google refuses at least one event for good. It is set aside after the third refusal; the others are tried again.' },
+    token: { stage: 'worker', name: 'The worker', said: 'The worker cannot get a Google token, so no call to Google is made. The events wait in the journal.' },
+    local: { stage: 'worker', name: 'The worker', said: 'Almanac cannot turn a waiting event into a calendar entry. The events wait in the journal.' },
 };
-
-/** The lit lane's key from the chain, none when null. @type {string | null} */
-let litKey = null;
-/** Lights the lane `key` (red), none when null. @param {string | null} key */
-function light(key) {
-    litKey = key;
-    for (const lane of chain.querySelectorAll('[data-kp-lane]')) {
-        lane.toggleAttribute('data-ad-lit', lane.getAttribute('data-kp-lane') === key);
-    }
-}
 
 /** @param {any} card */
 function noteOf(card) {
@@ -40,14 +30,21 @@ function noteOf(card) {
 
 /** @param {any} card */
 function cardOf(card) {
+    if (card.lane === 'dead') return { id: card.id, lane: 'dead', title: card.title, sub: `${card.source} · ${card.short.toLowerCase()}`, meta: `Set aside ${moment(card.at)}`, mark: markOf(card.source, state.data.marks) };
     if (card.lane === 'google') return { id: card.id, lane: 'google', title: card.title, sub: card.source, meta: moment(card.at), mark: markOf(card.source, state.data.marks) };
     return { id: card.id, lane: card.lane, title: card.title, sub: `${card.source} · ${noteOf(card)}`, meta: `Received ${moment(card.at)}`, mark: markOf(card.source, state.data.marks) };
 }
 
-/** @param {any} counts @param {number} listed @param {{ said: string } | null} lit */
-function counted(counts, listed, lit) {
+/** What the empty board says, from the counts since Almanac started. @param {any} counts */
+function emptyBoard(counts) {
+    if (counts.delivered > 0) return `${events(counts.delivered)} delivered since Almanac started; none are listed on the board now.`;
+    return 'Nothing has reached Almanac since it started.';
+}
+
+/** @param {any} counts @param {number} listed @param {number} setAside @param {{ said: string } | null} lit */
+function counted(counts, listed, setAside, lit) {
     return [
-        `Since Almanac started: ${events(counts.accepted)} accepted, ${counts.delivered} delivered, ${counts.failed} failed ${counts.failed === 1 ? 'try' : 'tries'}, ${counts.set_aside} set aside; ${counts.pending} waiting in the journal.`,
+        `Since Almanac started: ${events(counts.accepted)} accepted, ${counts.delivered} delivered, ${counts.failed} failed ${counts.failed === 1 ? 'try' : 'tries'}. Now: ${counts.pending} waiting in the journal, ${setAside} set aside.`,
         counts.delivered > listed ? `Google Calendar lists the latest ${listed} deliveries.` : '',
         lit ? lit.said : '',
     ]
@@ -59,24 +56,21 @@ export function renderChain() {
     if (state.status === 'loading') return setPipelineState(chain, 'loading');
     if (state.status === 'error') {
         setPipeline(chain, { lanes: LANES, cards: [] });
-        light(null);
         setPipelineState(chain, 'error', 'Could not read the journal.');
         chainSaid.textContent = 'Almanac could not read the journal, so no count is shown.';
         return;
     }
-    const { chain: stages, counts } = state.data;
+    const { chain: stages, counts, aside } = state.data;
     const lit = stages.lit ? /** @type {any} */ (LIT)[stages.lit.reason] : null;
-    const lanes = LANES.map((lane) => (lit && lane.key === lit.stage ? { ...lane, label: lit.label } : lane));
+    // The failing stage carries the package's own flag; its count stays the number of cards that really sit in it.
+    const lanes = LANES.map((lane) => (lit && lane.key === lit.stage ? { ...lane, danger: true } : lane));
     const cards = stages.cards.map(cardOf);
     setPipeline(chain, { lanes, cards });
-    setPipelineState(chain, 'ready');
-    light(lit ? lit.stage : null);
-    chainSaid.textContent = counted(counts, cards.filter((card) => card.lane === 'google').length, lit);
+    setPipelineState(chain, cards.length ? 'ready' : 'empty', emptyBoard(counts));
+    chainSaid.textContent = counted(counts, cards.filter((card) => card.lane === 'google').length, aside.length, lit);
 }
 
 /** @param {() => void} onRetry reads the journal again */
 export function initChain(onRetry) {
-    // The board draws its lanes after a state change; light them again once they stand.
-    new MutationObserver(() => light(litKey)).observe(chain, { childList: true, subtree: true });
     chain.addEventListener('kp-pipeline-retry', onRetry);
 }

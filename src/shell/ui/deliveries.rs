@@ -19,6 +19,8 @@ use crate::core::pacing;
 use crate::shell::state::AppState;
 use crate::shell::worker::{self, EntryWatch, FailureKind, WatchSnapshot};
 
+mod aside;
+
 const PAGE_HTML: &str = include_str!("../../../templates/deliveries.html");
 
 /// How many coming passes the schedule shows.
@@ -71,6 +73,7 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
     let now = (state.now_unix)();
     let counts = state.metrics.snapshot();
 
+    let set_aside = aside::items(&dead, &profiles);
     let waiting: Vec<(&Entry, String)> = pending
         .iter()
         .map(|e| (e, worker::entry_title(e, profiles.get(&e.source_id))))
@@ -85,9 +88,9 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
             "set_aside": counts.dead,
             "pending": pending.len(),
         },
-        "chain": chain(&waiting, &watch),
+        "chain": chain(&waiting, &watch, &set_aside),
         "schedule": schedule(&waiting, &watch, now),
-        "aside": aside(&dead, &state),
+        "aside": set_aside,
         "marks": marks(&profiles),
     })))
 }
@@ -103,8 +106,12 @@ fn marks(profiles: &std::collections::HashMap<String, crate::core::profile::Prof
 }
 
 /// The stage that is failing, from the latest pass, and why.
-fn lit_stage(watch: &WatchSnapshot) -> Value {
-    let Some(kind) = watch.last_failure else {
+///
+/// Nothing is lit once nothing waits: the last failure is then history, and the
+/// entries it set aside show in their own lane, so a lit lane never claims a
+/// failure that has no card to show for it.
+fn lit_stage(watch: &WatchSnapshot, waiting: usize) -> Value {
+    let Some(kind) = watch.last_failure.filter(|_| waiting > 0) else {
         return Value::Null;
     };
     let refused = watch.entries.values().any(|e| e.strikes > 0);
@@ -117,7 +124,7 @@ fn lit_stage(watch: &WatchSnapshot) -> Value {
     json!({"stage": stage, "reason": reason})
 }
 
-fn chain(waiting: &[(&Entry, String)], watch: &WatchSnapshot) -> Value {
+fn chain(waiting: &[(&Entry, String)], watch: &WatchSnapshot, set_aside: &[Value]) -> Value {
     let mut cards: Vec<Value> = waiting
         .iter()
         .map(|(entry, title)| {
@@ -149,7 +156,17 @@ fn chain(waiting: &[(&Entry, String)], watch: &WatchSnapshot) -> Value {
             "created": d.created,
         })
     }));
-    json!({"lit": lit_stage(watch), "cards": cards})
+    cards.extend(set_aside.iter().map(|item| {
+        json!({
+            "id": item["id"],
+            "lane": "dead",
+            "title": item["title"],
+            "source": item["source"],
+            "at": item["at"],
+            "short": item["short"],
+        })
+    }));
+    json!({"lit": lit_stage(watch, waiting.len()), "cards": cards})
 }
 
 fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Value {
@@ -188,30 +205,4 @@ fn schedule(waiting: &[(&Entry, String)], watch: &WatchSnapshot, now: u64) -> Va
         "outage_since": watch.outage_since.map(millis),
         "strikes_limit": STRIKES_LIMIT,
     })
-}
-
-fn aside(dead: &[(Entry, String, String)], state: &AppState) -> Vec<Value> {
-    let profiles = state.profiles();
-    let mut items: Vec<(u64, Value)> = dead
-        .iter()
-        .map(|(entry, reason, at)| {
-            let at_ms = chrono::DateTime::parse_from_rfc3339(at)
-                .map(|t| t.timestamp_millis().max(0) as u64)
-                .unwrap_or(0);
-            let (cause, remedy) = pacing::plain_set_aside_reason(reason);
-            (
-                at_ms,
-                json!({
-                    "id": entry.id,
-                    "source": entry.source_id,
-                    "title": worker::entry_title(entry, profiles.get(&entry.source_id)),
-                    "at": at_ms,
-                    "cause": cause,
-                    "remedy": remedy,
-                }),
-            )
-        })
-        .collect();
-    items.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-    items.into_iter().map(|(_, v)| v).collect()
 }
