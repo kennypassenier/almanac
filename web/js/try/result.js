@@ -3,9 +3,13 @@ import { setCardState, setCode, setTrace, trace, attachCommands, attachPatterns,
 import { esc } from '../lib/format.js';
 import { factRow, setAlert, refusalWords } from './words.js';
 import { specRows, diffLines, curlFor } from './spec.js';
-import { $, answer, badge, note, specArea, diffArea, curlArea, resultCard, traceEl, traceAnswer, traceBody, traceHttp, traceRefused } from './dom.js';
+import { $, badge, note, specArea, diffArea, curlArea, resultCard, traceEl, traceBody, traceHttp } from './dom.js';
 
-export const idle = () => setAlert(answer, 'info', 'Note', 'Nothing tried yet. Press Try it.');
+/** Back to the untried state, as after a change of source. */
+export function idle() {
+    idleTrace();
+    emptyResult();
+}
 
 /** @param {string | null} tone @param {string} text */
 const badgeTone = (tone, text) => {
@@ -29,7 +33,7 @@ function drawCurl(data, payload) {
 /** @param {any} data */
 function drawRefused(data) {
     badgeTone('destructive', 'Refused');
-    setAlert(note, 'destructive', `Refused (${data.http})`, refusalWords(data.answer));
+    setAlert(note, 'destructive', `Refused (${data.http})`, `${refusalWords(data.answer)} A refused call is not kept: fix it and send it again.`);
     $('result-spec-title').textContent = 'The answer';
     $('result-diff-title').textContent = 'Against the calendar';
     specArea.innerHTML = '<figure class="kp-code" data-kp-code id="result-refusal"></figure>';
@@ -101,19 +105,14 @@ export function drawTrace(data) {
     traceHttp.hidden = false;
     traceHttp.textContent = `HTTP ${data.http}`;
     traceHttp.className = data.http === 200 ? 'kp-badge kp-badge--success' : 'kp-badge kp-badge--destructive';
-    traceRefused.hidden = data.http === 200;
-    if (data.http === 200) setAlert(traceAnswer, 'success', 'Accepted', `Almanac would write this event to ${data.calendar_name}. Nothing was written.`);
-    else setAlert(traceAnswer, 'destructive', `Refused (${data.http})`, refusalWords(data.answer));
-    // The event is left out of the accepted answer here: it is the result's subject, below.
-    const shown = data.http === 200 ? { ...data.answer, event: 'shown in the result below' } : data.answer;
+    // The event is left out of the accepted answer here: it is the result's subject, above.
+    const shown = data.http === 200 ? { ...data.answer, event: 'shown in the result above' } : data.answer;
     setCode(traceBody, { text: JSON.stringify(shown, null, 2), title: `Answer · HTTP ${data.http}`, language: 'JSON', lines: true, wrap: true });
 }
 
 export function idleTrace() {
     traceHttp.hidden = true;
-    traceRefused.hidden = true;
     trace(traceEl)?.setState('empty');
-    setAlert(traceAnswer, 'info', 'Note', 'Press Try it to see the path of a call.');
     setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'empty', message: 'No answer yet' });
 }
 

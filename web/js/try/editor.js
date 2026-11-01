@@ -2,8 +2,7 @@
 import { setCardState, setCode, trace, jsonField, form as formOf, VALID_EVENT } from '/static/kp/dist/kp-themes.min.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
-import { setAlert, refusalWords } from './words.js';
-import { area, answer, editorCard, editorForm, resultCard, traceEl, traceAnswer, traceBody } from './dom.js';
+import { area, editorCard, editorForm, resultCard, traceEl, traceBody, note } from './dom.js';
 import { drawResult, drawTrace } from './result.js';
 import { refreshTry } from './try-button.js';
 import { loadSources } from './sources.js';
@@ -26,7 +25,6 @@ function askingNow() {
     setCardState(editorCard, 'loading');
     setCardState(resultCard, 'loading');
     trace(traceEl)?.setState('running');
-    setAlert(traceAnswer, 'info', 'Asking', 'Almanac is checking the call.');
     setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Waiting for the answer' });
 }
 
@@ -34,7 +32,6 @@ function askFailed() {
     setCardState(editorCard, 'error', { title: 'Almanac did not answer', text: 'The dry-run call did not get an answer. Your event call is still in the field.' });
     formOf(editorForm)?.errors({ body: 'Almanac did not answer the dry-run call. Your event call is still here; try again.' });
     trace(traceEl)?.setState('error', { message: 'Almanac did not answer the dry-run call.' });
-    setAlert(traceAnswer, 'destructive', 'Failed', 'Almanac did not answer.');
     setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'There is no answer to show' });
     setCardState(resultCard, 'error', { title: 'Could not ask Almanac', text: 'The dry-run call did not get an answer.' });
 }
@@ -54,8 +51,6 @@ async function ask() {
         return;
     }
     if (turn !== asking) return;
-    if (data.http === 200) setAlert(answer, 'success', 'Accepted (200)', `Would write "${data.answer.event.summary}" to ${data.calendar_name}. Nothing was written.`);
-    else setAlert(answer, 'destructive', `Refused (${data.http})`, refusalWords(data.answer));
     drawTrace(data);
     drawResult(data, value, ask);
     setCardState(editorCard, 'ready');
@@ -83,5 +78,5 @@ export function initEditor() {
     editorCard.addEventListener('kp-card-retry', retry);
     resultCard.addEventListener('kp-card-retry', retry);
     traceEl.addEventListener('kp-trace-retry', ask);
-    traceEl.addEventListener('kp-trace-rule', () => traceAnswer.focus());
+    traceEl.addEventListener('kp-trace-rule', () => note.focus({ preventScroll: true }));
 }

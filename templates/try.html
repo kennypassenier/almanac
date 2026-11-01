@@ -43,6 +43,7 @@
         </div>
     </section>
 
+    <div class="try-work">
     <!-- 2 · Event editor -->
     <section class="try-sec" id="event-editor" aria-labelledby="h-event-editor">
         <div class="try-sec__head">
@@ -56,18 +57,13 @@
             <section class="kp-card try-card" id="editor-card" data-kp-state="loading" data-kp-loading-words="Asking Almanac" aria-labelledby="editor-title">
                 <div class="kp-card__header try-card__header">
                     <h3 class="kp-card__title" id="editor-title">Try an event call</h3>
+                    <span class="kp-badge" id="editor-source"></span>
                 </div>
                 <div class="kp-card__stage">
                     <div class="kp-card__data">
                         <form id="editor-form" data-kp-form novalidate>
                             <div class="kp-form__summary" data-kp-form-summary tabindex="-1" hidden></div>
                             <div class="kp-formgrid">
-                                <div class="kp-formgrid__row">
-                                    <span class="kp-formgrid__label" id="editor-picker-label">Source</span>
-                                    <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
-                                        <div class="kp-segmented" data-kp-segmented="single" role="radiogroup" aria-labelledby="editor-picker-label" id="editor-picker"></div>
-                                    </div>
-                                </div>
                                 <div class="kp-formgrid__row">
                                     <label class="kp-formgrid__label" for="editor-body">Event call (the JSON body)</label>
                                     <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
@@ -93,14 +89,6 @@
                                         <p class="kp-formgrid__value">Nothing is written to the calendar.</p>
                                     </div>
                                 </div>
-                                <div class="kp-formgrid__row">
-                                    <span class="kp-formgrid__label">Answer</span>
-                                    <div class="kp-formgrid__control" data-kp-formgrid-span="wide">
-                                        <div class="kp-alert kp-alert--info" id="editor-answer" role="status" data-kp-semantic>
-                                            <span><span class="kp-alert__label">Note: </span>Nothing tried yet. Press Try it.</span>
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         </form>
                     </div>
@@ -109,32 +97,7 @@
         </div>
     </section>
 
-    <!-- 3 · Path trace -->
-    <section class="try-sec" id="path-trace" aria-labelledby="h-path-trace">
-        <div class="try-sec__head">
-            <h2 id="h-path-trace">See where a call stops</h2>
-            <p>
-                A call goes through four steps: the call itself, the source&rsquo;s profile, the event and the calendar. The step that refuses
-                it is lit, the steps after it are not reached, and the rule that decided is a chip.
-            </p>
-        </div>
-        <div id="trace-component" class="try-comp">
-            <section class="kp-card try-card" aria-labelledby="trace-title">
-                <div class="kp-card__header try-card__header">
-                    <h3 class="kp-card__title" id="trace-title">Path of the call</h3>
-                    <span class="kp-badge" id="trace-http" hidden></span>
-                </div>
-                <div class="try-stack">
-                    <div class="kp-trace" data-kp-trace id="try-trace" data-kp-trace-copy data-kp-trace-stop="first-refusal" data-kp-trace-verdict="both" data-kp-trace-rule="chip" data-kp-trace-layout="auto"></div>
-                    <div class="kp-alert kp-alert--info" role="status" data-kp-semantic><span><span class="kp-alert__label">Note: </span>This is a dry run: whatever the answer, nothing is written to Google.</span></div>
-                    <div class="kp-alert kp-alert--destructive" id="trace-refused" role="alert" data-kp-semantic hidden><span><span class="kp-alert__label">Error: </span>A refused call is answered with 422 and is not kept. Fix it and send it again.</span></div>
-                    <div class="kp-alert kp-alert--info" id="trace-answer" role="status" tabindex="-1" data-kp-semantic><span><span class="kp-alert__label">Note: </span>Press Try it to see the path of a call.</span></div>
-                    <figure class="kp-code" data-kp-code id="trace-body" data-kp-code-title="Answer" data-kp-code-language="JSON" data-kp-code-lines data-kp-code-state="loading"></figure>
-                </div>
-            </section>
-        </div>
-    </section>
-
+    <div class="try-verdict">
     <!-- 4 · Result -->
     <section class="try-sec" id="try-result" aria-labelledby="h-try-result">
         <div class="try-sec__head">
@@ -152,7 +115,7 @@
                 </div>
                 <div class="kp-card__stage">
                     <div class="kp-card__data try-stack">
-                        <div class="kp-alert kp-alert--info" id="result-note" role="status" data-kp-semantic><span><span class="kp-alert__label">Note: </span>-</span></div>
+                        <div class="kp-alert kp-alert--info" id="result-note" role="status" tabindex="-1" data-kp-semantic><span><span class="kp-alert__label">Note: </span>-</span></div>
                         <div class="try-grid">
                             <div class="try-block">
                                 <h4 class="try-h" id="result-spec-title">The event</h4>
@@ -172,5 +135,30 @@
             </section>
         </div>
     </section>
+    <!-- 3 · Path trace -->
+    <section class="try-sec" id="path-trace" aria-labelledby="h-path-trace">
+        <div class="try-sec__head">
+            <h2 id="h-path-trace">See where a call stops</h2>
+            <p>
+                A call goes through four steps: the call itself, the source&rsquo;s profile, the event and the calendar. The step that refuses
+                it is lit, the steps after it are not reached, and the rule that decided is a chip.
+            </p>
+        </div>
+        <div id="trace-component" class="try-comp">
+            <section class="kp-card try-card" aria-labelledby="trace-title">
+                <div class="kp-card__header try-card__header">
+                    <h3 class="kp-card__title" id="trace-title">Path of the call</h3>
+                    <span class="kp-badge" id="trace-http" hidden></span>
+                </div>
+                <div class="try-stack">
+                    <div class="kp-trace" data-kp-trace id="try-trace" data-kp-trace-copy data-kp-trace-stop="first-refusal" data-kp-trace-verdict="both" data-kp-trace-rule="chip" data-kp-trace-layout="auto"></div>
+                    <figure class="kp-code" data-kp-code id="trace-body" data-kp-code-title="Answer" data-kp-code-language="JSON" data-kp-code-lines data-kp-code-state="loading"></figure>
+                </div>
+            </section>
+        </div>
+    </section>
+
+    </div>
+    </div>
 </div>
 {% endblock %}
