@@ -13,17 +13,17 @@ function drawProfile() {
     $('profile-title').textContent = `Profile of ${s.source_id}`;
     const kv = $('profile-kv');
     kv.innerHTML = [
-        factRow('Source id', s.source_id, true),
-        factRow('Calendar', s.calendar_name, false),
-        factRow('Calendar id', s.calendar_id, true),
-        factRow('Time zone', s.timezone, false),
-        factRow('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? " (Almanac's own default)" : ''}`, false),
-        factRow('Schema version', String(s.schema_version), false),
-        factRow('File', s.file_name ?? 'Not found', Boolean(s.file_name)),
+        factRow('Source id', s.source_id),
+        factRow('Calendar', s.calendar_name),
+        factRow('Calendar id', s.calendar_id),
+        factRow('Time zone', s.timezone),
+        factRow('Default length', `${s.default_duration_minutes} minutes${s.default_is_fallback ? " (Almanac's own default)" : ''}`),
+        factRow('Schema version', String(s.schema_version)),
+        factRow('File', s.file_name ?? 'Not found'),
     ].join('');
     attachPatterns(kv);
-    if (s.toml == null) setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read' });
-    else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, size: `${new Blob([s.toml]).size} B` });
+    if (s.toml == null) setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profile file could not be read', copy: false });
+    else setCode(profileToml, { text: s.toml, title: 'Profile file', language: 'TOML', lines: true, wrap: true, copy: false, size: `${new Blob([s.toml]).size} B` });
 }
 
 /** One picker for the page: the profile shown and the source Try sends as are always the same. */
@@ -32,23 +32,24 @@ function drawPicker() {
     setSegmentedItems($('profile-picker'), items);
     setSegmentedValues($('profile-picker'), state.profileSource ? [state.profileSource] : []);
     editorSource.textContent = `Sends as ${state.profileSource}`;
+    editorSource.hidden = !state.profileSource;
 }
 
 /** Everything on the page waits on the profiles (Try needs a source), so the whole page is loading, or failed, with them. */
 function pageWaits() {
     setCardState(profileCard, 'loading');
-    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'loading', loadingWords: 'Reading the profile file' });
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'loading', loadingWords: 'Reading the profile file', copy: false });
     setCardState(editorCard, 'loading');
     setCardState(resultCard, 'loading');
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Reading the profiles' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'loading', loadingWords: 'Reading the profiles', copy: false });
 }
 
 function pageFailed() {
     setCardState(profileCard, 'error', { title: 'Could not read the profiles', text: 'Almanac did not answer. Nothing else is affected.' });
-    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profiles could not be read' });
+    setCode(profileToml, { text: '', title: 'Profile file', language: 'TOML', state: 'error', message: 'The profiles could not be read', copy: false });
     setCardState(editorCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
     setCardState(resultCard, 'error', { title: 'Could not read the profiles', text: 'Try needs a source, and Almanac did not answer.' });
-    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'The profiles could not be read' });
+    setCode(traceBody, { text: '', title: 'Answer', language: 'JSON', state: 'error', message: 'The profiles could not be read', copy: false });
 }
 
 /** The page is ready for a first Try: the editor is open, nothing was tried. */

@@ -24,7 +24,8 @@ export async function loadGoogle(quiet = false) {
         render();
     }
     try {
-        state.google = await api('/calendars/data/google');
+        // A refused answer carries no calendars; every section reads the list, so it is always there.
+        state.google = { calendars: [], .../** @type {any} */ (await api('/calendars/data/google')) };
     } catch (e) {
         const err = /** @type {any} */ (e);
         state.google = { ok: false, can_create: true, calendars: [], error: err.error, remedy: err.remedy };

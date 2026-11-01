@@ -141,6 +141,14 @@ pub const FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../web/js/status/state.js"),
     ),
     ("js/try/api.js", include_bytes!("../../web/js/try/api.js")),
+    (
+        "js/try/copies.js",
+        include_bytes!("../../web/js/try/copies.js"),
+    ),
+    (
+        "js/try/copy-menu.js",
+        include_bytes!("../../web/js/try/copy-menu.js"),
+    ),
     ("js/try/dom.js", include_bytes!("../../web/js/try/dom.js")),
     (
         "js/try/editor.js",

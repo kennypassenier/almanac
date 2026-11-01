@@ -1,5 +1,5 @@
 // history page: kp-themes 11.0.0 components wired to Almanac JSON routes.
-import { setCalendarDays, setCalendarState, setCalendarLegend, setCalendarCaption, calendarSelect, setWeekEvents, setWeekState, setWeekLegend, setCardState, dataTable } from '/static/kp/dist/kp-themes.min.js';
+import { setCalendarDays, setCalendarState, setCalendarLegend, setCalendarCaption, calendarSelect, setWeekEvents, setWeekState, setWeekLegend, dataTable } from '/static/kp/dist/kp-themes.min.js';
 
 /** Resolves once js/auto.js has attached everything the page carries. */
 const ready = new Promise((resolve) => {
@@ -55,7 +55,6 @@ setCalendarState(calendar, 'loading', 'Reading the deliveries of this month');
 handle?.busy({ text: 'Reading the deliveries of this day', overlay: true });
 handle?.state('loading');
 setWeekState(byId('hist-week'), 'loading', 'Reading this week');
-setCardState(byId('hist-event'), 'loading', { words: 'Reading this week' });
 
 /** @param {string} iso @param {number} n */
 function shift(iso, n) {
@@ -175,13 +174,14 @@ async function loadWeek() {
             weekEl,
             data.calendars.map((/** @type {any} */ c) => ({ series: c.series, label: c.name })),
         );
-        const left = data.unreadable ? ` ${data.unreadable} delivery ${data.unreadable === 1 ? 'record' : 'records'} could not be read; those events show no delivery time.` : '';
-        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: `Open an event in the week to see its details.${left}` });
+        const note = byId('hist-week-note');
+        note.hidden = !data.unreadable;
+        note.textContent = data.unreadable ? `${data.unreadable} delivery ${data.unreadable === 1 ? 'record' : 'records'} could not be read; those events show no delivery time.` : '';
         if (!events.length) setWeekState(weekEl, 'empty', 'Almanac wrote nothing in this week.');
     } catch {
         if (token !== weekToken) return;
         setWeekState(weekEl, 'error', 'Could not read the calendars Almanac writes to.');
-        setCardState(byId('hist-event'), 'empty', { title: 'No event opened', text: 'Open an event in the week to see its details.' });
+        byId('hist-week-note').hidden = true;
     }
 }
 
@@ -196,7 +196,6 @@ weekEl.addEventListener('kp-week-open', (event) => {
     if (!e) return;
     const [tone, word] = e.result ? RESULT[/** @type {keyof typeof RESULT} */ (e.result)] : ['success', 'Delivered'];
     byId('hist-event-title').textContent = e.label;
-    setCardState(byId('hist-event'), 'ready');
     fillKv(byId('hist-event-kv'), [
         ['Source', `<span class="kp-id">${esc(e.source)}</span>`],
         ['Calendar', esc(e.calendar)],
@@ -204,7 +203,30 @@ weekEl.addEventListener('kp-week-open', (event) => {
         ['Delivered', e.delivered ? `<span class="kp-timestamp">${esc(e.delivered)}</span>` : 'Not on record'],
         ['Result', `<span class="kp-badge kp-badge--${tone}">${word}</span>`],
     ]);
+    showBeside(byId('hist-event'), anchorOf(/** @type {CustomEvent} */ (event)));
 });
+
+/** The week item that was opened: the clicked element, or the focused one for a keyboard open. @param {CustomEvent} event */
+function anchorOf(event) {
+    const source = event.detail.event?.target;
+    const hit = source instanceof Element ? source.closest('button, [role="button"], a, li') : null;
+    return /** @type {HTMLElement} */ (hit ?? document.activeElement ?? weekEl);
+}
+
+/** The gap between an event and its details, and from the viewport's edges, in px. */
+const POPOVER_GAP = 8;
+
+/** Opens the details as a popover next to the event that was opened, kept inside the viewport. @param {HTMLElement} card @param {HTMLElement} anchor */
+function showBeside(card, anchor) {
+    if (!card.matches(':popover-open')) card.showPopover();
+    const at = anchor.getBoundingClientRect();
+    const box = card.getBoundingClientRect();
+    const right = at.right + POPOVER_GAP;
+    const left = right + box.width <= innerWidth - POPOVER_GAP ? right : Math.max(POPOVER_GAP, at.left - POPOVER_GAP - box.width);
+    const top = Math.min(Math.max(POPOVER_GAP, at.top), innerHeight - box.height - POPOVER_GAP);
+    card.style.left = `${left}px`;
+    card.style.top = `${Math.max(POPOVER_GAP, top)}px`;
+}
 
 loadMonth();
 loadWeek();
