@@ -30,9 +30,14 @@ export function renderTable() {
         table.busy({ text: 'Reading the calendars', overlay: true });
         table.state('loading');
     } else if (!google.ok) {
+        // One outage, one alert: the band above holds Check again, so the table only says why it is empty.
+        tbody.innerHTML = '';
+        drawEmptyPlate(GOOGLE_DOWN);
+        table.refresh();
         table.busy(null);
-        table.fail(google.error);
+        table.state('ready');
     } else {
+        drawEmptyPlate(NO_CALENDARS);
         tbody.innerHTML = google.calendars.map(calendarRow).join('\n');
         attachDisabledReasons(tbody);
         attachCodes(tbody);
@@ -42,15 +47,18 @@ export function renderTable() {
     }
 }
 
-/** The table's own empty plate, with a button that opens the new-calendar dialog. */
-function drawEmptyPlate() {
+/** The words of the table's empty plate: no calendars at all, or Google not answering. */
+const NO_CALENDARS = { title: 'No calendars yet', text: 'The service account sees none. Make the first one and Almanac shares it with you.', action: true };
+const GOOGLE_DOWN = { title: 'The calendars cannot be listed right now', text: 'Google Calendar does not answer; the alert above checks again.', action: false };
+
+/** The table's own empty plate; with a New calendar button only when Google answers. @param {{ title: string, text: string, action: boolean }} words */
+function drawEmptyPlate(words) {
     const slot = must('[data-kp-datatable-empty]', tableWrap);
     const plate = statePlate(document, {
         kind: 'empty',
-        title: 'No calendars yet',
-        text: 'The service account sees none. Make the first one and Almanac shares it with you.',
-        actionLabel: 'New calendar',
-        onAction: () => openNew(),
+        title: words.title,
+        text: words.text,
+        ...(words.action ? { actionLabel: 'New calendar', onAction: () => openNew() } : {}),
     });
     plate.setAttribute('data-kp-art', 'none');
     slot.className = plate.className;
@@ -61,6 +69,6 @@ function drawEmptyPlate() {
 }
 
 export function initTable() {
-    drawEmptyPlate();
+    drawEmptyPlate(NO_CALENDARS);
     tableWrap.addEventListener('kp-datatable-retry', () => void hooks.loadGoogle());
 }

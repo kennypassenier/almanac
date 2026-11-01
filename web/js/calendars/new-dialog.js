@@ -39,6 +39,16 @@ async function onValid(event) {
     detail.done();
 }
 
+/** New calendar can only fail while Google does not answer, so the header button waits with the reason on it. */
+export function refreshNewButton() {
+    const down = state.google !== null && !state.google.ok;
+    for (const b of /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll('header [data-cal-open-new]'))) {
+        b.disabled = down;
+        if (down) b.setAttribute('data-kp-disabled-reason', 'Google Calendar cannot be reached right now');
+        else b.removeAttribute('data-kp-disabled-reason');
+    }
+}
+
 export function initNewDialog() {
     formOf(newForm);
     newForm.addEventListener(VALID_EVENT, onValid);
@@ -46,4 +56,5 @@ export function initNewDialog() {
     must('[data-cal-new-cancel]', newDialog).addEventListener('click', () => newDialog.close());
     for (const b of document.querySelectorAll('[data-cal-open-new]')) b.addEventListener('click', openNew);
     attachDisabledReasons(newDialog);
+    attachDisabledReasons(/** @type {HTMLElement} */ (document.querySelector('header') ?? document.body));
 }

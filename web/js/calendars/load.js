@@ -6,6 +6,7 @@ import { renderAttention } from './fixes.js';
 import { renderTable } from './table.js';
 import { renderProfiles } from './profiles.js';
 import { renderUses } from './uses.js';
+import { refreshNewButton } from './new-dialog.js';
 
 export function render() {
     renderStrip();
@@ -13,6 +14,7 @@ export function render() {
     renderTable();
     renderProfiles();
     renderUses();
+    refreshNewButton();
 }
 
 /** @param {boolean} [quiet] keep what is shown while the answer comes (a fix button is running, or a refusal is being checked) */

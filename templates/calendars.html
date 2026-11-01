@@ -17,7 +17,7 @@
       <div class="kp-page-header__actions">
         <button type="button" class="kp-button kp-button--primary" data-cal-open-new>New calendar</button>
         <div class="kp-menu-button" data-kp-menu-button data-kp-key="calendars-page-more" data-cal-more>
-          <button type="button" class="kp-button">More ▾</button>
+          <button type="button" class="kp-button" aria-label="More actions on this page">More ▾</button>
           <div class="kp-menu kp-menu--rich" role="menu" aria-label="Other actions on this page" hidden>
             <button type="button" role="menuitem" class="kp-menu__item" tabindex="-1" aria-labelledby="cal-mi-l1" aria-describedby="cal-mi-h1" data-kp-value="reload"><span class="kp-menu__label" id="cal-mi-l1">Reload profiles from disk</span><span class="kp-menu__hint" id="cal-mi-h1">Read every profile file again, without restarting the service</span></button>
           </div>
@@ -73,13 +73,12 @@
         <div class="kp-datatable" data-kp-datatable data-kp-cards data-kp-page-sizes="none" data-kp-busy-overlay data-kp-state="loading" data-cal-served>
           <div class="kp-table-wrap">
             <table class="kp-table">
-              <caption class="kp-sr-only">Profile files that are served</caption>
+              <caption class="kp-sr-only">Sources whose profile file is served</caption>
               <thead>
                 <tr>
-                  <th scope="col" data-kp-sort="text">File</th>
                   <th scope="col" data-kp-sort="text">Source</th>
                   <th scope="col" data-kp-sort="text">Calendar</th>
-                  <th scope="col" data-kp-sort="number">Health</th>
+                  <th scope="col" data-kp-sort="number">Latest delivery</th>
                 </tr>
               </thead>
               <tbody></tbody>

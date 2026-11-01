@@ -46,11 +46,11 @@ function deleteFileButton(u) {
 /** @param {any} s one served file */
 function servedRow(s) {
     const warn = s.health === 'warn';
+    const calendar = state.google?.ok ? calName(s.calendar_id) : 'Not known while Google does not answer';
     return `<tr data-kp-row-key="${esc(s.file)}">
-<td data-label="File"><code class="kp-mono">${esc(s.file)}</code></td>
 <td data-label="Source">${esc(s.source)}</td>
-<td data-label="Calendar">${esc(calName(s.calendar_id))}</td>
-<td data-label="Health" data-kp-sort-value="${warn ? 1 : 0}"><span class="kp-health" data-state="${warn ? 'warn' : 'ok'}"><span class="kp-health__dot" aria-hidden="true"></span> ${warn ? 'Served, latest delivery failed' : 'Served'}</span></td>
+<td data-label="Calendar">${esc(calendar)}</td>
+<td data-label="Latest delivery" data-kp-sort-value="${warn ? 1 : 0}"><span class="kp-badge kp-badge--${warn ? 'warning' : 'success'}">${warn ? 'Failed' : 'Fine'}</span></td>
 </tr>`;
 }
 
