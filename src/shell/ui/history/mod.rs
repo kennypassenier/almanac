@@ -63,17 +63,56 @@ async fn days(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
 
 /// Calendar id to display name, asking Google only when a managed
 /// calendar is missing from the remembered list.
-async fn calendar_names(state: &AppState) -> HashMap<String, String> {
-    let mut names: HashMap<String, String> = state.calendar_options().into_iter().collect();
+pub(super) struct CalendarNames {
+    names: HashMap<String, String>,
+    /// False when Google was needed and did not answer: a missing name
+    /// then means "not known now", not "the calendar is gone".
+    complete: bool,
+}
+
+impl CalendarNames {
+    /// The calendar's name, or words that say why there is none.
+    pub(super) fn name_of(&self, id: &str) -> String {
+        match self.names.get(id) {
+            Some(name) => name.clone(),
+            None if self.complete => "A calendar that is no longer there".to_string(),
+            None => "Not known while Google does not answer".to_string(),
+        }
+    }
+
+    pub(super) fn map(&self) -> &HashMap<String, String> {
+        &self.names
+    }
+}
+
+async fn calendar_names(state: &AppState) -> CalendarNames {
+    let names: HashMap<String, String> = state.calendar_options().into_iter().collect();
     let missing = state
         .profiles()
         .values()
         .any(|p| !names.contains_key(&p.target_calendar_id));
-    if missing && let Ok(list) = state.client.list_calendars().await {
-        state.remember_calendars(&list);
-        names = list.into_iter().collect();
+    if !missing {
+        return CalendarNames {
+            names,
+            complete: true,
+        };
     }
-    names
+    match state.client.list_calendars().await {
+        Ok(list) => {
+            state.remember_calendars(&list);
+            CalendarNames {
+                names: list.into_iter().collect(),
+                complete: true,
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "history: could not list the calendars; names show as not known");
+            CalendarNames {
+                names,
+                complete: false,
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -105,9 +144,7 @@ async fn day(
                 "delivered": human(&r.at),
                 "title": r.title,
                 "source": r.source,
-                "calendar": names.get(&r.calendar_id)
-                    .cloned()
-                    .unwrap_or_else(|| "A calendar that is no longer there".to_string()),
+                "calendar": names.name_of(&r.calendar_id),
                 "result": r.result,
                 "reason": r.reason,
             })
