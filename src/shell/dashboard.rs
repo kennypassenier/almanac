@@ -58,7 +58,11 @@ async fn calendars_page(
 /// (a bookmark or a runbook still posting to the page), which the script
 /// raises as a toast.
 fn render_calendars(dash: &Dashboard, notice: Option<&str>) -> Response {
-    match dash.render_project("/calendars", CALENDARS_HTML, json!({ "notice": notice })) {
+    match dash.render_project(
+        "/calendars",
+        CALENDARS_HTML,
+        json!({ "notice": notice, "pwa_head": crate::shell::web::pwa_head() }),
+    ) {
         Ok(html) => html.into_response(),
         Err(e) => e.into_response(),
     }

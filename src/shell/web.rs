@@ -7,8 +7,7 @@
 /// 404 in the binary, so a new page script is added in both places.
 pub const FILES: &[(&str, &[u8])] = &[
     ("index.html", include_bytes!("../../web/index.html")),
-    // The approved app icon (2026-11-01); the kit serves pwa/* as the
-    // install icons once the web app is installable.
+    // The approved app icon (2026-11-01), served by the kit as install icons.
     (
         "pwa/icon-180.png",
         include_bytes!("../../web/pwa/icon-180.png"),
@@ -217,12 +216,29 @@ pub const FILES: &[(&str, &[u8])] = &[
     ),
 ];
 
+/// The kit's install head for Almanac's own pages, set once at mount. The
+/// kit layout prints its global `pwa_head` (tags without the worker
+/// script); a page passing this under the same name gets tags and script.
+static PWA_HEAD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The `pwa_head` of every project page; empty when not installable.
+pub fn pwa_head() -> &'static str {
+    PWA_HEAD.get().map_or("", String::as_str)
+}
+
 /// Mounts [`FILES`] at `/ui`, and has the kit sync the pages' remembered
 /// view state (sorts, toggles, the schedule's list or timeline) across
 /// Kenny's devices (chassis-rs 3.12). Only view state: no key here ever
 /// holds a secret.
 pub fn mount(app: &mut chassis::App) {
-    app.webapp(chassis::shell::webapp::WebApp::embedded(FILES).at("/ui"));
+    use chassis::shell::webapp::{Pwa, WebApp};
+    // Installable on /ui (chassis-rs 4.2.0), opening on Almanac's own pages.
+    app.webapp(
+        WebApp::embedded(FILES)
+            .at("/ui")
+            .pwa(Pwa::new().start_url("/")),
+    );
+    let _ = PWA_HEAD.set(app.pwa_page_head().unwrap_or_default());
     app.sync_browser_keys(
         chassis::storage::BrowserKeys::new()
             .prefix("kp-remember:")

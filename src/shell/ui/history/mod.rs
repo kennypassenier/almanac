@@ -29,7 +29,11 @@ pub fn routes() -> Router<Arc<AppState>> {
 }
 
 async fn page(Extension(dash): Extension<Dashboard>) -> Response {
-    match dash.render_project("/history", PAGE_HTML, json!({})) {
+    match dash.render_project(
+        "/history",
+        PAGE_HTML,
+        json!({ "pwa_head": crate::shell::web::pwa_head() }),
+    ) {
         Ok(html) => html.into_response(),
         Err(e) => e.into_response(),
     }
