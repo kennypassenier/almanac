@@ -34,13 +34,27 @@ pub(super) fn timed_window(
 
     let end = match &request.end {
         Some(raw) => explicit_end(raw, start, &request.start, origin)?,
-        None => start + chrono::Duration::minutes(length_minutes(request, profile, origin)?),
+        None => {
+            let minutes = length_minutes(request, profile, origin)?;
+            chrono::Duration::try_minutes(minutes)
+                .and_then(|length| start.checked_add_signed(length))
+                .ok_or_else(|| too_long(origin, "duration_minutes", minutes))?
+        }
     };
 
     Ok((
         EventDateTime::timed(start.to_rfc3339(), timezone),
         EventDateTime::timed(end.to_rfc3339(), timezone),
     ))
+}
+
+/// A length so large the end falls outside the calendar: refused instead
+/// of panicking on the overflow (bug review 2026-11-02).
+fn too_long(origin: &str, field: &str, value: i64) -> AlmanacError {
+    AlmanacError::ProfileValidation {
+        message: format!("{origin}: \"{field}\" ({value}) puts the end outside any calendar"),
+        remedy: format!("send a realistic {field}, or an explicit end"),
+    }
 }
 
 /// An explicit end, which must come after the start.
@@ -120,7 +134,9 @@ pub(super) fn all_day_window(
         });
     }
 
-    let end = start + chrono::Duration::days(days);
+    let end = start
+        .checked_add_days(chrono::Days::new(days.unsigned_abs()))
+        .ok_or_else(|| too_long(origin, "duration_days", days))?;
     Ok((
         EventDateTime::all_day(start.format("%Y-%m-%d").to_string()),
         EventDateTime::all_day(end.format("%Y-%m-%d").to_string()),

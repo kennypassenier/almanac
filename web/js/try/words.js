@@ -16,6 +16,8 @@ export function setAlert(alert, tone, label, text) {
 
 /** A refusal in two plain parts: what is wrong, and what to do (the API repeats the remedy inside `message`). @param {{ message: string, remedy: string }} body */
 export function refusalWords(body) {
-    const what = body.message.endsWith(` — ${body.remedy}`) ? body.message.slice(0, -(body.remedy.length + 3)) : body.message;
-    return `${what.replace(/, expected one of .*$/, '')}. ${body.remedy[0].toUpperCase()}${body.remedy.slice(1)}`;
+    const remedy = body.remedy ?? '';
+    const what = remedy && body.message.endsWith(` — ${remedy}`) ? body.message.slice(0, -(remedy.length + 3)) : body.message;
+    const head = `${what.replace(/, expected one of .*$/, '')}.`;
+    return remedy ? `${head} ${remedy[0].toUpperCase()}${remedy.slice(1)}` : head;
 }

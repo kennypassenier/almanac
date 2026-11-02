@@ -45,7 +45,10 @@ async function send(path, ids) {
         // An HTML answer is the login page: the session ended.
         console.warn(`deliveries: ${path} did not answer JSON (status ${response.status})`, cause);
     }
-    if (json === null) throw new Error('Your session ended. Reload the page and log in again');
+    if (json === null) {
+        const ended = response.status === 401 || /login/.test(response.url);
+        throw new Error(ended ? 'Your session ended. Reload the page and log in again' : 'Almanac did not answer. Check that the service is running, then try again');
+    }
     if (!response.ok) throw new Error(`${String(json.error ?? 'Almanac could not do that').replace(/\.$/, '')}. ${json.remedy ?? ''}`.trim());
     return json;
 }

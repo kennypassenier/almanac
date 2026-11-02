@@ -149,3 +149,34 @@ async fn a_delete_that_google_refuses_is_reported_rather_than_claimed() {
 
     assert_eq!(status, StatusCode::BAD_GATEWAY);
 }
+
+#[tokio::test]
+async fn a_delete_cancels_the_event_still_waiting_in_the_journal() {
+    // Bug review 2026-11-02: posted while Google was down (pending), then
+    // deleted: the delete answered 404 and the worker created the event
+    // the source believed was gone once Google came back.
+    let calendar = crate::shell::testing::CalendarStub::start().await;
+    let state = Arc::new(state_with_calendar("home-assistant", "tok", &calendar).await);
+    let waiting = crate::core::journal::Entry {
+        id: "e-1".to_string(),
+        source_id: "home-assistant".to_string(),
+        received_at: "2026-11-02T01:00:00+00:00".to_string(),
+        payload: serde_json::json!({"title": "t", "start": "2026-11-02T10:00:00+00:00", "external_id": "task-9"}),
+        idempotency_key: None,
+    };
+    state.journal.accept(&waiting).await.unwrap();
+
+    let (status, Json(body)) = delete_event(
+        State(Arc::clone(&state)),
+        Path(("home-assistant".to_string(), "task-9".to_string())),
+        Caller::Admin,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["pending_cancelled"], 1);
+    assert!(
+        state.journal.pending().unwrap().is_empty(),
+        "nothing is left to create it"
+    );
+}

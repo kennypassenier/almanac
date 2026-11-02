@@ -95,7 +95,10 @@ impl KitHub {
     /// return the token, the way a person would with Reveal.
     pub async fn issue_client(&self, name: &str) -> String {
         // 4.0.2: the issue form carries the calendar; a source with a
-        // profile on disk keeps it, a new one gets this test calendar.
+        // profile on disk keeps it, a new one gets this test calendar. The
+        // form only offers calendars Almanac has listed, so it is listed.
+        self.state
+            .remember_calendars(&[("cal-test".to_string(), "Test calendar".to_string())]);
         self.app
             .issue_client(name, &[("calendar", "cal-test")])
             .await

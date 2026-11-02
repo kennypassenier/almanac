@@ -102,6 +102,7 @@ impl GoogleCalendarClient {
     /// dashboard only offers it for a calendar no source writes to, and
     /// that guard is the reason this is safe to expose at all.
     pub async fn delete_calendar(&self, calendar_id: &str) -> Result<(), AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}", self.base_url);
         self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
             .await?;
@@ -115,6 +116,7 @@ impl GoogleCalendarClient {
     /// strands a calendar somebody depends on — the grantee can rename,
     /// share onward and delete it without us.
     pub async fn share_calendar(&self, calendar_id: &str, user: &str) -> Result<(), AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}/acl", self.base_url);
         let rule = serde_json::json!({
             "role": "owner",

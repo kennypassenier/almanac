@@ -11,6 +11,16 @@ fn entry(id: &str) -> Record {
     })
 }
 
+fn entry_with(id: &str, payload: serde_json::Value) -> Entry {
+    Entry {
+        id: id.to_string(),
+        source_id: "home-assistant".to_string(),
+        received_at: "2026-08-28T09:00:00+00:00".to_string(),
+        payload,
+        idempotency_key: None,
+    }
+}
+
 fn done(id: &str) -> Record {
     Record::Done { id: id.to_string() }
 }
@@ -147,4 +157,15 @@ fn records_including_dead_round_trip_through_json_lines() {
     let line = serde_json::to_string(&record).unwrap();
     assert_eq!(serde_json::from_str::<Record>(&line).unwrap(), record);
     assert!(line.contains("\"kind\":\"dead\""), "{line}");
+}
+
+#[test]
+fn an_entry_key_prefers_the_external_id_over_the_idempotency_key() {
+    let mut e = entry_with("a", json!({"title": "t", "external_id": "task-7"}));
+    e.idempotency_key = Some("k-1".to_string());
+    assert_eq!(entry_key(&e).as_deref(), Some("home-assistant:task-7"));
+    let mut bare = entry_with("b", json!({"title": "t"}));
+    assert_eq!(entry_key(&bare), None);
+    bare.idempotency_key = Some("k-1".to_string());
+    assert_eq!(entry_key(&bare).as_deref(), Some("home-assistant:k-1"));
 }

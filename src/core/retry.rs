@@ -16,7 +16,9 @@
 /// Classifies a Google API error response as transient or permanent.
 pub fn is_transient(status: u16, reason: Option<&str>) -> bool {
     match status {
-        429 => true,
+        // 408: Google gave up waiting for the request; sending it again is
+        // exactly what the status asks for.
+        408 | 429 => true,
         500..=599 => true,
         403 => matches!(
             reason,
@@ -67,6 +69,10 @@ mod tests {
 
     #[test]
     fn rate_and_quota_limited_403s_are_transient() {
+        assert!(
+            is_transient(408, None),
+            "a request timeout is worth another try"
+        );
         assert!(is_transient(403, Some("rateLimitExceeded")));
         assert!(is_transient(403, Some("userRateLimitExceeded")));
         assert!(is_transient(403, Some("quotaExceeded")));

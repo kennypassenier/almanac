@@ -67,8 +67,8 @@ async fn main() -> ExitCode {
     };
     let args: Vec<String> = std::env::args().collect();
     // The routes need the state, which needs the paths the kit resolves —
-    // so the router is attached below, as public routes with Almanac's own
-    // door policy (bearer tokens, the session cookie) inside them.
+    // so they are mounted below, behind the kit's door (client tokens) and
+    // its admin login.
     let mut app = match App::from_args_with_env(spec, args, env.clone(), Router::new()) {
         Ok(app) => app,
         Err(e) => return die(e),
@@ -170,7 +170,7 @@ impl Start {
             Ok(lock) => lock,
             Err(e) => return die(e),
         };
-        let http = reqwest::Client::new();
+        let http = almanac::shell::calendar_client::http_client();
         let notifier = Notifier::from_env(http.clone());
         let Start {
             env,

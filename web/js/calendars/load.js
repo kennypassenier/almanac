@@ -17,16 +17,23 @@ export function render() {
     refreshNewButton();
 }
 
+let googleTurn = 0;
+let profilesTurn = 0;
+
 /** @param {boolean} [quiet] keep what is shown while the answer comes (a fix button is running, or a refusal is being checked) */
 export async function loadGoogle(quiet = false) {
+    const turn = (googleTurn += 1);
     if (!quiet) {
         state.google = null;
         render();
     }
     try {
         // A refused answer carries no calendars; every section reads the list, so it is always there.
-        state.google = { calendars: [], .../** @type {any} */ (await api('/calendars/data/google')) };
+        const google = { calendars: [], .../** @type {any} */ (await api('/calendars/data/google')) };
+        if (turn !== googleTurn) return;
+        state.google = google;
     } catch (e) {
+        if (turn !== googleTurn) return;
         const err = /** @type {any} */ (e);
         state.google = { ok: false, can_create: true, calendars: [], error: err.error, remedy: err.remedy };
     }
@@ -35,13 +42,17 @@ export async function loadGoogle(quiet = false) {
 
 /** @param {boolean} [quiet] as in loadGoogle */
 export async function loadProfiles(quiet = false) {
+    const turn = (profilesTurn += 1);
     if (!quiet) {
         state.profiles = null;
         render();
     }
     try {
-        state.profiles = { ok: true, .../** @type {any} */ (await api('/calendars/data/profiles')) };
+        const profiles = { ok: true, .../** @type {any} */ (await api('/calendars/data/profiles')) };
+        if (turn !== profilesTurn) return;
+        state.profiles = profiles;
     } catch (e) {
+        if (turn !== profilesTurn) return;
         const err = /** @type {any} */ (e);
         state.profiles = { ok: false, folder_ok: false, served: [], unserved: [], sources: [], trend: null, error: err.error };
     }

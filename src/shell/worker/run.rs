@@ -145,7 +145,13 @@ async fn reschedule(
 
 /// Compacts the journal once enough deliveries have piled up.
 async fn compact_when_due(state: &AppState, since_compaction: &mut usize) {
-    if *since_compaction < COMPACT_AFTER_DELIVERIES {
+    // Also when the file passes half its cap with anything delivered since
+    // the last compaction: after a long outage fewer than a hundred
+    // deliveries may be all it takes to make room again.
+    let half_full = std::fs::metadata(state.journal.path())
+        .is_ok_and(|m| m.len() * 2 > state.journal.max_bytes());
+    let due = *since_compaction >= COMPACT_AFTER_DELIVERIES || (*since_compaction > 0 && half_full);
+    if !due {
         return;
     }
     match state.journal.compact().await {

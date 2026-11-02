@@ -16,6 +16,7 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event: &GoogleEvent,
     ) -> Result<GoogleEvent, AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}/events", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.post(&url).bearer_auth(token).json(event))
@@ -28,6 +29,8 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event_id: &str,
     ) -> Result<GoogleEvent, AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
+        let event_id = super::segment(event_id);
         let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.get(&url).bearer_auth(token))
@@ -43,6 +46,8 @@ impl GoogleCalendarClient {
         event_id: &str,
         event: &GoogleEvent,
     ) -> Result<GoogleEvent, AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
+        let event_id = super::segment(event_id);
         let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         let response = self
             .send_with_retry(|http, token| http.put(&url).bearer_auth(token).json(event))
@@ -55,6 +60,8 @@ impl GoogleCalendarClient {
         calendar_id: &str,
         event_id: &str,
     ) -> Result<(), AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
+        let event_id = super::segment(event_id);
         let url = format!("{}/{calendar_id}/events/{event_id}", self.base_url);
         self.send_with_retry(|http, token| http.delete(&url).bearer_auth(token))
             .await?;
@@ -87,6 +94,7 @@ impl GoogleCalendarClient {
         key: &str,
         value: &str,
     ) -> Result<Vec<GoogleEvent>, AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}/events", self.base_url);
         let filter = format!("{key}={value}");
         self.get_all_pages(
@@ -106,6 +114,7 @@ impl GoogleCalendarClient {
         time_min: &str,
         time_max: &str,
     ) -> Result<Vec<GoogleEvent>, AlmanacError> {
+        let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}/events", self.base_url);
         let query = [
             ("timeMin", time_min),

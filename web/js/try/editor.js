@@ -14,6 +14,11 @@ const ISO_SECONDS_LENGTH = 19;
 /** Increases with every Try; an answer that arrives for an older one is dropped. */
 let asking = 0;
 
+/** Drops the answer of a Try in flight, as after a change of source. */
+export function cancelAsk() {
+    asking += 1;
+}
+
 /** A starting call that is valid, on the next full hour, so Try works at once. */
 function startingCall() {
     const nextHour = new Date(Math.ceil(Date.now() / HOUR_MS) * HOUR_MS).toISOString().slice(0, ISO_SECONDS_LENGTH).replace('Z', '');
@@ -51,8 +56,14 @@ async function ask() {
         return;
     }
     if (turn !== asking) return;
-    drawTrace(data);
-    drawResult(data, value, ask);
+    try {
+        drawTrace(data);
+        drawResult(data, value, ask);
+    } catch (error) {
+        console.warn('try: the answer could not be drawn', error);
+        askFailed();
+        return;
+    }
     setCardState(editorCard, 'ready');
     setCardState(resultCard, 'ready');
 }

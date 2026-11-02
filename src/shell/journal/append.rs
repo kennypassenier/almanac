@@ -26,7 +26,13 @@ impl Journal {
         let _ticket = chassis::shell::backup::writing().await;
 
         ensure_parent_dir(&self.path)?;
-        self.check_cap(line.len() as u64)?;
+        // Only a new entry counts against the cap: a Done or Dead marker is
+        // what lets compaction shrink the file, so refusing it would keep a
+        // full journal full and redeliver the same entries every pass.
+        if matches!(record, Record::Entry(_)) {
+            self.check_cap(line.len() as u64)?;
+        }
+        repair_torn_tail(&self.path)?;
         append_synced(&self.path, line.as_bytes())
     }
 
@@ -75,6 +81,70 @@ fn ensure_parent_dir(path: &Path) -> Result<(), AlmanacError> {
         })?;
     }
     Ok(())
+}
+
+/// Cuts a torn final line (a crash mid-append) off before the next append.
+/// Left in place, the next record would be glued onto it and the file
+/// would hold an unparseable line in the middle, which no read tolerates.
+/// The torn record was never acknowledged, so cutting it loses nothing.
+fn repair_torn_tail(path: &Path) -> Result<(), AlmanacError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let fail = |e: std::io::Error| AlmanacError::Config {
+        message: format!(
+            "failed to repair the torn end of journal {}: {e}",
+            path.display()
+        ),
+        remedy: format!(
+            "check free disk space and permissions on {}",
+            path.display()
+        ),
+    };
+    let mut file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(fail(e)),
+    };
+    let len = file.metadata().map_err(fail)?.len();
+    let mut last = [0u8; 1];
+    if len == 0 || {
+        file.seek(SeekFrom::Start(len - 1)).map_err(fail)?;
+        file.read_exact(&mut last).map_err(fail)?;
+        last[0] == b'\n'
+    } {
+        return Ok(());
+    }
+    let keep = last_newline_end(&mut file, len).map_err(fail)?;
+    tracing::warn!(
+        journal = %path.display(),
+        cut = len - keep,
+        "cutting a torn final journal line before appending — it was never acknowledged"
+    );
+    file.set_len(keep).map_err(fail)?;
+    file.sync_all().map_err(fail)
+}
+
+/// The length up to and including the last newline (0 when there is none),
+/// read backwards in chunks so a large journal is not loaded whole.
+fn last_newline_end(file: &mut std::fs::File, len: u64) -> std::io::Result<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 64 * 1024;
+    let mut end = len;
+    let mut buf = vec![0u8; CHUNK as usize];
+    while end > 0 {
+        let start = end.saturating_sub(CHUNK);
+        let part = &mut buf[..(end - start) as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(part)?;
+        if let Some(i) = part.iter().rposition(|b| *b == b'\n') {
+            return Ok(start + i as u64 + 1);
+        }
+        end = start;
+    }
+    Ok(0)
 }
 
 /// Appends `bytes` and fsyncs the file.

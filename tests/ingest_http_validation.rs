@@ -179,3 +179,26 @@ async fn the_synchronous_path_refuses_an_unmappable_payload_before_journalling_i
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn an_absurd_length_is_refused_instead_of_panicking() {
+    // Bug review 2026-11-02: chrono panics when start + length overflows, so
+    // a source could crash the request with one number.
+    let dir = scratch_dir("overflow");
+    let state = ingest_state(&dir);
+    for body in [
+        r#"{"title": "t", "start": "2026-11-02T10:00:00+01:00", "external_id": "o-1", "duration_minutes": 9000000000000000000}"#,
+        r#"{"title": "t", "start": "2026-11-02", "all_day": true, "external_id": "o-2", "duration_days": 9000000000000000000}"#,
+    ] {
+        let response = build_router_with_probes(Arc::clone(&state))
+            .oneshot(post("/v1/ingest/home-assistant", Some(HA_TOKEN), body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{body}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

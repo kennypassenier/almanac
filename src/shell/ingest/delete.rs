@@ -50,8 +50,22 @@ pub(super) async fn delete_event(
     let lock = state.locks.for_key(&key).await;
     let _guard = lock.lock().await;
 
+    // An event still waiting in the journal would be created after this
+    // delete answered; it is cancelled under the same lock first.
+    let cancelled = match cancel_pending(&state, &key).await {
+        Ok(n) => n,
+        Err(reply) => return reply,
+    };
     let event_id = match find_event_id(&state, &profile.source_id, &calendar, &key).await {
         Ok(id) => id,
+        Err((StatusCode::NOT_FOUND, _)) if cancelled > 0 => {
+            return (
+                StatusCode::OK,
+                Json(
+                    json!({"status": "deleted", "event_id": null, "pending_cancelled": cancelled}),
+                ),
+            );
+        }
         Err(reply) => return reply,
     };
 
@@ -63,7 +77,9 @@ pub(super) async fn delete_event(
             );
             (
                 StatusCode::OK,
-                Json(json!({"status": "deleted", "event_id": event_id})),
+                Json(
+                    json!({"status": "deleted", "event_id": event_id, "pending_cancelled": cancelled}),
+                ),
             )
         }
         Err(e) => {
@@ -71,6 +87,30 @@ pub(super) async fn delete_event(
             error(StatusCode::BAD_GATEWAY, e.message(), e.remedy())
         }
     }
+}
+
+/// Marks every journal entry still waiting under `key` as done, and says
+/// how many there were (bug review 2026-11-02: a delete of an event that
+/// was still pending answered 404, and the worker created it afterwards).
+async fn cancel_pending(state: &AppState, key: &str) -> Result<usize, Reply> {
+    let fail = |e: crate::core::error::AlmanacError| {
+        error(StatusCode::INTERNAL_SERVER_ERROR, e.message(), e.remedy())
+    };
+    let waiting: Vec<String> = state
+        .journal
+        .pending()
+        .map_err(fail)?
+        .into_iter()
+        .filter(|entry| crate::core::journal::entry_key(entry).as_deref() == Some(key))
+        .map(|entry| entry.id)
+        .collect();
+    for id in &waiting {
+        state.journal.mark_done(id).await.map_err(fail)?;
+    }
+    if !waiting.is_empty() {
+        tracing::info!(%key, cancelled = waiting.len(), "a delete cancelled events still waiting in the journal");
+    }
+    Ok(waiting.len())
 }
 
 /// Looks the event up by its upsert key and returns Google's id for it,

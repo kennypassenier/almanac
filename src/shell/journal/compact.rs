@@ -63,8 +63,18 @@ fn still_owed(records: &[Record]) -> Vec<Record> {
 /// `path` and fsyncs the directory.
 fn replace_atomically(path: &Path, body: &str) -> Result<(), AlmanacError> {
     let temp = path.with_extension("compacting");
+    let result = write_and_rename(path, &temp, body);
+    if result.is_err() {
+        // A half-written copy on a full disk would only make the next
+        // attempt harder; the journal itself is untouched.
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+fn write_and_rename(path: &Path, temp: &Path, body: &str) -> Result<(), AlmanacError> {
     {
-        let mut file = std::fs::File::create(&temp).map_err(|e| AlmanacError::Config {
+        let mut file = std::fs::File::create(temp).map_err(|e| AlmanacError::Config {
             message: format!("failed to create {}: {e}", temp.display()),
             remedy: "check free disk space and permissions".to_string(),
         })?;
@@ -79,7 +89,7 @@ fn replace_atomically(path: &Path, body: &str) -> Result<(), AlmanacError> {
         })?;
     }
 
-    std::fs::rename(&temp, path).map_err(|e| AlmanacError::Config {
+    std::fs::rename(temp, path).map_err(|e| AlmanacError::Config {
         message: format!(
             "failed to replace {} with {}: {e}",
             path.display(),

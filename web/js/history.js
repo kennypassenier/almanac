@@ -90,7 +90,7 @@ async function loadMonth() {
         }
         setCalendarDays(calendar, days);
         setCalendarState(calendar, 'ready');
-        calendarSelect(calendar, data.today);
+        calendarSelect(calendar, pickedDay || data.today);
         if (!pickedDay) showDay(data.today);
     } catch {
         setCalendarState(calendar, 'error', 'Could not read the deliveries of this month');
@@ -122,7 +122,7 @@ async function showDay(iso) {
         ]);
         byId('hist-rows').innerHTML = data.rows
             .map((/** @type {any} */ r) => {
-                const [tone, word] = RESULT[/** @type {keyof typeof RESULT} */ (r.result)];
+                const [tone, word] = RESULT[/** @type {keyof typeof RESULT} */ (r.result)] ?? ['info', String(r.result)];
                 return `<tr data-kp-row-key="${esc(r.id)}"><td class="kp-timestamp">${esc(r.delivered)}</td><td>${esc(r.title)}<span class="hist-sub">${esc(r.source)}${
                     r.reason ? ` · ${esc(r.reason)}` : ''
                 }</span></td><td>${esc(r.calendar)}</td><td><span class="kp-badge kp-badge--${tone}">${word}</span></td></tr>`;
@@ -194,7 +194,7 @@ weekEl.addEventListener('kp-week-retry', loadWeek);
 weekEl.addEventListener('kp-week-open', (event) => {
     const e = weekById.get(/** @type {CustomEvent} */ (event).detail.id);
     if (!e) return;
-    const [tone, word] = e.result ? RESULT[/** @type {keyof typeof RESULT} */ (e.result)] : ['success', 'Delivered'];
+    const [tone, word] = e.result ? (RESULT[/** @type {keyof typeof RESULT} */ (e.result)] ?? ['info', String(e.result)]) : ['success', 'Delivered'];
     byId('hist-event-title').textContent = e.label;
     fillKv(byId('hist-event-kv'), [
         ['Source', `<span class="kp-id">${esc(e.source)}</span>`],

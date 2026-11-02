@@ -128,5 +128,19 @@ pub fn pending(records: &[Record]) -> Vec<&Entry> {
         .collect()
 }
 
+/// The upsert key an entry will be delivered under: `<source>:<external_id>`
+/// from its payload, else `<source>:<idempotency key>` (AR15, M7). The
+/// same key the delete route builds, so a delete can find the entries
+/// still waiting for that event.
+pub fn entry_key(entry: &Entry) -> Option<String> {
+    entry
+        .payload
+        .get("external_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .or(entry.idempotency_key.as_deref())
+        .map(|id| format!("{}:{id}", entry.source_id))
+}
+
 #[cfg(test)]
 mod tests;

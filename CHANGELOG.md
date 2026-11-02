@@ -49,6 +49,24 @@ and the profile format are unchanged.
 
 ### Fixed
 
+- Journal: a torn last line left by a crash is cut before the next append
+  (before, the next record glued onto it and the journal became unreadable
+  until someone moved it aside); a full journal still takes the Done and
+  Dead markers that let compaction free it, and compaction also runs once
+  the file passes half its cap; a failed compaction removes its temp file.
+- Google calls time out (10 s to connect, 30 s per request) instead of
+  waiting forever on a half-open connection; 408 counts as transient.
+- A DELETE also cancels the same event still waiting in the journal, so it
+  is not created after the delete answered (`pending_cancelled` in the body).
+- A huge `duration_minutes` or `duration_days` is refused with 422 instead
+  of panicking; calendar and event ids are percent-encoded in API paths
+  (Google's holiday calendars carry `#`); a new source's calendar must be
+  one Almanac listed.
+- Pages: an answer for a source that is no longer picked no longer draws
+  on Try; rows inside the undo window stay hidden through a failed poll;
+  older Calendars answers no longer overwrite newer ones; "session ended"
+  only for a real 401 or login redirect.
+
 - A refusal's `message` no longer repeats its `remedy` (422, 502 and the
   admin refusals), and an unknown field names the field without serde's
   list of every expected one (Habits integration test, 2026-11-02).

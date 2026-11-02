@@ -4,10 +4,11 @@ import { esc } from '../lib/format.js';
 import { factRow, setAlert, refusalWords } from './words.js';
 import { specRows, diffLines, curlFor } from './spec.js';
 import { state } from './state.js';
-import { $, badge, note, specArea, diffArea, curlArea, resultCard, traceEl, traceBody, traceHttp } from './dom.js';
+import { $, badge, note, specArea, diffArea, curlArea, editorCard, resultCard, traceEl, traceBody, traceHttp } from './dom.js';
 
 /** Back to the untried state, as after a change of source. */
 export function idle() {
+    setCardState(editorCard, 'ready');
     idleTrace();
     emptyResult();
 }

@@ -27,9 +27,10 @@ export async function api(path, body) {
         console.warn(`calendars: ${path} did not answer JSON (status ${res.status})`, cause);
     }
     if (!res.ok || json === null) {
+        const ended = json === null && (res.status === 401 || /login/.test(res.url));
         throw refusal(
-            json?.error ?? (json === null ? 'Your session ended.' : 'Almanac could not do that.'),
-            json?.remedy ?? (json === null ? 'Reload the page and log in again.' : 'Try again in a moment.'),
+            json?.error ?? (ended ? 'Your session ended.' : json === null ? 'Almanac did not answer.' : 'Almanac could not do that.'),
+            json?.remedy ?? (ended ? 'Reload the page and log in again.' : 'Try again in a moment.'),
         );
     }
     return json;

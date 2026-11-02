@@ -186,3 +186,19 @@ async fn a_calendar_list_longer_than_one_page_comes_back_whole() {
 
     assert_eq!(calendars.len(), 3, "two pages of 2 and 1");
 }
+
+#[test]
+fn an_id_stays_one_path_segment() {
+    // Security review 2026-11-02: an id was formatted raw into the URL, so
+    // `#` ended the path (Google's holiday calendars carry one) and `/..`
+    // reached another API path.
+    assert_eq!(
+        super::segment("en.be#holiday@group.v.calendar.google.com"),
+        "en.be%23holiday@group.v.calendar.google.com"
+    );
+    assert_eq!(super::segment("x/../acl?y"), "x%2F..%2Facl%3Fy");
+    assert_eq!(
+        super::segment("abc123_def@group.calendar.google.com"),
+        "abc123_def@group.calendar.google.com"
+    );
+}

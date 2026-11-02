@@ -16,7 +16,7 @@ export function tableLoading() {
 
 /** @param {any} d one delivery */
 function rowHtml(d) {
-    const [word, tone] = RESULT[d.result];
+    const [word, tone] = RESULT[d.result] ?? [String(d.result), 'info'];
     const at = Date.parse(d.at);
     const moment = agoMoment(at);
     let detail;

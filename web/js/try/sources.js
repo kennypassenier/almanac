@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { factRow } from './words.js';
 import { $, profileCard, profileToml, editorCard, editorSource, resultCard, traceBody } from './dom.js';
+import { cancelAsk } from './editor.js';
 import { idle, idleTrace, emptyResult } from './result.js';
 import { refreshTry } from './try-button.js';
 
@@ -68,7 +69,7 @@ function reloadButton() {
     reload.addEventListener('click', async () => {
         pageWaits();
         try {
-            await fetch('/sources/reload', { method: 'POST', credentials: 'same-origin' });
+            await fetch('/sources/reload', { method: 'POST', headers: { Accept: 'application/json' }, credentials: 'same-origin' });
         } catch (error) {
             // The read below says what is wrong; the console keeps the cause.
             console.warn('try: the profile reload request failed', error);
@@ -79,6 +80,7 @@ function reloadButton() {
 }
 
 export async function loadSources() {
+    cancelAsk();
     state.sourcesFailed = false;
     pageWaits();
     try {
@@ -110,6 +112,7 @@ export function initSources() {
     $('profile-picker').addEventListener('kp-segmented-change', (event) => {
         state.profileSource = /** @type {CustomEvent} */ (event).detail.value;
         state.editorSource = state.profileSource;
+        cancelAsk();
         editorSource.textContent = `Sends as ${state.profileSource}`;
         drawProfile();
         idle();

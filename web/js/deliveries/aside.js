@@ -90,7 +90,7 @@ export function renderAside() {
     asideFailed.hidden = state.status !== 'error';
     const all = state.status === 'ready' ? state.data.aside : [];
     // An id the journal no longer lists has been dealt with; it needs no holding any more.
-    for (const id of held) if (!all.some((item) => item.id === id)) held.delete(id);
+    if (state.status === 'ready') for (const id of held) if (!all.some((item) => item.id === id)) held.delete(id);
     const list = all.filter((item) => !held.has(item.id));
     asideEl.hidden = list.length === 0;
     asideEmpty.hidden = !(state.status === 'ready' && list.length === 0);

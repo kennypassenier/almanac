@@ -56,6 +56,18 @@ pub fn create_source(
             "pick the calendar this source writes to",
         ));
     }
+    // Only a calendar the form offered: the id goes into the profile's TOML
+    // as a quoted string, so anything else could add keys of its own.
+    if !state
+        .calendar_options()
+        .iter()
+        .any(|(id, _)| id == calendar)
+    {
+        return Err(chassis::Error::invalid(
+            format!("\"{calendar}\" is not one of the calendars Almanac can write to"),
+            "pick the calendar from the list; reload the Sources page if it is missing",
+        ));
+    }
     let toml = crate::core::profile::default_profile_toml(source_id, calendar);
     crate::shell::profiles::save_new(&state.profiles_dir, &toml)
         .map_err(|e| chassis::Error::invalid(e.to_string(), e.remedy().to_string()))?;
