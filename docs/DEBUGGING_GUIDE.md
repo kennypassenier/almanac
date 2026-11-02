@@ -65,12 +65,13 @@ not at a same-named older one.
 
 Almost always one of three things:
 
-**The profile has no `external_id_field`.** Without it, every post
-creates a new event — there is no key to match on. Add it, or have the
-source send an `Idempotency-Key` header.
+**The source sends a different `external_id` each time.** The
+`external_id` in the payload (or an `Idempotency-Key` header) is the key
+Almanac matches on; a post with neither is refused with a 422. Make the
+source send a stable one.
 
 **The source changed its id.** The upsert matches on the value of
-`external_id_field`. If the source used `sensor.waste` yesterday and
+`external_id`. If the source used `sensor.waste` yesterday and
 `sensor.waste_collection` today, those are two different things as far
 as Almanac can tell, and it is right to make two events.
 
@@ -92,7 +93,7 @@ Almanac sends these to Home Assistant. Each is also a runbook section.
 | `almanac-update` | It installed a new version and restarted into it | None — this is it working |
 | `almanac-update-reverted` | A new version came up and did not become healthy, so the old one is back | Look today. Runbook R4 |
 | `almanac-update-unverified` | A published release failed signature or checksum verification, three times | Look now. Either the release is broken or the release host is not to be trusted. Runbook R5 |
-| `almanac-entry-set-aside` | One event failed permanently three times and was given up on | Look today. It is kept in the journal with its reason and shown on the debug surface |
+| `almanac-entry-set-aside` | One event failed permanently three times and was given up on | Look today. It is kept in the journal with its reason and shown on the Deliveries page, where you can Retry or Dismiss it |
 | `almanac-journal-backlog` | The journal is over half its size cap | Look today. Deliveries have been failing long enough to build up. Runbook R8 |
 
 `almanac-entry-set-aside` is the one worth understanding: Almanac

@@ -117,7 +117,7 @@ latch run -- cargo run --example inspect_calendar_access   # shows who can see w
 
 A calendar the service account creates is **invisible to everyone else**
 until it is shared. `inspect_calendar_access` shows the ACL of each; add
-your own account with `share_calendars` (or once, by hand) or nothing
+your own account by setting `ALMANAC_CALENDAR_OWNER` and running `create_calendars` (which shares every calendar it can reach), with *Make and share* on the Calendars page, or once by hand, or nothing
 that lands there will ever be visible.
 
 Latch needs its cached clone and a link. Copy the clone from your
@@ -289,7 +289,7 @@ Then either publish a newer release or the updater will put the newer
 version straight back on its next check. To stop that:
 
 ```bash
-systemctl edit almanac      # Environment=ALMANAC_SELF_UPDATE=off
+systemctl edit almanac      # Environment=ALMANAC_UPDATE_MODE=off
 ```
 
 ## R10 · Two processes, one data directory
@@ -335,7 +335,7 @@ under its original `.toml` name, and almanac loads it again on the next
 start — token and all, once one is issued. That is a restore doing
 exactly its job, not a bug, but it means the source list after a restore
 is the list as it was *then*, not as it was left. Check
-`/sources` (and the kit's Sources page for the tokens) after any restore that reaches back past a
+`/calendars` (and the kit's Sources page for the tokens) after any restore that reaches back past a
 retirement.
 
 Recorded on the homelab's side as F250 in the same measurement that
@@ -392,9 +392,10 @@ scrapes it:
       - targets: ["10.10.10.12:8080"]
 ```
 
-Six series, all prefixed `almanac_`: events accepted, delivered,
-failed, set aside, token refreshes, and the journal depth. Plus
-`almanac_build_info{version="..."}`, which is how you see at a glance
+Almanac's own series are all prefixed `almanac_`: five counters (events
+accepted, delivered, failed, set aside, token refreshes) and two journal
+gauges (`almanac_journal_pending`, `almanac_journal_readable`). Plus the
+kit's `almanac_build_info{version="..."}`, which is how you see at a glance
 which version the hub is actually on.
 
 Two of these are worth an alert:
@@ -458,11 +459,11 @@ serving.
 
 Two update mechanisms exist and exactly one should be armed.
 
-**Almanac alone** (the default): the periodic updater checks every six
+**Almanac alone** (`ALMANAC_UPDATE_MODE=autonomous`; unset means `off`): the periodic updater checks every six
 hours, installs, restarts itself, and reverts on the next start if the
 new version does not serve. Nothing else needed.
 
-**Under the homelab**: set `ALMANAC_SELF_UPDATE=off` in the unit's
+**Under the homelab**: set `ALMANAC_UPDATE_MODE=supervised` in the unit's
 environment and give `stacks/almanac/service.yml` an `update_cmd`:
 
 ```yaml
@@ -496,8 +497,8 @@ starting it.
 
 **Never arm both.** Two systems each preserving and restoring a binary
 will eventually restore each other's copy. If `almanac update` is in the
-stack file, `ALMANAC_SELF_UPDATE` must be off; if it is not, it must
-not be.
+stack file, `ALMANAC_UPDATE_MODE` must not be `autonomous` (`supervised` is the
+intended value); if it is not in the stack file, it must not be `supervised`.
 
 The explicit command still works while the variable is off. That is
 deliberate: the variable governs the background loop, not an instruction
@@ -553,19 +554,19 @@ else builds.
 five minutes after each start. It verifies the minisign signature and
 the checksum, runs the new binary once with `--check` before trusting
 it, keeps the old one as `almanac.prev`, and reverts if the new version
-does not reach "serving" within a minute of starting. Nothing to
-configure.
+does not reach "serving" within a minute of starting. Needs
+`ALMANAC_UPDATE_MODE=autonomous`; unset means `off`.
 
-**In a docker image:** self-update switches itself off, and says so in
-the log:
+**In a docker image:** `autonomous` switches itself off, and the startup
+log says so with the kit's reason:
 
 ```
-running inside a docker or podman image — self-update is off by
-default, because a binary replaced inside a container is lost the
-moment the container is recreated while looking identical to the image
-it came from. Update by pulling a new image. Set ALMANAC_SELF_UPDATE=on
-to override.
+update_mode is autonomous but this is an OCI container: a rewritten binary
+would be lost at the next recreate, so the module is off
 ```
+
+There is no override: update by pulling a new image (or use `supervised`,
+where the stack runs `almanac update`).
 
 This is AR20 enforced by the binary rather than trusted to whoever
 writes the compose file. A container that replaces its own binary keeps
@@ -580,28 +581,21 @@ rebuilt artifact. The check is specifically for Docker and Podman
 `/proc/1/cgroup`) and never for "am I in a container", which would
 switch self-update off on exactly the machine it was built for.
 
-**Turning it off or on by hand.** `ALMANAC_SELF_UPDATE` accepts
-`off`/`false`/`0`/`no` and `on`/`true`/`1`/`yes`, case-insensitively.
-Anything it does not recognise counts as **off** — a slipped finger
-should not be what lets a process rewrite its own binary. An empty
-value is the same as not setting it at all.
+**Turning it off or on by hand.** `ALMANAC_UPDATE_MODE` accepts `off`,
+`supervised` and `autonomous`; unset means `off`. The 2.x
+`ALMANAC_SELF_UPDATE` is still read, with a warning: `on`/`true`/`1`/`yes`
+(case-insensitive) mean `autonomous`, anything else means `off`, so a
+slipped finger does not let a process rewrite its own binary.
 
 ```yaml
 # docker-compose.yml — the default already, stated for the reader
 environment:
-  ALMANAC_SELF_UPDATE: "off"
-```
-
-```yaml
-# a container run as a long-lived pet, with the data directory on a
-# volume, may opt back in
-environment:
-  ALMANAC_SELF_UPDATE: "on"
+  ALMANAC_UPDATE_MODE: "off"
 ```
 
 ```bash
 # on the LXC, to hand updates to something else
-systemctl edit almanac      # Environment=ALMANAC_SELF_UPDATE=off
+systemctl edit almanac      # Environment=ALMANAC_UPDATE_MODE=off
 ```
 
 ## R15 · Replacing the service account
@@ -782,8 +776,9 @@ ERROR almanac: a profile could not be used; this source is not being served
 ```
 
 The count rides on the startup line next to the sources it did load, and
-every unusable file is listed on `/sources` under **Not being
-served**, with the reason and a **Delete** button.
+every unusable file is listed on `/calendars` (the **Profile files not
+served** tile and the **Profile files** table), with the reason and a
+**Delete** button.
 
 **Why it works this way** (Kenny, 2026-09-03): the dashboard is where a
 bad profile gets deleted, so a bad profile that stops the service takes

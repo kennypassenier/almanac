@@ -186,7 +186,7 @@ The dry-run endpoint shows exactly what a payload would become,
 curl -s -X POST \
   -H "Authorization: Bearer $ALMANAC_TOKEN" \
   -H "content-type: application/json" \
-  -d '{"title":"Bin day","entity_id":"sensor.waste","start":"2026-09-01T07:00:00Z"}' \
+  -d '{"title":"Bin day","external_id":"sensor.waste","start":"2026-09-01T07:00:00Z"}' \
   http://10.10.10.12:8080/v1/debug/dry-run/home-assistant | jq .
 ```
 
@@ -208,7 +208,7 @@ POST http://10.10.10.12:8080/v1/ingest/home-assistant
 Authorization: Bearer <that source's token>
 Content-Type: application/json
 
-{"title": "Bin day", "entity_id": "sensor.waste",
+{"title": "Bin day", "external_id": "sensor.waste",
  "start": "2026-09-01T07:00:00Z"}
 ```
 
@@ -230,12 +230,12 @@ properly, see [integrations/home-assistant.md](integrations/home-assistant.md).
 
 ### 3.1 · Updating an event (K2)
 
-Post again with the same `external_id_field` value. Almanac finds the
+Post again with the same `external_id`. Almanac finds the
 existing event by the private property it stored and replaces it.
 
 ```bash
-# same entity_id, new time → the same event moves
-{"title": "Bin day", "entity_id": "sensor.waste",
+# same external_id, new time → the same event moves
+{"title": "Bin day", "external_id": "sensor.waste",
  "start": "2026-09-02T07:00:00Z"}
 ```
 
@@ -243,15 +243,15 @@ There is no separate update call, and there is no risk in sending the
 same thing twice — which is the point, because a source retrying after
 a timeout has no idea whether the first attempt landed.
 
-**Without `external_id_field`**, every post creates a new event. If the
-source has no natural id, send an `Idempotency-Key` header instead (M7)
-and Almanac uses that as the key:
+**Without an `external_id`**, Almanac needs another key: a post with neither
+is refused with a 422. If the source has no natural id, send an
+`Idempotency-Key` header instead (M7) and Almanac uses that as the key:
 
 ```
 Idempotency-Key: shopping-run-2026-09-01
 ```
 
-The profile's own `external_id_field` wins when both are present.
+The payload's `external_id` wins when both are present.
 
 ### 3.2 · Deleting a source (K21)
 
@@ -280,7 +280,7 @@ curl -X DELETE \
 ```
 
 ```json
-{"status": "deleted"}
+{"status": "deleted", "event_id": "<Google's id for the removed event>"}
 ```
 
 Deleting something that is not there answers `not_found` rather than
