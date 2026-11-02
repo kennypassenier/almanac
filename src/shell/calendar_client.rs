@@ -22,15 +22,6 @@ mod calendars;
 mod events;
 mod paging;
 
-/// Also the calendars *collection* endpoint (`POST` here creates a
-/// calendar) — `{CALENDAR_EVENTS_BASE}/{calendar_id}/events` is the
-/// events collection under one specific calendar.
-const CALENDAR_EVENTS_BASE: &str = "https://www.googleapis.com/calendar/v3/calendars";
-/// Google keeps "which calendars can this account see" on a different
-/// path from "do something to a calendar", so it cannot be derived from
-/// the events base at call time.
-const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
-
 /// How long one call may spend retrying before it gives up.
 ///
 /// A long retry budget is wrong in both directions here. A synchronous
@@ -88,11 +79,20 @@ struct CalendarResource {
 
 impl GoogleCalendarClient {
     pub fn new(http: Client, tokens: Arc<TokenManager>) -> Self {
+        Self::with_api_root(http, tokens, crate::core::google_base::GOOGLE_API_ROOT)
+    }
+
+    /// The client on a Calendar API root: `{root}/calendars` is the
+    /// calendars collection (each calendar's events live under it), and
+    /// Google keeps the account's calendar list on a separate path,
+    /// `{root}/users/me/calendarList`. The root is Google's, or a loopback
+    /// stub that `core::google_base::api_root` allowed.
+    pub fn with_api_root(http: Client, tokens: Arc<TokenManager>, root: &str) -> Self {
         Self {
             http,
             tokens,
-            base_url: CALENDAR_EVENTS_BASE.to_string(),
-            calendar_list_url: CALENDAR_LIST_URL.to_string(),
+            base_url: format!("{root}/calendars"),
+            calendar_list_url: format!("{root}/users/me/calendarList"),
         }
     }
 

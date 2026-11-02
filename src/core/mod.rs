@@ -13,6 +13,7 @@ pub mod calendar;
 pub mod colors;
 pub mod dry_run;
 pub mod error;
+pub mod google_base;
 pub mod history;
 pub mod html;
 pub mod humanise;

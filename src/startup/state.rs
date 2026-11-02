@@ -19,16 +19,18 @@ pub fn build_state(
     http: &reqwest::Client,
     tokens: &Arc<TokenManager>,
     metrics: Arc<almanac::core::metrics::Metrics>,
-) -> Arc<AppState> {
+) -> Result<Arc<AppState>, almanac::core::error::AlmanacError> {
+    use almanac::core::google_base::{GOOGLE_API_BASE_ENV, api_root};
+    let root = api_root(env.get(GOOGLE_API_BASE_ENV).map(String::as_str))?;
     let profiles: HashMap<String, _> = profiles
         .into_iter()
         .map(|p| (p.source_id.clone(), p))
         .collect();
-    Arc::new(
+    Ok(Arc::new(
         AppState::new(
             profiles,
             Journal::new(paths.journal.clone(), DEFAULT_MAX_BYTES),
-            GoogleCalendarClient::new(http.clone(), Arc::clone(tokens)),
+            GoogleCalendarClient::with_api_root(http.clone(), Arc::clone(tokens), &root),
         )
         .with_profiles_dir(paths.profiles_dir.clone())
         .with_calendar_owner(
@@ -37,7 +39,7 @@ pub fn build_state(
                 .filter(|v| !v.is_empty()),
         )
         .with_metrics(metrics),
-    )
+    ))
 }
 
 /// A2-1: the per-source tokens are the kit's clients. The 3.x store is

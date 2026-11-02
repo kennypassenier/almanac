@@ -139,7 +139,7 @@ async fn dry_run(
                 "event": event,
             })),
         ),
-        Err(e) => error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string(), e.remedy()),
+        Err(e) => error(StatusCode::UNPROCESSABLE_ENTITY, e.message(), e.remedy()),
     }
 }
 

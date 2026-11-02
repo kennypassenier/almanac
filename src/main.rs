@@ -26,6 +26,7 @@ use almanac::shell::profiles::Loaded;
 use almanac::shell::state::AppState;
 use axum::Router;
 use chassis::{App, AppSpec, Control};
+use startup::state::build_state;
 use tokio::sync::watch;
 
 mod startup;
@@ -187,8 +188,10 @@ impl Start {
         // One set of counters for the whole process (M13).
         let metrics = Arc::new(almanac::core::metrics::Metrics::default());
         let tokens = TokenManager::with_metrics(http.clone(), credentials, Arc::clone(&metrics));
-        let state =
-            startup::state::build_state(&env, &paths, loaded.profiles, &http, &tokens, metrics);
+        let state = match build_state(&env, &paths, loaded.profiles, &http, &tokens, metrics) {
+            Ok(state) => state,
+            Err(e) => return die(e),
+        };
 
         // Surface a damaged journal before binding rather than letting
         // the worker discover it a few seconds later.

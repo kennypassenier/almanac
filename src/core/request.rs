@@ -124,7 +124,8 @@ impl EventRequest {
     pub fn parse(payload: &serde_json::Value, origin: &str) -> Result<Self, AlmanacError> {
         serde_json::from_value::<Self>(payload.clone()).map_err(|e| {
             AlmanacError::ProfileValidation {
-                message: format!("{origin}: {e}"),
+                // serde lists every expected field; the remedy already does.
+                message: format!("{origin}: {}", serde_detail(&e.to_string())),
                 remedy: "an event carries title, start and external_id, and optionally \
                          description, location, end or duration_minutes, all_day, duration_days, \
                          busy, color, status, reminders and timezone — see docs/USER_GUIDE.md"
@@ -132,6 +133,12 @@ impl EventRequest {
             }
         })
     }
+}
+
+/// serde's error without its ", expected one of …" tail, which repeats
+/// the field list the remedy gives.
+fn serde_detail(error: &str) -> &str {
+    error.split(", expected").next().unwrap_or(error)
 }
 
 /// Turns a source's event into the one Almanac will write.

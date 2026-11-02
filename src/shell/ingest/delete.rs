@@ -68,7 +68,7 @@ pub(super) async fn delete_event(
         }
         Err(e) => {
             tracing::warn!(source_id = %profile.source_id, error = %e, "delete failed");
-            error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy())
+            error(StatusCode::BAD_GATEWAY, e.message(), e.remedy())
         }
     }
 }
@@ -89,7 +89,7 @@ async fn find_event_id(
         Ok(found) => found,
         Err(e) => {
             tracing::warn!(source_id = %source_id, error = %e, "delete lookup failed");
-            return Err(error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy()));
+            return Err(error(StatusCode::BAD_GATEWAY, e.message(), e.remedy()));
         }
     };
 

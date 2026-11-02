@@ -122,6 +122,24 @@ async fn a_misspelled_field_is_named_instead_of_answered_with_202() {
         StatusCode::UNPROCESSABLE_ENTITY,
         "a field almanac does not know is a mistake worth naming while the sender can still act"
     );
+    // Habits, 2026-11-02: the message named the field and then repeated the
+    // remedy, so "message. What now: remedy" printed the remedy twice.
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let (message, remedy) = (
+        body["message"].as_str().unwrap(),
+        body["remedy"].as_str().unwrap(),
+    );
+    assert!(
+        message.contains("allDay"),
+        "the message names the field: {body}"
+    );
+    assert!(
+        !message.contains(remedy) && !message.contains("expected one of"),
+        "the message must not repeat the remedy or its field list: {body}"
+    );
     assert!(
         state.journal.pending().unwrap().is_empty(),
         "a payload with a misspelled field must not be journalled"

@@ -71,7 +71,7 @@ the AFK queue that closed empty.
 | Method | Path | What it is |
 |---|---|---|
 | `POST` | `/v1/ingest/{source_id}` | Accept a payload, journal it durably, answer 202 |
-| `POST` | `/v1/ingest/{source_id}/sync` | The same, but wait for delivery and return the Google event id |
+| `POST` | `/v1/ingest/{source_id}/sync` | The same, but wait for delivery and return the Google event id. While Google has a passing fault this call retries for up to about a minute before it answers 502 (longer when each try times out); a caller with a shorter timeout may give up while the event still lands. Sending it again is safe: the same `external_id` updates the event in place |
 | `DELETE` | `/v1/ingest/{source_id}/events/{external_id}` | Remove an event this source created, addressed by the id the source itself used |
 | `GET` | `/healthz` | Liveness, no authentication — this is what Uptime Kuma watches |
 | `GET` | `/metrics` | Prometheus counters, no authentication — monitoring that cannot log in reports a healthy service as down |

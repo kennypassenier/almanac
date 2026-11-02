@@ -45,6 +45,18 @@ impl AlmanacError {
         }
     }
 
+    /// The message alone, without the remedy that `Display` appends: an
+    /// HTTP body carries the two as separate fields, so a caller showing
+    /// "message. What now: remedy" prints the remedy once.
+    pub fn message(&self) -> &str {
+        match self {
+            AlmanacError::Config { message, .. }
+            | AlmanacError::ProfileValidation { message, .. }
+            | AlmanacError::Auth { message, .. }
+            | AlmanacError::GoogleApi { message, .. } => message,
+        }
+    }
+
     /// Whether M3's retry-with-backoff should retry this error.
     pub fn is_transient(&self) -> bool {
         matches!(

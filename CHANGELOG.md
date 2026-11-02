@@ -24,8 +24,14 @@ and the profile format are unchanged.
 - **Try: one Copy menu per card** (source id, calendar id, profile file,
   event text, curl command, trace answer) instead of seven loose buttons.
 
+- **`ALMANAC_GOOGLE_API_BASE`** (development only): points the binary at a
+  Calendar API stub on 127.0.0.1, localhost or [::1] for an end-to-end
+  check without Google; any other host refuses the start.
+
 ### Changed
 
+- README: `/sync` may retry Google for about a minute before answering;
+  a resend with the same `external_id` updates in place.
 - Deliveries: one alert per cause with its events in a table under it,
   instead of one full alert per event; on a narrow screen the rows become
   cards so Retry and Dismiss stay visible.
@@ -43,6 +49,9 @@ and the profile format are unchanged.
 
 ### Fixed
 
+- A refusal's `message` no longer repeats its `remedy` (422, 502 and the
+  admin refusals), and an unknown field names the field without serde's
+  list of every expected one (Habits integration test, 2026-11-02).
 - The Deliveries board no longer contradicts itself when every event is
   set aside; lane counts and cards come from one source.
 - A set-aside reason stores its remedy once instead of twice.

@@ -78,7 +78,7 @@ fn must_be_mappable(payload: &Value, profile: &Profile) -> Result<(), Reply> {
         Ok(_) => Ok(()),
         Err(e) => Err(error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            &e.to_string(),
+            e.message(),
             e.remedy(),
         )),
     }
@@ -133,7 +133,7 @@ pub(super) async fn accept_payload(
         );
         return Err(error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &e.to_string(),
+            e.message(),
             e.remedy(),
         ));
     }

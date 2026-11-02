@@ -78,5 +78,5 @@ fn failed_reply(state: &AppState, entry: &Entry, e: &AlmanacError) -> Reply {
         source_id = %entry.source_id, error = %e,
         "synchronous delivery failed; left pending for retry"
     );
-    error(StatusCode::BAD_GATEWAY, &e.to_string(), e.remedy())
+    error(StatusCode::BAD_GATEWAY, e.message(), e.remedy())
 }
