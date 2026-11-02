@@ -72,7 +72,11 @@ async fn a_dead_entry_survives_compaction_with_its_reason() {
     for _ in 0..PERMANENT_FAILURES_BEFORE_DEAD {
         drain_once_tracking(&state, &mut permanent, &notifier).await;
     }
-    state.journal.compact().await.unwrap();
+    state
+        .journal
+        .compact_at((state.now_unix)() as i64)
+        .await
+        .unwrap();
 
     let dead = state.journal.dead().unwrap();
     assert_eq!(dead.len(), 1, "the dead entry must survive compaction");

@@ -9,13 +9,13 @@ import { openNew } from './new-dialog.js';
 function calendarRow(c) {
     const used = sourcesOf(c.id);
     const tags = used.length
-        ? `<ul class="kp-tag-list" aria-label="Sources that write to ${esc(c.name)}">${used.map((s) => `<li class="kp-tag" tabindex="0" data-kp-hovercard="${esc(sourceCardText(s))}">${esc(s.id)}</li>`).join('')}</ul>`
+        ? `<ul class="kp-tag-list" aria-label="Sources that write to ${esc(c.name)}">${used.map((s) => `<li class="kp-tag" tabindex="0" aria-label="${esc(sourceCardText(s))}" data-kp-hovercard="${esc(sourceCardText(s))}">${esc(s.id)}</li>`).join('')}</ul>`
         : '<span class="kp-text-muted">No source writes here</span>';
     const base = `type="button" class="kp-button kp-button--destructive kp-button--sm" data-kp-destructive data-kp-confirm-owner data-cal-delete="${esc(c.id)}"`;
     const names = used.map((s) => s.id).join(', ');
     const del = used.length
-        ? `<button ${base} disabled data-kp-disabled-reason="Used by ${esc(names)}. Delete ${used.length === 1 ? 'that source' : 'those sources'} first, on the Sources page.">Delete</button>`
-        : `<button ${base}>Delete</button>`;
+        ? `<button ${base} disabled aria-label="Delete ${esc(c.name)}" data-kp-disabled-reason="Used by ${esc(names)}. Delete ${used.length === 1 ? 'that source' : 'those sources'} first, on the Sources page.">Delete</button>`
+        : `<button ${base} aria-label="Delete ${esc(c.name)}">Delete</button>`;
     return `<tr data-kp-row-key="${esc(c.id)}">
 <td data-label="Name" data-kp-sort-value="${esc(c.name)}">${esc(c.name)}</td>
 <td data-label="Calendar id"><figure class="kp-code kp-code--cell" data-kp-code aria-label="Calendar id of ${esc(c.name)}"><pre class="kp-code__body"><code>${esc(c.id)}</code></pre></figure></td>

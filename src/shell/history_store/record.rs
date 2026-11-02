@@ -62,6 +62,8 @@ pub async fn note(
         Err(e) => Err(e),
     };
     if let Err(e) = written {
+        // Counted so /metrics and the Status page show it, not only the log.
+        state.metrics.history_write_failed((state.now_unix)());
         tracing::warn!(error = %e, remedy = %e.remedy, "could not record the delivery history");
     }
 }

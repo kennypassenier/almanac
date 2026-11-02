@@ -222,6 +222,21 @@ impl TokenManager {
             .access_token
             .clone())
     }
+
+    /// Drops the cached token if it is still `rejected`, so the next
+    /// `token()` fetches a fresh one.
+    ///
+    /// Google can refuse a token we still think is valid (revoked, or the
+    /// local clock is off), and then waiting for the expiry we computed
+    /// never helps. Only the rejected token is dropped: if another caller
+    /// already replaced it, that newer token is good and is kept, so a
+    /// burst of 401s costs one refresh rather than one per caller.
+    pub async fn invalidate(&self, rejected: &str) {
+        let mut guard = self.state.lock().await;
+        if guard.as_ref().is_some_and(|s| s.access_token == rejected) {
+            *guard = None;
+        }
+    }
 }
 
 #[cfg(test)]

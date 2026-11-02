@@ -118,6 +118,13 @@ fn repair_torn_tail(path: &Path) -> Result<(), AlmanacError> {
         return Ok(());
     }
     let keep = last_newline_end(&mut file, len).map_err(fail)?;
+    if tail_is_a_record(&mut file, keep, len).map_err(fail)? {
+        // Only the newline was lost: keep the record and end its line.
+        use std::io::Write;
+        file.seek(SeekFrom::End(0)).map_err(fail)?;
+        file.write_all(b"\n").map_err(fail)?;
+        return file.sync_all().map_err(fail);
+    }
     tracing::warn!(
         journal = %path.display(),
         cut = len - keep,
@@ -125,6 +132,15 @@ fn repair_torn_tail(path: &Path) -> Result<(), AlmanacError> {
     );
     file.set_len(keep).map_err(fail)?;
     file.sync_all().map_err(fail)
+}
+
+/// Whether the bytes after the last newline are a whole record.
+fn tail_is_a_record(file: &mut std::fs::File, from: u64, len: u64) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut tail = vec![0u8; (len - from) as usize];
+    file.seek(SeekFrom::Start(from))?;
+    file.read_exact(&mut tail)?;
+    Ok(serde_json::from_slice::<Record>(&tail).is_ok())
 }
 
 /// The length up to and including the last newline (0 when there is none),

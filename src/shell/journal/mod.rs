@@ -105,4 +105,8 @@ mod requeue;
 pub use requeue::RequeueError;
 
 #[cfg(test)]
+mod repair_tests;
+#[cfg(test)]
+mod supersede_tests;
+#[cfg(test)]
 mod tests;

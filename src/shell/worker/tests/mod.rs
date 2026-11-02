@@ -2,6 +2,7 @@
 //! here.
 
 mod drain;
+mod outage;
 mod set_aside;
 
 use std::collections::HashMap;

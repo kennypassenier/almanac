@@ -2,7 +2,7 @@
 import { setPipeline, setPipelineState } from '/static/kp/dist/kp-themes.min.js';
 import { moment } from '../lib/format.js';
 import { state } from './state.js';
-import { chain, chainSaid } from './dom.js';
+import { chain, chainSaid, say } from './dom.js';
 import { events, tries, times, markOf } from './words.js';
 
 const LANES = [
@@ -57,7 +57,7 @@ export function renderChain() {
     if (state.status === 'error') {
         setPipeline(chain, { lanes: LANES, cards: [] });
         setPipelineState(chain, 'error', 'Could not read the journal.');
-        chainSaid.textContent = 'Almanac could not read the journal, so no count is shown.';
+        say(chainSaid, 'Almanac could not read the journal, so no count is shown.');
         return;
     }
     const { chain: stages, counts, aside } = state.data;
@@ -67,7 +67,7 @@ export function renderChain() {
     const cards = stages.cards.map(cardOf);
     setPipeline(chain, { lanes, cards });
     setPipelineState(chain, cards.length ? 'ready' : 'empty', emptyBoard(counts));
-    chainSaid.textContent = counted(counts, cards.filter((card) => card.lane === 'google').length, aside.length, lit);
+    say(chainSaid, counted(counts, cards.filter((card) => card.lane === 'google').length, aside.length, lit));
 }
 
 /** @param {() => void} onRetry reads the journal again */

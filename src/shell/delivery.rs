@@ -36,7 +36,22 @@ pub const UPSERT_PROPERTY: &str = "almanac_source_id";
 #[derive(Default)]
 pub struct KeyLocks {
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Entries a delete cancelled while a worker pass may already hold
+    /// them in its snapshot, waiting on the key lock the delete held.
+    /// Bounded: the oldest ids drop out, by then no pass still holds them.
+    cancelled: std::sync::Mutex<std::collections::VecDeque<String>>,
 }
+
+/// Ends the message of a delivery a delete cancelled; [`is_cancelled`] keys on it.
+const CANCELLED_SUFFIX: &str = " was deleted by its source while this delivery waited";
+
+/// Whether `e` is a delivery a delete cancelled, not a failure.
+pub fn is_cancelled(e: &AlmanacError) -> bool {
+    e.message().ends_with(CANCELLED_SUFFIX)
+}
+
+/// How many cancelled ids are remembered at most.
+const CANCELLED_KEPT: usize = 256;
 
 impl KeyLocks {
     pub fn new() -> Self {
@@ -50,6 +65,22 @@ impl KeyLocks {
     pub async fn for_key(&self, key: &str) -> Arc<Mutex<()>> {
         let mut map = self.locks.lock().await;
         Arc::clone(map.entry(key.to_string()).or_default())
+    }
+
+    /// Records that a delete cancelled this entry (call with its key lock held).
+    pub fn cancel(&self, entry_id: &str) {
+        let mut ids = self.cancelled.lock().unwrap_or_else(|e| e.into_inner());
+        if ids.len() == CANCELLED_KEPT {
+            ids.pop_front();
+        }
+        ids.push_back(entry_id.to_string());
+    }
+
+    /// Whether a delete cancelled this entry; forgets it once asked.
+    fn take_cancelled(&self, entry_id: &str) -> bool {
+        let mut ids = self.cancelled.lock().unwrap_or_else(|e| e.into_inner());
+        let found = ids.iter().position(|id| id == entry_id);
+        found.map(|i| ids.remove(i)).is_some()
     }
 }
 
@@ -86,7 +117,21 @@ pub(crate) fn upsert_key(entry: &Entry, event: &GoogleEvent) -> Option<String> {
     entry
         .idempotency_key
         .as_ref()
-        .map(|k| format!("{}:{k}", entry.source_id))
+        .map(|k| crate::core::journal::idempotency_upsert_key(&entry.source_id, k))
+}
+
+/// For a header-keyed entry whose event carries no `external_id`, the key
+/// such an event had before the namespaces split; looked up only when the
+/// current key finds nothing.
+fn legacy_key(entry: &Entry, event: &GoogleEvent, key: &str) -> Option<String> {
+    let header = entry.idempotency_key.as_deref()?;
+    let current = crate::core::journal::idempotency_upsert_key(&entry.source_id, header);
+    let mapped_own = event
+        .extended_properties
+        .as_ref()
+        .is_some_and(|p| p.private.contains_key(UPSERT_PROPERTY));
+    (key == current && !mapped_own)
+        .then(|| crate::core::journal::legacy_idempotency_key(&entry.source_id, header))
 }
 
 /// Puts the upsert key on the event itself when the mapping did not: a
@@ -143,6 +188,7 @@ pub async fn deliver(
     let origin = format!("profile {}", profile.source_id);
     let mut event = map_payload(&entry.payload, profile, &origin)?;
     let key = upsert_key(entry, &event);
+    let legacy = key.as_deref().and_then(|k| legacy_key(entry, &event, k));
     if let Some(key) = &key {
         ensure_upsert_property(&mut event, key);
     }
@@ -155,11 +201,30 @@ pub async fn deliver(
 
     let lock = locks.for_key(&key).await;
     let _guard = lock.lock().await;
+    if locks.take_cancelled(&entry.id) {
+        // Review 2026-11-02: a pass held this entry while a delete marked it
+        // done and removed the event; writing it now would bring it back.
+        // Transient, so the worker only leaves it: it is no longer pending.
+        return Err(AlmanacError::GoogleApi {
+            message: format!("{key}{CANCELLED_SUFFIX}"),
+            remedy: "nothing to do: the event stays deleted".to_string(),
+            transient: true,
+        });
+    }
 
-    let existing = match client
+    let mut found = client
         .find_event_by_property(calendar_id, UPSERT_PROPERTY, &key)
-        .await?
+        .await?;
+    if found.is_none()
+        && let Some(legacy) = &legacy
     {
+        // Written before the split: found once, and the update below puts
+        // the current key on it.
+        found = client
+            .find_event_by_property(calendar_id, UPSERT_PROPERTY, legacy)
+            .await?;
+    }
+    let existing = match found {
         // Found but without an id: retry rather than create a second one.
         Some(found) => Some(google_id(found.id, "lookup")?),
         None => None,

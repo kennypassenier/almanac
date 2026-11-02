@@ -7,10 +7,9 @@ export function factRow(label, value) {
     return `<div class="kp-formgrid__row"><span class="kp-formgrid__label">${esc(label)}</span><div class="kp-formgrid__control"><span>${esc(value)}</span></div></div>`;
 }
 
-/** @param {HTMLElement} alert @param {'info' | 'success' | 'warning' | 'destructive'} tone @param {string} label @param {string} text */
+/** Only text and tone change: the alert's live role is fixed in the template, so a screen reader keeps one live region. @param {HTMLElement} alert @param {'info' | 'success' | 'warning' | 'destructive'} tone @param {string} label @param {string} text */
 export function setAlert(alert, tone, label, text) {
     alert.className = `kp-alert kp-alert--${tone}`;
-    alert.setAttribute('role', tone === 'destructive' ? 'alert' : 'status');
     alert.innerHTML = `<span><span class="kp-alert__label">${esc(label)}: </span>${esc(text)}</span>`;
 }
 

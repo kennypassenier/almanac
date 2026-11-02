@@ -23,7 +23,8 @@ pub(crate) mod tests;
 mod watch;
 
 pub use drain::{
-    DrainOutcome, PermanentFailures, drain_once, drain_once_detailed, drain_once_tracking,
+    DrainOutcome, PermanentFailures, SHUTDOWN_DRAIN_BUDGET, drain_once, drain_once_detailed,
+    drain_once_tracking,
 };
 pub use route::record_route;
 pub use run::run;

@@ -36,6 +36,13 @@ pub struct Metrics {
     /// Access tokens fetched from Google. One per hour is normal; a
     /// rate far above that means the cache is not doing its job.
     token_refreshes: AtomicU64,
+    /// Deliveries that reached Google but could not be written into the
+    /// history database. The delivery itself is fine; the log of it is not.
+    history_write_failures: AtomicU64,
+    /// Unix seconds of the first such failure this run, 0 while there is
+    /// none. The first one, not the last: "since when" is what tells the
+    /// reader whether the disk filled up an hour or a week ago.
+    history_failing_since: AtomicU64,
 }
 
 impl Metrics {
@@ -57,6 +64,18 @@ impl Metrics {
 
     pub fn token_refreshed(&self) {
         self.token_refreshes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Notes that a delivery could not be written into the history database.
+    pub fn history_write_failed(&self, now_unix: u64) {
+        self.history_write_failures.fetch_add(1, Ordering::Relaxed);
+        // Only the first failure sets the time; later ones leave it be.
+        let _ = self.history_failing_since.compare_exchange(
+            0,
+            now_unix.max(1),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
     }
 
     /// Renders the Prometheus text exposition format.
@@ -97,6 +116,11 @@ impl Metrics {
                 "almanac_token_refreshes_total",
                 "Access tokens fetched from Google.",
                 counts.token_refreshes,
+            ),
+            (
+                "almanac_history_write_failures_total",
+                "Deliveries that could not be written into the delivery history database.",
+                counts.history_write_failures,
             ),
         ] {
             push_counter(&mut out, name, help, value);
@@ -147,10 +171,35 @@ pub struct Counts {
     pub failed: u64,
     pub dead: u64,
     pub token_refreshes: u64,
+    pub history_write_failures: u64,
+    /// Unix seconds of the first history write failure, 0 when none.
+    pub history_failing_since: u64,
+}
+
+/// The Status page sentence for failed history writes, or `None` when there
+/// were none since the process started. It stays until a restart rather
+/// than clearing on the next good write: one success does not mean the
+/// disk problem is gone, and a line that vanishes on its own hides that
+/// deliveries were left out of the log in the meantime.
+pub fn history_failure_line(counts: &Counts) -> Option<String> {
+    if counts.history_write_failures == 0 {
+        return None;
+    }
+    let since = i64::try_from(counts.history_failing_since)
+        .ok()
+        .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+        .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "an unknown time".to_string());
+    Some(format!(
+        "The delivery log could not be written: {} time(s) since {since}. \
+         Deliveries to the calendar are not affected, but they are missing from the history. \
+         Free up disk space on the state folder and check the permissions of the database file (almanac.db).",
+        counts.history_write_failures
+    ))
 }
 
 impl Metrics {
-    /// Reads all five counters at once.
+    /// Reads all the counters at once.
     ///
     /// Not atomic across the five — they are separate counters and an
     /// event can land between two reads. That is right for a heartbeat,
@@ -164,6 +213,8 @@ impl Metrics {
             failed: self.failed.load(Ordering::Relaxed),
             dead: self.dead.load(Ordering::Relaxed),
             token_refreshes: self.token_refreshes.load(Ordering::Relaxed),
+            history_write_failures: self.history_write_failures.load(Ordering::Relaxed),
+            history_failing_since: self.history_failing_since.load(Ordering::Relaxed),
         }
     }
 }

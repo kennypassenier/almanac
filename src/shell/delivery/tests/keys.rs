@@ -16,7 +16,7 @@ fn an_idempotency_key_is_used_when_the_mapping_has_no_external_id() {
     let event = event_with_property(None);
     assert_eq!(
         upsert_key(&entry(Some("abc123")), &event),
-        Some("home-assistant:abc123".to_string())
+        Some("home-assistant:idem:abc123".to_string())
     );
 }
 
@@ -72,7 +72,7 @@ async fn a_delivery_reports_the_key_it_deduplicated_against() {
 
     assert_eq!(
         delivered.upsert_key.as_deref(),
-        Some("home-assistant:bin-day-2026-09-01"),
+        Some("home-assistant:idem:bin-day-2026-09-01"),
         "a delivery that deduplicated must say what it deduplicated against"
     );
 
@@ -107,5 +107,45 @@ async fn the_same_key_hands_back_the_same_lock_and_different_keys_do_not() {
     assert!(
         !Arc::ptr_eq(&a1, &b),
         "different keys must not share a lock"
+    );
+}
+
+#[tokio::test]
+async fn a_header_keyed_event_from_before_the_split_is_updated_not_duplicated() {
+    // Kenny, form key-namespace (2026-11-02): header keys moved to
+    // `<source>:idem:<key>`. An event written before carries
+    // `<source>:<key>`; the next delivery must find it, not add a copy.
+    let calendar = crate::shell::testing::CalendarStub::start().await;
+    calendar
+        .seed(
+            "household@group.calendar.google.com",
+            json!({
+                "id": "old-1",
+                "summary": "bin day",
+                "start": {"dateTime": "2026-08-28T09:00:00+00:00", "timeZone": "UTC"},
+                "end": {"dateTime": "2026-08-28T10:00:00+00:00", "timeZone": "UTC"},
+                "extendedProperties": {"private": {"almanac_source_id": "home-assistant:bin-day"}}
+            }),
+        )
+        .await;
+    let client = stubbed_client(&calendar).await;
+    let mut entry = payload_entry("home-assistant", "bin day");
+    entry.payload = json!({"title": "bin day", "start": "2026-08-28T09:00:00+00:00"});
+    entry.idempotency_key = Some("bin-day".to_string());
+
+    let delivered = deliver(
+        &entry,
+        &profile_for("home-assistant", "household@group.calendar.google.com"),
+        &client,
+        &KeyLocks::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(!delivered.created, "the old event is updated");
+    assert_eq!(delivered.event_id, "old-1");
+    assert_eq!(
+        delivered.upsert_key.as_deref(),
+        Some("home-assistant:idem:bin-day")
     );
 }

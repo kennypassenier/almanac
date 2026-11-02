@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::core::metrics::history_failure_line;
 use crate::shell::state::AppState;
 
 /// The Journal section on the kit's status page (A2-2): what is waiting
@@ -112,10 +113,14 @@ impl chassis::StatusSection for JournalSection {
     fn render(&self) -> chassis::Section {
         // The page fills itself from /status/journal; the server only
         // frames it, so the waiting count is read once, in the explain.
-        let explain = match self.0.journal.pending() {
+        let mut explain = match self.0.journal.pending() {
             Ok(_) => String::new(),
             Err(e) => format!(" {e} — {}", e.remedy()),
         };
+        if let Some(line) = history_failure_line(&self.0.metrics.snapshot()) {
+            explain.push(' ');
+            explain.push_str(&line);
+        }
         chassis::Section {
             title: "Journal".into(),
             explain: format!(

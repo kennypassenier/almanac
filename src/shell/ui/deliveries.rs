@@ -76,7 +76,7 @@ async fn data(State(state): State<Arc<AppState>>) -> Result<Json<Value>, chassis
     let now = (state.now_unix)();
     let counts = state.metrics.snapshot();
 
-    let set_aside = aside::items(&dead, &profiles);
+    let set_aside = aside::items(&dead, &profiles, now as i64);
     let waiting: Vec<(&Entry, String)> = pending
         .iter()
         .map(|e| (e, worker::entry_title(e, profiles.get(&e.source_id))))

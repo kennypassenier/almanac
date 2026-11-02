@@ -12,7 +12,7 @@ async fn stubbed(calendar: &CalendarStub) -> GoogleCalendarClient {
     )
 }
 
-fn event(title: &str) -> GoogleEvent {
+pub(super) fn event(title: &str) -> GoogleEvent {
     use crate::core::calendar::EventDateTime;
     GoogleEvent {
         id: None,

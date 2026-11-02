@@ -32,7 +32,7 @@
                 lang="en-GB"
                 aria-label="Events delivered per day"
             ></section>
-            <aside class="hist-detail" aria-live="polite" aria-labelledby="hist-day-title">
+            <aside class="hist-detail" aria-labelledby="hist-day-title">
                 <h3 class="hist-detail__title" id="hist-day-title">Today</h3>
                 <dl class="kp-kv kp-kv--lines" id="hist-day-summary"></dl>
                 <div class="kp-datatable hist-table" id="hist-table" data-kp-datatable data-kp-busy-overlay data-kp-state="loading">
@@ -83,7 +83,7 @@
                 aria-label="Events Almanac wrote this week"
             ></section>
             <p class="kp-text-muted hist-week-note" id="hist-week-note" role="status" hidden></p>
-            <div class="kp-card hist-eventcard" id="hist-event" data-kp-state="ready" popover="auto" aria-labelledby="hist-event-title">
+            <div class="kp-card hist-eventcard" id="hist-event" data-kp-state="ready" popover="auto" role="dialog" tabindex="-1" aria-labelledby="hist-event-title">
                 <div class="kp-card__header">
                     <h3 class="kp-card__title" id="hist-event-title">The opened event</h3>
                 </div>

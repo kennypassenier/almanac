@@ -14,7 +14,12 @@ use crate::shell::state::AppState;
 /// How one entry ended up in this pass.
 pub(super) enum Settled {
     Delivered,
-    Failed,
+    /// Cancelled by a delete while it waited: nothing to write, no failure.
+    Cancelled,
+    /// `transient`: Google may take it later, so the rest of the pass waits.
+    Failed {
+        transient: bool,
+    },
 }
 
 /// Delivers `entry` once and applies the consequences of the outcome.
@@ -35,6 +40,7 @@ pub(super) async fn settle_delivery(
             on_delivered(state, entry, profile, &delivered).await;
             Settled::Delivered
         }
+        Err(e) if crate::shell::delivery::is_cancelled(&e) => Settled::Cancelled,
         Err(e) if e.is_transient() => {
             permanent.remove(&entry.id);
             state
@@ -44,11 +50,11 @@ pub(super) async fn settle_delivery(
                 entry_id = %entry.id, error = %e, remedy = %e.remedy(),
                 "delivery failed; entry stays pending for the next pass"
             );
-            Settled::Failed
+            Settled::Failed { transient: true }
         }
         Err(e) => {
             on_permanent_failure(state, entry, &e, permanent, notifier).await;
-            Settled::Failed
+            Settled::Failed { transient: false }
         }
     }
 }
@@ -61,6 +67,16 @@ async fn on_delivered(state: &AppState, entry: &Entry, profile: &Profile, result
             entry_id = %entry.id, error = %e,
             "delivered but failed to mark done; replay will converge"
         );
+    }
+    // An older version still waiting would overwrite this one next pass.
+    match state.journal.supersede_older(entry).await {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::info!(entry_id = %entry.id, superseded = n, "closed older versions of this event")
+        }
+        Err(e) => {
+            tracing::warn!(entry_id = %entry.id, error = %e, "could not close older versions")
+        }
     }
     tracing::info!(
         entry_id = %entry.id,

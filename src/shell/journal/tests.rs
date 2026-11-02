@@ -3,7 +3,7 @@ use std::io::Write;
 use super::*;
 use serde_json::json;
 
-fn temp_journal(name: &str) -> (Journal, PathBuf) {
+pub(super) fn temp_journal(name: &str) -> (Journal, PathBuf) {
     let dir = std::env::temp_dir().join(format!(
         "almanac-journal-{}-{}-{name}",
         std::process::id(),
@@ -17,7 +17,7 @@ fn temp_journal(name: &str) -> (Journal, PathBuf) {
     (Journal::new(path.clone(), DEFAULT_MAX_BYTES), dir)
 }
 
-fn entry(id: &str) -> Entry {
+pub(super) fn entry(id: &str) -> Entry {
     Entry {
         id: id.to_string(),
         source_id: "home-assistant".to_string(),
@@ -195,7 +195,8 @@ async fn dismissing_removes_it_from_the_list_and_compaction_drops_its_payload() 
         "dismiss queues nothing"
     );
     assert_eq!(journal.dead().unwrap().len(), 1);
-    journal.compact().await.unwrap();
+    // The day after the fixture set them aside, well inside 30 days.
+    journal.compact_at(1_788_080_400).await.unwrap();
     let text = std::fs::read_to_string(journal.path()).unwrap();
     assert!(!text.contains("\"id\":\"a\""), "the payload went: {text}");
     assert!(text.contains("\"id\":\"b\""));
@@ -227,55 +228,5 @@ async fn an_id_that_is_not_set_aside_refuses_the_whole_call_and_writes_nothing()
         journal.retry_dead(&["a".to_string()], "t").await,
         Err(RequeueError::NotSetAside(_))
     ));
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[tokio::test]
-async fn an_append_after_a_torn_tail_keeps_the_journal_readable() {
-    // Robustness review 2026-11-02: a crash left `{"kind":"entry",...` with
-    // no newline, the next append glued onto it, and the file then held an
-    // unparseable middle line that stopped every read and the next start.
-    let (journal, dir) = temp_journal("torn-append");
-    journal.accept(&entry("a")).await.unwrap();
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(journal.path())
-        .unwrap();
-    file.write_all(br#"{"kind":"entry","id":"torn","sou"#)
-        .unwrap();
-    drop(file);
-
-    journal.accept(&entry("b")).await.unwrap();
-
-    let ids: Vec<String> = journal
-        .pending()
-        .unwrap()
-        .into_iter()
-        .map(|e| e.id)
-        .collect();
-    assert_eq!(
-        ids,
-        ["a", "b"],
-        "the torn line is cut and both real entries read back"
-    );
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[tokio::test]
-async fn a_full_journal_still_takes_the_markers_that_free_it() {
-    // A journal at its cap refused Done markers too, so delivered entries
-    // stayed pending and were sent again on every pass.
-    let (journal, dir) = temp_journal("cap-markers");
-    journal.accept(&entry("a")).await.unwrap();
-    let full = Journal::new(
-        journal.path().to_path_buf(),
-        std::fs::metadata(journal.path()).unwrap().len(),
-    );
-    assert!(
-        full.accept(&entry("b")).await.is_err(),
-        "a new entry is refused at the cap"
-    );
-    full.mark_done("a").await.unwrap();
-    assert!(full.pending().unwrap().is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -14,6 +14,11 @@
 //! when one was present.
 
 /// Classifies a Google API error response as transient or permanent.
+///
+/// A bare 401 is permanent here on purpose: by status alone nothing
+/// says it will heal. The Calendar client handles it itself — one fresh
+/// token and one resend — and only then reports a sign-in refusal as a
+/// transient error of its own (`shell::calendar_client`).
 pub fn is_transient(status: u16, reason: Option<&str>) -> bool {
     match status {
         // 408: Google gave up waiting for the request; sending it again is
@@ -115,6 +120,12 @@ mod tests {
                 "expected {status} to be permanent"
             );
         }
+    }
+
+    #[test]
+    fn a_bare_401_is_permanent_here_the_client_owns_the_token_retry() {
+        assert!(!is_transient(401, None));
+        assert!(!is_transient(401, Some("authError")));
     }
 
     #[test]

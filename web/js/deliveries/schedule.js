@@ -2,7 +2,7 @@
 import { setGanttKinds, setGanttPoints, setGanttState, setGanttWindow, setGanttZones, setRuns, setRunsState, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
 import { moment } from '../lib/format.js';
 import { state, SECOND, MINUTE } from './state.js';
-import { runsEl, ganttEl, schedSaid, shapeEl } from './dom.js';
+import { runsEl, ganttEl, schedSaid, shapeEl, say } from './dom.js';
 import { events, tries, nothingWaiting } from './words.js';
 import { LIT } from './chain.js';
 
@@ -136,13 +136,13 @@ function renderGantt() {
 /** The one line under the schedule. */
 function saySchedule() {
     if (state.status !== 'ready') {
-        schedSaid.textContent = state.status === 'loading' ? 'Reading the journal.' : 'The journal could not be read.';
+        say(schedSaid, state.status === 'loading' ? 'Reading the journal.' : 'The journal could not be read.');
         return;
     }
     const { schedule, counts } = state.data;
-    schedSaid.textContent = schedule.entries.length
+    say(schedSaid, schedule.entries.length
         ? `${events(schedule.entries.length)} waiting${schedule.outage_since ? `; deliveries have been failing since ${moment(schedule.outage_since)}` : ''}. All waiting events are tried together.`
-        : `Nothing is waiting (${counts.pending} in the journal).`;
+        : `Nothing is waiting (${counts.pending} in the journal).`);
 }
 
 /**

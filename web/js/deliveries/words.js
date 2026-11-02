@@ -19,3 +19,6 @@ export function nothingWaiting(counts, setAside) {
     if (counts.delivered > 0) return 'Nothing is waiting. Every event Almanac accepted has reached its calendar.';
     return 'Nothing is waiting and nothing has been delivered yet.';
 }
+
+/** How long a set-aside event still has before it is removed. */
+export const daysLeft = (/** @type {number} */ n) => (n === 0 ? 'Removed today' : `${n} ${n === 1 ? 'day' : 'days'} left`);

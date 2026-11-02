@@ -97,9 +97,15 @@ impl GoogleCalendarClient {
         let calendar_id = super::segment(calendar_id);
         let url = format!("{}/{calendar_id}/events", self.base_url);
         let filter = format!("{key}={value}");
+        // Cancelled events too (review 2026-11-02): a source that cancels
+        // an event and later confirms it again must find the same event,
+        // or the confirm creates a second one.
         self.get_all_pages(
             &url,
-            &[("privateExtendedProperty", filter.as_str())],
+            &[
+                ("privateExtendedProperty", filter.as_str()),
+                ("showDeleted", "true"),
+            ],
             "event list",
         )
         .await

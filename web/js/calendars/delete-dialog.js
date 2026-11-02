@@ -66,7 +66,11 @@ function confirmDelete() {
             state.google.calendars = state.google.calendars.filter((x) => x.id !== c.id);
             hooks.render();
             flavour('success', `Deleted ${c.name} and every event on it.`);
-            setTimeout(() => dialog.close(), CLOSE_AFTER_DELETE_MS);
+            setTimeout(() => {
+                dialog.close();
+                // The row that opened the dialog is gone, so focus goes to the section's heading.
+                must('#cal-cal-title').focus();
+            }, CLOSE_AFTER_DELETE_MS);
         })
         .catch((e) => flavour('error', `Deleting ${c.name} failed: ${e instanceof Error ? e.message : String(e)}`));
 }

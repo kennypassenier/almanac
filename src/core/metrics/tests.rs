@@ -109,3 +109,36 @@ fn the_output_carries_no_identifiers_only_numbers() {
     // the kit's since 3.0.0.
     assert_eq!(rendered.matches('{').count(), 0);
 }
+
+#[test]
+fn history_write_failures_are_counted_and_remember_the_first_time() {
+    let m = Metrics::default();
+    assert!(
+        m.render(Some(0), "x")
+            .contains("almanac_history_write_failures_total 0\n")
+    );
+    m.history_write_failed(1_000);
+    m.history_write_failed(2_000);
+    assert!(
+        m.render(Some(0), "x")
+            .contains("almanac_history_write_failures_total 2\n")
+    );
+    let c = m.snapshot();
+    assert_eq!(
+        (c.history_write_failures, c.history_failing_since),
+        (2, 1_000)
+    );
+}
+
+#[test]
+fn the_history_failure_line_is_absent_without_failures_and_has_a_remedy_with_them() {
+    assert_eq!(history_failure_line(&Counts::default()), None);
+    let m = Metrics::default();
+    m.history_write_failed(1_700_000_000);
+    let line = history_failure_line(&m.snapshot()).expect("a line after a failure");
+    assert!(
+        line.contains("1 time(s) since 2023-11-14 22:13 UTC"),
+        "{line}"
+    );
+    assert!(line.contains("disk space") && line.contains("permissions"));
+}

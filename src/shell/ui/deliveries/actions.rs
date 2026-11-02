@@ -75,6 +75,13 @@ fn refusal(e: RequeueError) -> Error {
                 "Nothing was changed. Reload the page to see what is left.",
             )
         }
+        RequeueError::Superseded(ids) => {
+            tracing::info!(?ids, "refused: a newer version of these events arrived");
+            Error::invalid(
+                "A newer version of this event arrived after it was set aside",
+                "Nothing was changed: retrying would put the older version back. Dismiss it instead.",
+            )
+        }
         RequeueError::Journal(e) => {
             tracing::error!(error = %e, "could not update the journal");
             Error::internal(

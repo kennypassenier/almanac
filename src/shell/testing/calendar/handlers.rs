@@ -94,12 +94,15 @@ pub(super) async fn list_events(
     // it — appear to work while matching the wrong event, which is
     // precisely the cross-source bug the tests are meant to catch.
     let filter = query.get("privateExtendedProperty").cloned();
+    // Like Google: a cancelled event is hidden unless the caller asks.
+    let show_deleted = query.get("showDeleted").is_some_and(|v| v == "true");
     let existing = state.existing.lock().await;
     let items: Vec<Value> = existing
         .get(&calendar_id)
         .cloned()
         .unwrap_or_default()
         .into_iter()
+        .filter(|event| show_deleted || event["status"] != json!("cancelled"))
         .filter(|event| match &filter {
             None => true,
             Some(filter) => {

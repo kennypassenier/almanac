@@ -219,6 +219,7 @@ const POPOVER_GAP = 8;
 /** Opens the details as a popover next to the event that was opened, kept inside the viewport. @param {HTMLElement} card @param {HTMLElement} anchor */
 function showBeside(card, anchor) {
     if (!card.matches(':popover-open')) card.showPopover();
+    card.focus({ preventScroll: true });
     const at = anchor.getBoundingClientRect();
     const box = card.getBoundingClientRect();
     const right = at.right + POPOVER_GAP;

@@ -20,25 +20,22 @@ use crate::shell::auth::TokenManager;
 
 mod calendars;
 mod events;
+mod http;
 mod paging;
+
+pub use http::http_client;
+use http::segment;
 
 /// How long one call may spend retrying before it gives up.
 ///
-/// A long retry budget is wrong in both directions here. A synchronous
-/// caller (K8 — a Claude session waiting on `/sync`) would hang for
-/// minutes, and the worker would sit inside one delivery while every
-/// other pending entry waited behind it.
+/// A minute, because retrying here only absorbs blips: a longer budget
+/// would hang a `/sync` caller and hold every other pending entry behind
+/// one delivery. Anything longer is the journal's job: the entry stays
+/// pending and the worker backs off (AR26).
 ///
-/// A minute is the right shape because retrying here is only meant to
-/// absorb blips. Anything longer is what the journal is for: the entry
-/// stays pending, the worker backs off (AR26), and it goes out when
-/// Google comes back — durably, and without holding anything open.
-///
-/// The ladder keeps the shape the unmaintained `backoff` crate used to
-/// give (RUSTSEC-2025-0012): half a second, growing by 1.5, jittered.
-/// `backon`'s budget counts the time spent sleeping between attempts,
-/// not the attempts themselves, so a call whose every request times
-/// out can run past the minute by the requests' own timeouts.
+/// The ladder keeps the old `backoff` crate's shape (RUSTSEC-2025-0012):
+/// half a second, growing by 1.5, jittered. The budget counts only the
+/// sleeps, so timed-out requests can run a call past the minute.
 fn in_call_backoff() -> ExponentialBuilder {
     ExponentialBuilder::default()
         .with_min_delay(std::time::Duration::from_millis(500))
@@ -75,38 +72,6 @@ struct NewCalendar<'a> {
 #[derive(Deserialize)]
 struct CalendarResource {
     id: String,
-}
-
-/// Longest wait for a connection to Google, and for one whole request.
-/// Without them a half-open connection never returns: the worker is
-/// serial, so one hung call would hold every pending entry behind it and
-/// keep a stop waiting until systemd kills the process.
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// A calendar or event id as one URL path segment. Calendar ids carry
-/// `@` and, for Google's own calendars, `#` (`en.be#holiday@group.v.calendar.google.com`),
-/// which would end the path; anything outside the unreserved set and `@`
-/// is percent-encoded, so no id can reach another API path either.
-fn segment(id: &str) -> String {
-    let mut out = String::with_capacity(id.len());
-    for byte in id.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~@".contains(&byte) {
-            out.push(byte as char);
-        } else {
-            out.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    out
-}
-
-/// The HTTP client every Google call (token exchange included) shares.
-pub fn http_client() -> Client {
-    Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .expect("a reqwest client with timeouts always builds")
 }
 
 impl GoogleCalendarClient {
@@ -164,37 +129,61 @@ impl GoogleCalendarClient {
         F: Fn(&Client, &str) -> RequestBuilder,
     {
         let attempt = || async {
-            let token = self.tokens.token().await?;
-
-            let response = build(&self.http, &token).send().await.map_err(|e| {
-                // A connection that never completed has no status code,
-                // so `is_transient` never sees it — it has to be
-                // classified here. Transient, because that is what it
-                // is: a DNS blip, a dropped TLS handshake, a router
-                // rebooting. Calling it permanent meant a two-second
-                // hiccup surfaced to a synchronous caller as a failure
-                // while `shell::auth` retried the very same class of
-                // failure against the token endpoint. The two now
-                // agree.
-                AlmanacError::GoogleApi {
-                    message: format!("request to the Calendar API failed: {e}"),
-                    remedy: "transient network failure — retrying automatically".to_string(),
-                    transient: true,
-                }
-            })?;
-
-            let status = response.status();
-            if status.is_success() {
-                return Ok(response);
+            let (response, token) = self.send_once(&build).await?;
+            if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+                return Self::checked(response).await;
             }
 
-            Err(failure_from(status, response).await)
+            // Google refused the token. It may simply be stale (revoked,
+            // or expired earlier than we computed), so fetch a new one
+            // and send once more before blaming the sign-in.
+            self.tokens.invalidate(&token).await;
+            let (response, _) = self.send_once(&build).await?;
+            if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+                return Self::checked(response).await;
+            }
+            Err(sign_in_refused(response).await)
         };
 
         attempt
             .retry(in_call_backoff())
-            .when(AlmanacError::is_transient)
+            .when(|e| e.is_transient() && !is_sign_in_refusal(e))
             .await
+    }
+
+    /// One request with the current token; returns the response (of any
+    /// status) and the token it was sent with.
+    async fn send_once<F>(&self, build: &F) -> Result<(Response, String), AlmanacError>
+    where
+        F: Fn(&Client, &str) -> RequestBuilder,
+    {
+        let token = self.tokens.token().await?;
+        let response = build(&self.http, &token).send().await.map_err(|e| {
+            // A connection that never completed has no status code,
+            // so `is_transient` never sees it — it has to be
+            // classified here. Transient, because that is what it
+            // is: a DNS blip, a dropped TLS handshake, a router
+            // rebooting. Calling it permanent meant a two-second
+            // hiccup surfaced to a synchronous caller as a failure
+            // while `shell::auth` retried the very same class of
+            // failure against the token endpoint. The two now
+            // agree.
+            AlmanacError::GoogleApi {
+                message: format!("request to the Calendar API failed: {e}"),
+                remedy: "transient network failure — retrying automatically".to_string(),
+                transient: true,
+            }
+        })?;
+        Ok((response, token))
+    }
+
+    /// `Ok` for a success, otherwise the classified failure.
+    async fn checked(response: Response) -> Result<Response, AlmanacError> {
+        let status = response.status();
+        if status.is_success() {
+            return Ok(response);
+        }
+        Err(failure_from(status, response).await)
     }
 
     async fn parse_event(response: Response) -> Result<GoogleEvent, AlmanacError> {
@@ -226,5 +215,36 @@ async fn failure_from(status: reqwest::StatusCode, response: Response) -> Almana
     }
 }
 
+/// Start of the message of a 401 that survived a fresh token. Kept
+/// stable: `core::pacing` recognises the refusal by the status text.
+const SIGN_IN_REFUSED: &str = "Calendar API returned HTTP 401 Unauthorized";
+
+fn is_sign_in_refusal(error: &AlmanacError) -> bool {
+    matches!(error, AlmanacError::GoogleApi { message, .. } if message.starts_with(SIGN_IN_REFUSED))
+}
+
+/// The error for a 401 that a fresh token did not cure: Google refused
+/// Almanac's sign-in. Transient, so the entry keeps waiting in the
+/// journal instead of being set aside as permanently failed — fixing the
+/// key, the calendar sharing or the clock makes it go out by itself. It
+/// is not retried inside the call: a refused sign-in will not heal in a
+/// minute, and the worker backs off anyway.
+async fn sign_in_refused(response: Response) -> AlmanacError {
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("(the response body could not be read: {e})"));
+    AlmanacError::GoogleApi {
+        message: format!(
+            "{SIGN_IN_REFUSED}: Google refused Almanac's sign-in even with a fresh token: {body}"
+        ),
+        remedy: "check the service account key, its access to the calendar, and the machine clock"
+            .to_string(),
+        transient: true,
+    }
+}
+
+#[cfg(test)]
+mod auth_tests;
 #[cfg(test)]
 mod tests;

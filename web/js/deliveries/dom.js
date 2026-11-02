@@ -16,6 +16,11 @@ export const asideEmpty = $('ad-aside-empty');
 export const asideFailed = $('ad-aside-failed');
 export const shapeEl = $('ad-shape');
 
+/** Writes a live region's text only when it changed, so a poll that says the same thing is not announced again. @param {HTMLElement} el @param {string} text */
+export function say(el, text) {
+    if (el.textContent !== text) el.textContent = text;
+}
+
 attachPipelines(chain.parentElement ?? document);
 attachRuns(runsEl.parentElement ?? document);
 attachGantts(ganttEl.parentElement ?? document);

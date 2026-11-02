@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::core::journal::Entry;
+use crate::core::journal::{self, Entry};
 use crate::core::pacing;
 use crate::core::profile::Profile;
 use crate::shell::worker;
@@ -14,6 +14,7 @@ use crate::shell::worker;
 pub(super) fn items(
     dead: &[(Entry, String, String)],
     profiles: &HashMap<String, Profile>,
+    now_unix: i64,
 ) -> Vec<Value> {
     let mut items: Vec<(u64, Value)> = dead
         .iter()
@@ -29,6 +30,7 @@ pub(super) fn items(
                     "source": entry.source_id,
                     "title": worker::entry_title(entry, profiles.get(&entry.source_id)),
                     "at": at_ms,
+                    "days_left": journal::days_left(at, now_unix),
                     "cause": cause,
                     "short": pacing::short_set_aside_reason(reason),
                     "remedy": remedy,

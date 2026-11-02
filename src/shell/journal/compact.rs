@@ -16,12 +16,18 @@ impl Journal {
     /// original, so a crash mid-compaction leaves the old journal
     /// fully intact (standing rule 12).
     pub async fn compact(&self) -> Result<usize, AlmanacError> {
+        self.compact_at(chrono::Utc::now().timestamp()).await
+    }
+
+    /// [`Self::compact`] as of `now_unix`, which decides which set-aside
+    /// entries are past their 30 days; tests pass the time of their data.
+    pub async fn compact_at(&self, now_unix: i64) -> Result<usize, AlmanacError> {
         let _guard = self.write_lock.lock().await;
         // feat-backup-1: see the comment in `append` — compaction rewrites
         // the same file a backup archives.
         let _ticket = chassis::shell::backup::writing().await;
 
-        let kept = still_owed(&self.read_records()?);
+        let kept = still_owed(&self.read_records()?, now_unix);
         let mut body = String::new();
         for record in &kept {
             let line = serde_json::to_string(record).map_err(|e| AlmanacError::Config {
@@ -36,19 +42,36 @@ impl Journal {
     }
 }
 
-/// The pending entries, then every dead entry with its marker.
+/// The pending entries, then every dead entry with its marker, except
+/// those set aside longer than the retention allows.
 ///
 /// Dead entries survive compaction with their markers (T1). Dropping
 /// them would silently discard a payload the source was told had been
 /// accepted, and lose the reason it failed — which is the only thing
-/// that makes it fixable.
-fn still_owed(records: &[Record]) -> Vec<Record> {
+/// that makes it fixable. They are kept for
+/// [`crate::core::journal::SET_ASIDE_MAX_AGE_DAYS`] days, then removed
+/// with one log line each.
+fn still_owed(records: &[Record], now_unix: i64) -> Vec<Record> {
+    let expired: std::collections::HashSet<&str> =
+        crate::core::journal::expired_dead(records, now_unix)
+            .into_iter()
+            .map(|(entry, reason, at)| {
+                tracing::info!(
+                    id = %entry.id, source = %entry.source_id, reason, set_aside_at = at,
+                    "removed a set-aside event after its retention ran out"
+                );
+                entry.id.as_str()
+            })
+            .collect();
     let mut kept: Vec<Record> = crate::core::journal::pending(records)
         .into_iter()
         .cloned()
         .map(Record::Entry)
         .collect();
     for (entry, reason, at) in crate::core::journal::dead(records) {
+        if expired.contains(entry.id.as_str()) {
+            continue;
+        }
         kept.push(Record::Entry(entry.clone()));
         kept.push(Record::Dead {
             id: entry.id.clone(),

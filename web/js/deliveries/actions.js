@@ -15,10 +15,10 @@ const KINDS = {
 /** Ids whose rows are hidden while their toast counts down or their request is answered. @type {Set<string>} */
 export const held = new Set();
 
-/** @type {{ redraw: () => void, reload: () => Promise<void> }} */
+/** @type {{ redraw: (focusKey?: string) => void, reload: () => Promise<void> }} */
 let page = { redraw: () => {}, reload: async () => {} };
 
-/** @param {{ redraw: () => void, reload: () => Promise<void> }} hooks redraw the section; read the journal again */
+/** @param {{ redraw: (focusKey?: string) => void, reload: () => Promise<void> }} hooks redraw the section; read the journal again */
 export function initActions(hooks) {
     page = hooks;
 }
@@ -46,7 +46,7 @@ async function send(path, ids) {
         console.warn(`deliveries: ${path} did not answer JSON (status ${response.status})`, cause);
     }
     if (json === null) {
-        const ended = response.status === 401 || /login/.test(response.url);
+        const ended = response.status === 401 || new URL(response.url).pathname === "/login";
         throw new Error(ended ? 'Your session ended. Reload the page and log in again' : 'Almanac did not answer. Check that the service is running, then try again');
     }
     if (!response.ok) throw new Error(`${String(json.error ?? 'Almanac could not do that').replace(/\.$/, '')}. ${json.remedy ?? ''}`.trim());
@@ -62,7 +62,7 @@ export function act(kind, ids) {
     if (fresh.length === 0) return;
     const give = () => {
         for (const id of fresh) held.delete(id);
-        page.redraw();
+        page.redraw(fresh[0]); // the toast and its Undo button go away, so focus goes to the first row put back
     };
     for (const id of fresh) held.add(id);
     page.redraw();

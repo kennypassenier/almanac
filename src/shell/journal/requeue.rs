@@ -19,6 +19,9 @@ pub enum RequeueError {
     /// These ids are not set aside (never were, or already handled).
     /// Nothing was written.
     NotSetAside(Vec<String>),
+    /// A newer version of these events arrived after they were set aside;
+    /// retrying would put the older one back over it. Nothing was written.
+    Superseded(Vec<String>),
     /// The journal could not be read or appended to.
     Journal(AlmanacError),
 }
@@ -38,6 +41,7 @@ impl Journal {
     pub async fn retry_dead(&self, ids: &[String], now: &str) -> Result<usize, RequeueError> {
         let _turn = self.requeue_lock.lock().await;
         let entries = self.set_aside_entries(ids)?;
+        self.refuse_superseded(&entries)?;
         for entry in &entries {
             let fresh = journal::requeued(entry, uuid::Uuid::new_v4().to_string(), now);
             self.append(&Record::Entry(fresh)).await?;
@@ -77,5 +81,42 @@ impl Journal {
         } else {
             Err(RequeueError::NotSetAside(refused))
         }
+    }
+
+    /// Refuses a retry of an entry a newer version of the same event
+    /// followed, so the older payload cannot overwrite it.
+    fn refuse_superseded(&self, entries: &[Entry]) -> Result<(), RequeueError> {
+        let records = self.read_records()?;
+        let superseded: Vec<String> = entries
+            .iter()
+            .filter(|e| !journal::newer_versions(&records, e).is_empty())
+            .map(|e| e.id.clone())
+            .collect();
+        if superseded.is_empty() {
+            Ok(())
+        } else {
+            Err(RequeueError::Superseded(superseded))
+        }
+    }
+
+    /// Marks done every still-pending entry accepted before `entry` with
+    /// its upsert key: once a version is delivered, an older one must not
+    /// be sent after it. Returns how many.
+    pub async fn supersede_older(&self, entry: &Entry) -> Result<usize, AlmanacError> {
+        let records = self.read_records()?;
+        let older: Vec<String> = journal::pending(&records)
+            .into_iter()
+            .filter(|e| e.id != entry.id)
+            .filter(|e| {
+                journal::newer_versions(&records, e)
+                    .iter()
+                    .any(|n| n.id == entry.id)
+            })
+            .map(|e| e.id.clone())
+            .collect();
+        for id in &older {
+            self.mark_done(id).await?;
+        }
+        Ok(older.len())
     }
 }

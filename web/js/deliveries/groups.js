@@ -1,7 +1,7 @@
 // The markup of the set-aside section: one alert per cause with its events in a data table, a selection bar and the
 // per-row Retry and Dismiss buttons. Pure strings; aside.js puts them on the page.
 import { esc, moment } from '../lib/format.js';
-import { events } from './words.js';
+import { daysLeft, events } from './words.js';
 
 /** The set-aside events by cause, the cause met first first (the list is newest first). @param {any[]} list */
 export function groupByCause(list) {
@@ -23,6 +23,7 @@ function rowOf(item) {
 <td data-label="Event">${esc(item.title)}</td>
 <td data-label="Source">${esc(item.source)}</td>
 <td data-label="Set aside" data-kp-sort-value="${item.at}">${moment(item.at)}</td>
+<td data-label="Days left" data-kp-sort-value="${item.days_left}">${daysLeft(item.days_left)}</td>
 <td data-label="Actions"><div class="ad-row-acts">
 <button type="button" class="kp-button" data-ad-act="retry" data-ad-key="${esc(item.id)}" aria-label="Retry ${esc(item.title)}">Retry</button>
 <button type="button" class="kp-button kp-button--ghost" data-ad-act="dismiss" data-ad-key="${esc(item.id)}" aria-label="Dismiss ${esc(item.title)}">Dismiss</button>
@@ -60,6 +61,7 @@ ${barHtml(tableId, what)}
 <th scope="col" data-kp-sort="text">Event</th>
 <th scope="col" data-kp-sort="text">Source</th>
 <th scope="col" data-kp-sort="number">Set aside</th>
+<th scope="col" data-kp-sort="number">Days left</th>
 <th scope="col">Actions</th>
 </tr></thead>
 <tbody>${group.items.map(rowOf).join('\n')}</tbody>

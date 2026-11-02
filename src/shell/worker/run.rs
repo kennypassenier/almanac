@@ -8,7 +8,9 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::Interval;
 
-use super::drain::{DrainOutcome, PermanentFailures, drain_once, drain_once_tracking};
+use super::drain::{
+    DrainOutcome, PermanentFailures, drain_for_shutdown, drain_once, drain_once_tracking,
+};
 use crate::core::pacing::{self, DrainSummary, Pacing};
 use crate::shell::notify::{Event, Notifier, ops};
 use crate::shell::state::AppState;
@@ -47,7 +49,7 @@ fn journal_is_filling(state: &AppState) -> bool {
 
 /// Runs the loop until `shutdown` flips. On exit it drains once more,
 /// so a graceful stop (M2) hands over a journal with as little
-/// outstanding work as possible.
+/// outstanding work as possible, within `SHUTDOWN_DRAIN_BUDGET`.
 pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, notifier: Notifier) {
     // Startup replay: whatever a crash or power cut left behind goes
     // out before anything new is accepted for delivery.
@@ -73,7 +75,7 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, noti
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
                     tracing::info!("worker shutting down — draining once more");
-                    drain_once(&state).await;
+                    drain_for_shutdown(&state).await;
                     return;
                 }
             }
@@ -145,12 +147,14 @@ async fn reschedule(
 
 /// Compacts the journal once enough deliveries have piled up.
 async fn compact_when_due(state: &AppState, since_compaction: &mut usize) {
-    // Also when the file passes half its cap with anything delivered since
-    // the last compaction: after a long outage fewer than a hundred
+    // Also when the file passes half its cap and some deliveries happened
+    // since the last compaction: after a long outage fewer than a hundred
     // deliveries may be all it takes to make room again.
     let half_full = std::fs::metadata(state.journal.path())
         .is_ok_and(|m| m.len() * 2 > state.journal.max_bytes());
-    let due = *since_compaction >= COMPACT_AFTER_DELIVERIES || (*since_compaction > 0 && half_full);
+    // Not on every pass: survivors alone may stay above half the cap.
+    let due = *since_compaction >= COMPACT_AFTER_DELIVERIES
+        || (*since_compaction >= COMPACT_AFTER_DELIVERIES / 10 && half_full);
     if !due {
         return;
     }

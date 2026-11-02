@@ -78,12 +78,26 @@ pub fn drain_worker_on_flush(app: &mut App, shutdown: watch::Sender<bool>, worke
         }
         let handle = worker.lock().expect("worker slot").take();
         if let Some(handle) = handle {
-            tokio::runtime::Handle::current().block_on(async {
-                if let Err(e) = handle.await {
-                    tracing::warn!(error = %e, "worker did not shut down cleanly");
-                }
-            });
+            tokio::runtime::Handle::current().block_on(wait_for_worker(handle));
         }
         tracing::info!("almanac stopped");
     });
+}
+
+/// Waits for the worker to finish its final drain, but only for
+/// [`almanac::shell::worker::SHUTDOWN_DRAIN_BUDGET`]; past that the worker is aborted so the
+/// process can exit. Pending entries stay in the journal.
+async fn wait_for_worker(mut handle: tokio::task::JoinHandle<()>) {
+    match tokio::time::timeout(almanac::shell::worker::SHUTDOWN_DRAIN_BUDGET, &mut handle).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!(error = %e, "worker did not shut down cleanly"),
+        Err(_) => {
+            handle.abort();
+            tracing::warn!(
+                budget_secs = almanac::shell::worker::SHUTDOWN_DRAIN_BUDGET.as_secs(),
+                "worker did not finish in time; stopping it — entries still pending are safe \
+                 in the journal and are delivered after the next start"
+            );
+        }
+    }
 }

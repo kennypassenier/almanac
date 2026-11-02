@@ -41,50 +41,65 @@ pub(super) async fn delete_event(
         Err(reply) => return reply,
     };
 
-    let key = format!("{}:{external_id}", profile.source_id);
     let calendar = profile.target_calendar_id.clone();
-
-    // Serialize on the same key the delivery path uses, so a delete
-    // cannot interleave with an upsert of the same event and leave a
-    // recreated copy behind.
-    let lock = state.locks.for_key(&key).await;
-    let _guard = lock.lock().await;
-
-    // An event still waiting in the journal would be created after this
-    // delete answered; it is cancelled under the same lock first.
-    let cancelled = match cancel_pending(&state, &key).await {
-        Ok(n) => n,
-        Err(reply) => return reply,
-    };
-    let event_id = match find_event_id(&state, &profile.source_id, &calendar, &key).await {
-        Ok(id) => id,
-        Err((StatusCode::NOT_FOUND, _)) if cancelled > 0 => {
-            return (
-                StatusCode::OK,
-                Json(
-                    json!({"status": "deleted", "event_id": null, "pending_cancelled": cancelled}),
-                ),
-            );
+    // The id a source used is either its `external_id` or the
+    // Idempotency-Key it sent; the two live in separate namespaces since
+    // 2026-11-02, so both are tried.
+    let keys = [
+        format!("{}:{external_id}", profile.source_id),
+        crate::core::journal::idempotency_upsert_key(&profile.source_id, &external_id),
+    ];
+    let mut cancelled = 0;
+    let mut not_found = None;
+    for key in &keys {
+        match delete_under_key(&state, &profile.source_id, &calendar, key).await {
+            Ok((n, Some(event_id))) => {
+                return deleted(json!(event_id), cancelled + n);
+            }
+            Ok((n, None)) => cancelled += n,
+            Err(reply) if reply.0 == StatusCode::NOT_FOUND => not_found = Some(reply),
+            Err(reply) => return reply,
         }
-        Err(reply) => return reply,
-    };
+    }
+    match not_found {
+        Some(reply) if cancelled == 0 => reply,
+        _ => deleted(serde_json::Value::Null, cancelled),
+    }
+}
 
-    match state.client.delete_event(&calendar, &event_id).await {
+fn deleted(event_id: serde_json::Value, cancelled: usize) -> Reply {
+    (
+        StatusCode::OK,
+        Json(json!({"status": "deleted", "event_id": event_id, "pending_cancelled": cancelled})),
+    )
+}
+
+/// Under `key`'s lock (the one delivery takes, so a delete cannot
+/// interleave with an upsert and leave a recreated copy): cancels the
+/// entries still waiting for it, then deletes its event. Answers how many
+/// were cancelled and the deleted event's id; 404 when there is neither.
+async fn delete_under_key(
+    state: &AppState,
+    source_id: &str,
+    calendar: &str,
+    key: &str,
+) -> Result<(usize, Option<String>), Reply> {
+    let lock = state.locks.for_key(key).await;
+    let _guard = lock.lock().await;
+    let cancelled = cancel_pending(state, key).await?;
+    let event_id = match find_event_id(state, source_id, calendar, key).await {
+        Ok(id) => id,
+        Err((StatusCode::NOT_FOUND, _)) if cancelled > 0 => return Ok((cancelled, None)),
+        Err(reply) => return Err(reply),
+    };
+    match state.client.delete_event(calendar, &event_id).await {
         Ok(()) => {
-            tracing::info!(
-                source_id = %profile.source_id, %event_id, %key,
-                "deleted an event on its source's request"
-            );
-            (
-                StatusCode::OK,
-                Json(
-                    json!({"status": "deleted", "event_id": event_id, "pending_cancelled": cancelled}),
-                ),
-            )
+            tracing::info!(%source_id, %event_id, %key, "deleted an event on its source's request");
+            Ok((cancelled, Some(event_id)))
         }
         Err(e) => {
-            tracing::warn!(source_id = %profile.source_id, error = %e, "delete failed");
-            error(StatusCode::BAD_GATEWAY, e.message(), e.remedy())
+            tracing::warn!(%source_id, error = %e, "delete failed");
+            Err(error(StatusCode::BAD_GATEWAY, e.message(), e.remedy()))
         }
     }
 }
@@ -106,6 +121,7 @@ async fn cancel_pending(state: &AppState, key: &str) -> Result<usize, Reply> {
         .collect();
     for id in &waiting {
         state.journal.mark_done(id).await.map_err(fail)?;
+        state.locks.cancel(id);
     }
     if !waiting.is_empty() {
         tracing::info!(%key, cancelled = waiting.len(), "a delete cancelled events still waiting in the journal");
@@ -133,6 +149,9 @@ async fn find_event_id(
         }
     };
 
+    // The lookup includes cancelled events (for the upsert); one that is
+    // already cancelled is gone as far as the source is concerned.
+    let found = found.filter(|event| event.status.as_deref() != Some("cancelled"));
     let Some(event) = found else {
         // Deliberately distinct from success: a caller retrying a
         // delete needs to be able to tell "already gone" from "just

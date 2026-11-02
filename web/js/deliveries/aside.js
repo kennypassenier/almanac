@@ -66,11 +66,32 @@ function onRowAction(event) {
     if (key && (kind === 'retry' || kind === 'dismiss')) act(kind, [key]);
 }
 
-/** @param {any[]} list */
-function drawGroups(list) {
+/** Keys of the rows after the focused one, then before it (nearest first); null when focus is not in the section. */
+function focusPlan() {
+    const active = document.activeElement;
+    if (!active || !asideEl.contains(active)) return null;
+    const keys = [...asideEl.querySelectorAll('tr[data-kp-row-key]')].map((row) => row.getAttribute('data-kp-row-key') ?? '');
+    const at = keys.indexOf(active.closest('tr')?.getAttribute('data-kp-row-key') ?? '');
+    return at < 0 ? [] : [...keys.slice(at + 1), ...keys.slice(0, at).reverse()];
+}
+
+/** Gives focus back after a redraw: the wanted row, else the next one, else the first, else the section itself. @param {string[] | null} plan @param {string | undefined} wanted */
+function restoreFocus(plan, wanted) {
+    if (!plan && !wanted) return;
+    const rows = [...asideEl.querySelectorAll('tr[data-kp-row-key]')];
+    const byKey = (/** @type {string} */ key) => rows.find((row) => row.getAttribute('data-kp-row-key') === key);
+    const row = (wanted ? byKey(wanted) : undefined) ?? (plan ?? []).map(byKey).find(Boolean) ?? rows[0];
+    const target = row?.querySelector('[data-ad-act]') ?? (asideEl.hidden ? asideEmpty : asideEl);
+    if (target === asideEmpty) asideEmpty.tabIndex = -1;
+    /** @type {HTMLElement} */ (target).focus();
+}
+
+/** @param {any[]} list @param {string} [focusKey] a row key that should hold focus after the redraw */
+function drawGroups(list, focusKey) {
     const from = JSON.stringify(list.map((item) => [item.id, item.cause, item.remedy]));
     if (from === drawnFrom) return;
     drawnFrom = from;
+    const plan = focusPlan();
     const ticked = tickedKeys();
     detachTables?.();
     asideEl.innerHTML = groupByCause(list).map(groupHtml).join('\n');
@@ -82,9 +103,11 @@ function drawGroups(list) {
     };
     for (const bar of asideEl.querySelectorAll('[data-kp-selection]')) bar.addEventListener('kp-selection-action', onBarAction);
     tick(ticked);
+    restoreFocus(plan, focusKey);
 }
 
-export function renderAside() {
+/** @param {string} [focusKey] a row key that should hold focus after the redraw */
+export function renderAside(focusKey) {
     syncBusyCard();
     asideLoading.hidden = state.status !== 'loading';
     asideFailed.hidden = state.status !== 'error';
@@ -94,5 +117,5 @@ export function renderAside() {
     const list = all.filter((item) => !held.has(item.id));
     asideEl.hidden = list.length === 0;
     asideEmpty.hidden = !(state.status === 'ready' && list.length === 0);
-    drawGroups(list);
+    drawGroups(list, focusKey);
 }

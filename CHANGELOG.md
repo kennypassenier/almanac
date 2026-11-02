@@ -28,8 +28,29 @@ and the profile format are unchanged.
   Calendar API stub on 127.0.0.1, localhost or [::1] for an end-to-end
   check without Google; any other host refuses the start.
 
+- **Set-aside events are removed after 30 days** (with a log line); the
+  Deliveries table shows how many days each has left.
+- **History write failures are visible**: `almanac_history_write_failures_total`
+  in /metrics and a line on Status until the next restart.
+
 ### Changed
 
+- **Newer versions win**: delivering a version closes older versions of the
+  same event still waiting, and Retry refuses a set-aside version a newer
+  one followed.
+- **A 401 from Google** fetches one fresh token and resends; if Google still
+  refuses, the entry keeps waiting (transient) instead of being set aside.
+- **A pass stops at the first transient failure** during an outage, and the
+  final drain on stop gets 20 s.
+- **Cancelled events are found again**: the upsert lookup includes them, so
+  cancelling and re-confirming an event updates it instead of adding one.
+- **Idempotency-Key headers have their own key namespace**
+  (`<source>:idem:<key>`); an event written under the old form is found once
+  and moved to the new key. DELETE tries both forms.
+- Pages: focus stays on the next row after Retry/Dismiss and on the heading
+  after a calendar delete; status lines only re-announce when they change;
+  the History event card is a dialog that takes focus; clearer names on the
+  Copy menus and Delete buttons; card titles are h2.
 - README: `/sync` may retry Google for about a minute before answering;
   a resend with the same `external_id` updates in place.
 - Deliveries: one alert per cause with its events in a table under it,
@@ -49,6 +70,8 @@ and the profile format are unchanged.
 
 ### Fixed
 
+- A delete that arrives while a worker pass already holds the event no
+  longer lets the pass recreate it.
 - Journal: a torn last line left by a crash is cut before the next append
   (before, the next record glued onto it and the journal became unreadable
   until someone moved it aside); a full journal still takes the Done and

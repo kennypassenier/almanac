@@ -89,6 +89,41 @@ pub fn dead(records: &[Record]) -> Vec<(&Entry, &str, &str)> {
         .collect()
 }
 
+/// How long an entry stays set aside before compaction removes it. The one
+/// place this number lives: the page's "days left" and the cleanup both
+/// read it, so they cannot disagree.
+pub const SET_ASIDE_MAX_AGE_DAYS: i64 = 30;
+
+const SECONDS_PER_DAY: i64 = 86_400;
+
+/// Whole days (rounded up, never negative) before a set-aside entry from
+/// `at` (RFC3339) is removed. An unparseable `at` counts as a full
+/// allowance: an entry whose age cannot be proven is never removed.
+pub fn days_left(at: &str, now_unix: i64) -> u64 {
+    let Ok(set_aside) = chrono::DateTime::parse_from_rfc3339(at) else {
+        return SET_ASIDE_MAX_AGE_DAYS as u64;
+    };
+    let expires = set_aside.timestamp() + SET_ASIDE_MAX_AGE_DAYS * SECONDS_PER_DAY;
+    let left = expires - now_unix;
+    if left <= 0 {
+        return 0;
+    }
+    ((left + SECONDS_PER_DAY - 1) / SECONDS_PER_DAY) as u64
+}
+
+/// Set-aside entries older than [`SET_ASIDE_MAX_AGE_DAYS`] at `now_unix`,
+/// as (entry, reason, at). Compaction drops these, so a dead payload does
+/// not pile up for ever; an entry with an unparseable `at` is kept.
+pub fn expired_dead(records: &[Record], now_unix: i64) -> Vec<(&Entry, &str, &str)> {
+    dead(records)
+        .into_iter()
+        .filter(|(_, _, at)| {
+            chrono::DateTime::parse_from_rfc3339(at)
+                .is_ok_and(|t| now_unix - t.timestamp() > SET_ASIDE_MAX_AGE_DAYS * SECONDS_PER_DAY)
+        })
+        .collect()
+}
+
 /// The entry that stands in for a set-aside one when it is retried: a
 /// fresh id, received now, with the same source, payload and
 /// idempotency key, so Google converges on one event.
@@ -133,13 +168,50 @@ pub fn pending(records: &[Record]) -> Vec<&Entry> {
 /// same key the delete route builds, so a delete can find the entries
 /// still waiting for that event.
 pub fn entry_key(entry: &Entry) -> Option<String> {
-    entry
+    let external = entry
         .payload
         .get("external_id")
         .and_then(serde_json::Value::as_str)
-        .filter(|id| !id.trim().is_empty())
-        .or(entry.idempotency_key.as_deref())
-        .map(|id| format!("{}:{id}", entry.source_id))
+        .filter(|id| !id.trim().is_empty());
+    match external {
+        Some(id) => Some(format!("{}:{id}", entry.source_id)),
+        None => entry
+            .idempotency_key
+            .as_deref()
+            .map(|k| idempotency_upsert_key(&entry.source_id, k)),
+    }
+}
+
+/// Entries accepted after `entry` that carry its upsert key: a newer
+/// version of the same event (Kenny, form newer-wins, 2026-11-02).
+pub fn newer_versions<'a>(records: &'a [Record], entry: &Entry) -> Vec<&'a Entry> {
+    let Some(key) = entry_key(entry) else {
+        return Vec::new();
+    };
+    records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Entry(e) => Some(e),
+            _ => None,
+        })
+        .skip_while(|e| e.id != entry.id)
+        .skip(1)
+        .filter(|e| entry_key(e).as_deref() == Some(key.as_str()))
+        .collect()
+}
+
+/// The upsert key of an Idempotency-Key header (M7), in its own namespace
+/// (`<source>:idem:<key>`) so it can never address the event an
+/// `external_id` of the same text addresses (Kenny, form key-namespace,
+/// 2026-11-02). Events written before carry the legacy `<source>:<key>`;
+/// [`legacy_idempotency_key`] finds them once and the update rewrites them.
+pub fn idempotency_upsert_key(source_id: &str, key: &str) -> String {
+    format!("{source_id}:idem:{key}")
+}
+
+/// The key a header-keyed event carried before 2026-11-02.
+pub fn legacy_idempotency_key(source_id: &str, key: &str) -> String {
+    format!("{source_id}:{key}")
 }
 
 #[cfg(test)]
