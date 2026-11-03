@@ -255,19 +255,21 @@ is the last thing anyone wants during a real outage.
 
 ## R8 · "Journal backlog" notification
 
-Deliveries have been failing long enough that the journal is over half
-its cap. Once it fills, ingest starts refusing events and the sources'
-own retries eventually give up — so this arrives while there is still
-room to act, not after.
+Deliveries have been failing long enough that 2000 events are waiting in
+the journal. There is no size cap to run into any more, only the disk, so
+this is the signal that a backlog is building, not that ingest is about
+to refuse events.
 
 ```bash
 journalctl -u almanac -n 100 --no-pager | grep -i "delivery failed"
 curl -H "Authorization: Bearer $ALMANAC_TOKEN" \
      http://localhost:8080/v1/debug/status
+sqlite3 /opt/almanac/data/almanac.db \
+  "select state, count(*) from journal group by state"
 ```
 
 Usually Google is unreachable or the service account lost access to a
-calendar. Nothing is lost while the journal has room; entries deliver
+calendar. Nothing is lost; entries deliver
 themselves once the cause is fixed. The worker backs off as the outage
 lasts, up to half-hourly, and speeds back up the moment anything gets
 through.
@@ -311,7 +313,7 @@ State lives in four places, and only one of them is on the LXC:
 | Profiles (examples) | git (`fixtures/profiles/`) | `git clone`, then set the real calendar ids |
 | Real calendar ids | this deployment only | `cargo run --example inspect_calendar_access` lists them |
 | Secrets | Latch escrow (offline) | `latch key restore` / `latch clone` |
-| Journal (transient) | `/opt/almanac/data` | nothing to do — it is empty in steady state |
+| Journal (transient) | `journal` table of `almanac.db` | nothing to do — it is empty in steady state |
 | Calendar data | Google | nothing to do |
 
 **`restic ls` cannot show you a profile.** The homelab's nightly
@@ -361,9 +363,9 @@ So a destroyed LXC is a rebuild, not a recovery: R2, restore the Latch
 key, done. The journal is worth backing up only if it is non-empty at
 the moment of the backup, which means deliveries were failing then.
 
-**The data directory holds the journal and two SQLite files.** The
-journal (`journal.jsonl`) and an empty `.lock` are plain files. Since
-4.4.0 the delivery history lives in `almanac.db`, and the kit keeps the
+**The data directory holds two SQLite files.** The journal is the
+`journal` table of `almanac.db`, next to the delivery history (since
+4.4.0 for the history); an empty `.lock` is a plain file. The kit keeps the
 sources, sessions and passkeys in `almanac-kit.db` (chassis-rs 3.11.0).
 SQLite runs in WAL mode, so each database has `-wal` and `-shm`
 companions that carry the recent writes: never copy a `.db` alone. The
@@ -374,12 +376,18 @@ stopped. The old `history.json` and `clients.json.enc` remain as
 backup that follows. The Storage page shows what the databases hold
 ("Delivery log") and cleans it up.
 
-Copying the journal while the service runs is safe. It is append-only,
-so the worst a hot copy can catch is a half-written final line, and
-replay is written to tolerate exactly that — `replay_survives_a_torn_final_line`
-in `shell::journal` is the test that keeps it true. Restore it by
-putting the files back and starting the service; anything undelivered
-goes out on that start.
+The journal needs no copy of its own: it is rows in `almanac.db`, so the
+rule above covers it. Restore it by putting the database back (with its
+`-wal` and `-shm`) and starting the service; anything undelivered goes
+out on that start.
+
+**The first start after the journal moved into the database** imports the
+old `data/journal.jsonl` once: it copies the file to `journal.jsonl.pre-db`,
+inserts what is still owed (waiting and set-aside events) and renames the
+file to `journal.jsonl.migrated`. A damaged line other than a torn last
+line refuses the start and leaves the file untouched; fix or remove the
+line and start again. Delete the `.pre-db` and `.migrated` files after the
+first backup that follows.
 
 ## R12 · Metrics and what to alert on (M13)
 
@@ -657,7 +665,7 @@ ALMANAC_STATE_DIR=/appdata/almanac
 ```
 
 That yields `/appdata/almanac/profiles` and `/appdata/almanac/data`,
-with the journal, the sealed tokens, the update state and the exclusive
+with the databases (journal included), the sealed tokens, the update state and the exclusive
 lock inside the latter. Unset, the root is the working directory, which
 is what almanac did before this existed.
 
@@ -671,7 +679,9 @@ carries no ballast.
 
 **The four older settings still work and still win.**
 `ALMANAC_PROFILES_DIR`, `ALMANAC_DATA_DIR`, `ALMANAC_JOURNAL` and
-`ALMANAC_TOKEN_STORE` override the derived paths individually. CT 112
+`ALMANAC_TOKEN_STORE` override the derived paths individually
+(`ALMANAC_JOURNAL` now only names the legacy `journal.jsonl` the first
+start imports). CT 112
 sets all four absolutely and is therefore unaffected by this feature
 until someone removes them — which is the point: adopting the release
 changes nothing, and the move is a separate, deliberate act.

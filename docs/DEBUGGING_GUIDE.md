@@ -20,7 +20,7 @@ boundary.
 |---|---|---|---|
 | 1 | `/healthz` | Is the process alive at all? | `curl -s 10.10.10.12:8080/healthz` |
 | 2 | `/v1/debug/status` | Did Almanac accept it, and where did it route it? | with the operator token |
-| 3 | the journal | Is it waiting, delivered, or set aside? | the `pending` count in the same status |
+| 3 | the journal | Is it waiting, delivered, or set aside? | the `pending` count in the same status, or `sqlite3 almanac.db "select state, count(*) from journal group by state"` on the LXC |
 | 4 | `journalctl -u almanac` | What did Google say? | on the LXC |
 
 **The single most useful fact:** a payload that got a `202` is in the
@@ -50,7 +50,7 @@ which profile, which calendar, and whether it worked.
 | The source got **202**, `pending` is 0, still nothing | It went to a **different calendar** than you are looking at | `/v1/debug/status` shows the target calendar id per profile | Compare against the calendar you have open. This is the most common false alarm |
 | The source got **422** | The payload does not match the profile | The response names the missing field and the profile | Fix the profile or the payload; check with dry-run first (§5) |
 | The source got **502** from `/sync` | Google was unreachable *at that moment* | The payload is still journalled | Nothing to do. It goes out on the next pass — 502 here means "not yet", never "lost" |
-| The source got **500** | The journal could not be written | `journalctl` names the path and the reason | Usually disk or permissions on `/opt/almanac/data` |
+| The source got **500** | The journal row could not be written | `journalctl` names the database and the reason | Usually disk or permissions on `/opt/almanac/data` |
 | Nothing at all, no request logged | It never arrived | Capture surface (§5) | The problem is on the source's side, not here |
 
 **A calendar you cannot see is not an empty calendar.** A calendar the
@@ -94,7 +94,7 @@ Almanac sends these to Home Assistant. Each is also a runbook section.
 | `almanac-update-reverted` | A new version came up and did not become healthy, so the old one is back | Look today. Runbook R4 |
 | `almanac-update-unverified` | A published release failed signature or checksum verification, three times | Look now. Either the release is broken or the release host is not to be trusted. Runbook R5 |
 | `almanac-entry-set-aside` | One event failed permanently three times and was given up on | Look today. It is kept in the journal with its reason and shown on the Deliveries page, where you can Retry or Dismiss it |
-| `almanac-journal-backlog` | The journal is over half its size cap | Look today. Deliveries have been failing long enough to build up. Runbook R8 |
+| `almanac-journal-backlog` | 2000 events are waiting in the journal | Look today. Deliveries have been failing long enough to build up. Runbook R8 |
 
 `almanac-entry-set-aside` is the one worth understanding: Almanac
 retries transient failures forever, but a *permanent* failure — a

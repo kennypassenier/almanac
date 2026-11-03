@@ -12,7 +12,7 @@ each choice was made and which objection forced it.
         HTTP in                    Almanac                     out
    ┌──────────────┐      ┌────────────────────────┐    ┌──────────────┐
    │ Home Asst    │      │  ingest  → journal     │    │              │
-   │ Grafana      ├─────→│            (fsync)     │    │    Google    │
+   │ Grafana      ├─────→│            (commit)     │    │    Google    │
    │ Uptime Kuma  │ 202  │              ↓         ├───→│   Calendar   │
    │ Claude       │      │  worker  → delivery    │    │              │
    └──────────────┘      │            (upsert)    │    └──────────────┘
@@ -23,10 +23,9 @@ each choice was made and which objection forced it.
 
 One process, one port, one data directory. No message broker, no
 sidecar. The durability that would normally come from a queue comes from
-an append-only file that is fsynced before the request is answered. The
-only database is the kit's SQLite app file (`almanac.db`, plus the kit's
-own `almanac-kit.db`), which holds the per-day delivery history, not the
-queue.
+a row in the kit's SQLite app file (`almanac.db`, WAL, `synchronous=FULL`)
+that is committed before the request is answered. That file also holds
+the per-day delivery history; the kit keeps its own `almanac-kit.db`.
 
 The History page reads the `deliveries` table of `almanac.db` (one row per
 final outcome of a journal entry; a retry replaces its row; at most 500 rows
@@ -41,14 +40,14 @@ The two halves are deliberately separated, and the seam between them is
 the journal.
 
 **Accept** (`shell::ingest`) authenticates the source, maps the payload
-with that source's profile, appends the entry to the journal, **fsyncs
+with that source's profile, inserts the entry as a row of the `journal` table, **commits
 it**, and only then answers 202. The whole point of that order: a
 source that received a 202 may forget the payload forever, so the 202
 must not be able to outrun the disk.
 
 **Deliver** (`shell::worker`) runs a loop that reads pending entries and
-sends them to Google. It marks each done in the journal *after* Google
-confirms. That ordering means a crash between the two is possible and
+sends them to Google. It deletes each row *after* Google
+confirms (the delivery history keeps the record). That ordering means a crash between the two is possible and
 harmless: on the next start the entry replays, and the upsert converges
 on the same event instead of making a second one (AR16).
 
@@ -59,7 +58,7 @@ per pass, because an alert that fires every ten seconds is an alert
 nobody reads.
 
 An entry that fails **permanently** three times is set aside as dead —
-kept in the journal with its reason, shown on the Deliveries page (Retry or Dismiss), and
+kept in the journal as a row with state `dead` and its reason, shown on the Deliveries page (Retry or Dismiss; otherwise removed after 30 days), and
 reported once — so one undeliverable payload cannot hold up everything
 behind it (T1). Transient failures are retried indefinitely; the
 difference between the two is decided in `core::retry`, which reads
@@ -85,7 +84,7 @@ is everything that touches the world.
 | `shell` | what it does about it |
 |---|---|
 | `ingest`, `admin`, `dashboard` | the HTTP surfaces |
-| `journal`, `durability`, `datadir` | the append-only log, fsync, the exclusive lock |
+| `journal`, `durability`, `datadir` | the `journal` table, durable writes, the exclusive lock |
 | `worker`, `delivery` | the delivery loop and one delivery |
 | `calendar_client`, `auth` | Google, and the OAuth2 token |
 | `token_store`, `notify`, `profiles`, `update` | encrypted tokens, Home Assistant, profile loading, self-update |
@@ -163,7 +162,7 @@ right on a private network and wrong on the internet.
 |---|---|
 | Host | CT 112 on Proxmox, an LXC container, `10.10.10.12:8080` |
 | Supervision | systemd, running the binary under `latch run` |
-| Data | `/opt/almanac/data` — journal, `almanac.db` (delivery history), `almanac-kit.db` (sources, sessions), update state |
+| Data | `/opt/almanac/data` — `almanac.db` (journal, delivery history), `almanac-kit.db` (sources, sessions), update state |
 | Profiles | `/opt/almanac/profiles/*.toml`, holding the real calendar ids |
 | Secrets | a ciphertext-only Latch clone; no credentials on the machine to pull with |
 | Updates | itself, from signed GitHub releases |
@@ -179,12 +178,14 @@ nobody watching.
 
 ## 8 · What is not here, and why
 
-**No database.** The journal is an append-only JSONL file that is
-compacted when it grows. For this volume a database would add an
-operational dependency and buy nothing.
+**No separate store for the journal.** Until the journal moved into
+`almanac.db` it was an append-only JSONL file with a 64 MiB cap and
+compaction; the app database the kit already provides replaced that,
+one row per event, with no cap and nothing to compact.
 
 **No queue.** The journal *is* the queue, and it survives power loss
-because of when it is fsynced rather than because of a broker.
+because its rows are committed (WAL, `synchronous=FULL`) before the 202
+rather than because of a broker.
 
 **No multi-instance support.** The data directory takes an exclusive
 lock and a second process refuses to start. Two processes on one

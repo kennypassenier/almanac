@@ -29,8 +29,8 @@ still fits the day a fifth source is added.
   its events land on — "infra", "hobbies", whatever the split is. This
   is the point of the project, not a feature bolted on.
 - **Nothing is lost.** Every accepted payload is written to a durable
-  journal and fsynced *before* the request is answered, so a crash or a
-  power cut costs nothing. Undelivered entries go out on the next start.
+  journal (a row in the app database, committed with `synchronous=FULL`)
+  *before* the request is answered, so a crash or a power cut costs nothing. Undelivered entries go out on the next start.
 - **Redelivery converges.** Events are upserted by a private property
   on the Google event, so retrying never produces a duplicate.
 - **It explains itself.** A dry-run endpoint shows what a payload would

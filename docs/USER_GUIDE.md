@@ -33,7 +33,7 @@ nothing else in the homelab does (K12). A source holds only its own
 bearer token, which grants exactly one thing: posting as that source.
 
 **Almanac answers before Google does.** A payload is written to a
-durable journal and flushed to disk *before* the 202 comes back (AR16),
+durable journal (a committed row in the database) *before* the 202 comes back (AR16),
 and a background worker delivers it. A source that got a 202 can forget
 about it — a power cut between the 202 and the calendar costs nothing,
 the entry goes out on the next start.

@@ -12,11 +12,11 @@ decision, written down. A gap nobody decided about is a hole.**
 
 | Suite | What it covers |
 |---|---|
-| unit tests in `src/core/*` | The pure logic: error classification, mapping, the journal's replay model, version comparison, the worker's pacing state machine, token hashing, sealing, HTML escaping, profile validation. No I/O, so these are fast and total. |
+| unit tests in `src/core/*` | The pure logic: error classification, mapping, the journal's replay model (pure; the journal itself is a database table), version comparison, the worker's pacing state machine, token hashing, sealing, HTML escaping, profile validation. No I/O, so these are fast and total. |
 | unit tests in `src/shell/*` | The I/O side against local stubs: the Calendar client's retry loop, token refresh, per-source auth, the encrypted store, the self-updater, the delivery path's calendar routing. |
 | `tests/kit_door.rs` | The door on the kit (4.0.0): a source posts with the client token under its own name and nothing else, the 3.x tokens are imported once and keep working, the debug views need the admin, captures take any client, health and metrics stay open. |
 | `tests/kit_dashboard.rs` | The pages on the kit (4.0.0): the door and the 3.x redirects, the Sources page and its token state, K21 add/delete, K23 unusable files and reload, K24 calendars, captures rendered inert. |
-| `tests/ingest_http.rs`, `tests/admin_http.rs` | The ingest and debug surfaces in-process, as the admin: journalling, idempotency, unwritable journal, dry-run, capture cap and redaction, metrics. |
+| `tests/ingest_http.rs`, `tests/admin_http.rs` | The ingest and debug surfaces in-process, as the admin: journalling, idempotency, unwritable journal database, dry-run, capture cap and redaction, metrics. |
 | *(the kit's suite)* | Login, logout, sessions, forged cookies, cookie attributes, CSRF, CSP and the never-a-token-in-a-page rule are chassis-rs's to prove since 4.0.0. |
 | `tests/self_update.rs` | Self-update end to end against a local release host with real minisign verification: install, tampered binary, tampered manifest, foreign signing key, unstartable version, downgrade, incomplete release, unreachable host. |
 | `tests/process_lifecycle.rs` | The real binary as a process: SIGTERM draining cleanly, the startup retry after an unreachable Google, a broken key exiting, two processes on one data directory, `--check` against a live instance. |
