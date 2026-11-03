@@ -1,5 +1,5 @@
 // The Calendars page's talk with the server: one JSON call, and the words a refusal or a toast uses.
-import { toast } from '/static/kp/dist/kp-themes.min.js';
+import { toast } from '/static/kp/dist/js/index.js';
 
 /** A refusal in the shape the package shows: a sentence and what to do. @param {string} error @param {string} remedy */
 export const refusal = (error, remedy) => ({ error, remedy });

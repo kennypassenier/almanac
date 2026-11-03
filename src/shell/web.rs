@@ -226,6 +226,7 @@ pub fn mount(app: &mut chassis::App) {
     // the kit layout carries the install tags and the worker on every page.
     app.webapp(
         WebApp::embedded(FILES)
+            .kp_modules()
             .at("/ui")
             .pwa(Pwa::new().start_url("/")),
     );

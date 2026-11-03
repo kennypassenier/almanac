@@ -1,5 +1,5 @@
 // Section 2 of the deliveries page: the retry schedule, as runs or as a timeline (gantt), and the person's choice of shape.
-import { setGanttKinds, setGanttPoints, setGanttState, setGanttWindow, setGanttZones, setRuns, setRunsState, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
+import { setGanttKinds, setGanttPoints, setGanttState, setGanttWindow, setGanttZones, setRuns, setRunsState, setSegmentedValues } from '/static/kp/dist/js/index.js';
 import { moment } from '../lib/format.js';
 import { state, SECOND, MINUTE } from './state.js';
 import { runsEl, ganttEl, schedSaid, shapeEl, say } from './dom.js';

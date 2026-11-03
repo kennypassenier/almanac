@@ -1,6 +1,6 @@
 // Section 2 of the Calendars page: the attention band, the fix buttons in it, and the same profile reload in the
 // header menu.
-import { runFlashButton, setAttention } from '/static/kp/dist/kp-themes.min.js';
+import { runFlashButton, setAttention } from '/static/kp/dist/js/index.js';
 import { plural } from '../lib/format.js';
 import { api, refusal, flavour, said, reportFailure } from './api.js';
 import { state, hooks } from './state.js';
@@ -17,7 +17,7 @@ const fix = (/** @type {string} */ key, /** @type {string} */ label) => {
 
 export function renderAttention() {
     const { google, profiles } = state;
-    /** @type {import('/static/kp/dist/kp-themes.min.js').AttentionItem[]} */
+    /** @type {import('/static/kp/dist/js/index.js').AttentionItem[]} */
     const items = [];
     if (google && !google.ok) {
         items.push({

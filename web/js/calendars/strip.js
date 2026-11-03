@@ -1,6 +1,6 @@
 // Section 1 of the Calendars page: the counts. Three of them are toggles that filter the rows they count; the fourth
 // is the deliveries-per-hour trend.
-import { attachKpiToggles, attachCharts, statePlate } from '/static/kp/dist/kp-themes.min.js';
+import { attachKpiToggles, attachCharts, statePlate } from '/static/kp/dist/js/index.js';
 import { esc, moment, plural } from '../lib/format.js';
 import { state, hooks, sources, sourcesOf } from './state.js';
 import { page, strip, line } from './dom.js';

@@ -3,7 +3,7 @@
 // /status/sources, reads them again on the kit's refresh, and keeps rows updating in place by their stable id.
 // The parts live in js/status/*.js.
 
-import { setStackbar, attachSegmented, attachAgo, attachSparklines, attachKpiToggles, attachKpiStrips, attachCharts, attachTicks } from '/static/kp/dist/kp-themes.min.js';
+import { setStackbar, attachSegmented, attachAgo, attachSparklines, attachKpiToggles, attachKpiStrips, attachCharts, attachTicks } from '/static/kp/dist/js/index.js';
 import { tableHandle } from './status/read.js';
 import { $, hold, journalCard, sourcesCard } from './status/card.js';
 import { journal, sources } from './status/state.js';
@@ -94,20 +94,26 @@ function initSources() {
 
 document.addEventListener('kp-kpi-toggle', () => drawGlance());
 
-await ready;
-attachStage();
+/** The page's start, after chassis.js attached it. Not awaited at the top level: the kit attaches after
+ * DOMContentLoaded, and a module still awaiting would hold that event back, so the page never finished loading. */
+async function start() {
+    await ready;
+    attachStage();
 
-if (hasSources()) {
-    const card = sourcesCard();
-    if (card) hold(card).set('loading', { words: 'Reading the profile files' });
-}
-if (hasJournal()) await initJournal();
+    if (hasSources()) {
+        const card = sourcesCard();
+        if (card) hold(card).set('loading', { words: 'Reading the profile files' });
+    }
+    if (hasJournal()) await initJournal();
 
-// The page's one refresh control is the kit's; a refresh there reads these sections again. The kit's own read answers
-// the control (its freshness line), so this module only listens.
-document.querySelector('.kp-ops .kp-refresh')?.addEventListener('kp-refresh', () => {
+    // The page's one refresh control is the kit's; a refresh there reads these sections again. The kit's own read answers
+    // the control (its freshness line), so this module only listens.
+    document.querySelector('.kp-ops .kp-refresh')?.addEventListener('kp-refresh', () => {
+        run();
+    });
     run();
-});
-run();
 
-if (hasSources()) initSources();
+    if (hasSources()) initSources();
+}
+
+start();

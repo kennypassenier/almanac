@@ -1,5 +1,5 @@
 // The Journal section: one read of /status/journal, and what the page shows when the first read fails.
-import { setStackbar } from '/static/kp/dist/kp-themes.min.js';
+import { setStackbar } from '/static/kp/dist/js/index.js';
 import { readJson } from './read.js';
 import { $, hold, journalCard } from './card.js';
 import { journal } from './state.js';

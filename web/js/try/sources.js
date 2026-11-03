@@ -1,5 +1,5 @@
 // The Try page's sources: the one source picker, the profile card, and the read of /try/api/sources that every card waits on.
-import { setCardState, setCode, attachPatterns, setSegmentedItems, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
+import { setCardState, setCode, attachPatterns, setSegmentedItems, setSegmentedValues } from '/static/kp/dist/js/index.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { factRow } from './words.js';

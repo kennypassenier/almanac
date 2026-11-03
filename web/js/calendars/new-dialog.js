@@ -1,5 +1,5 @@
 // Section 5 of the Calendars page: the new-calendar dialog.
-import { attachDisabledReasons, form as formOf, VALID_EVENT, INVALID_EVENT } from '/static/kp/dist/kp-themes.min.js';
+import { attachDisabledReasons, form as formOf, VALID_EVENT, INVALID_EVENT } from '/static/kp/dist/js/index.js';
 import { api, flavour, said } from './api.js';
 import { state, hooks } from './state.js';
 import { must } from './dom.js';

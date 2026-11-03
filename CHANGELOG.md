@@ -16,6 +16,12 @@ reviewers and fixed as he chose.
 
 ### Migration
 
+- **chassis-rs 4.0.0 → 4.5.0** (kp-themes 12.3.0). The pages import the
+  per-module kp-themes build (`/static/kp/dist/js/index.js`, `WebApp::kp_modules`)
+  instead of the bundle: a kit-layout page that also imported the bundle held
+  two kp-themes copies, and Firefox froze before the page finished loading.
+  Almanac is installable (`Pwa::start_url("/")`, the approved icon); History
+  uses the shared date navigation for month and week.
 - **The journal moves into the app database** (Kenny, form journal-store,
   2026-11-03: all data in databases, one row per event). At the first start,
   `data/journal.jsonl` is copied to `journal.jsonl.pre-db`, what it still owes

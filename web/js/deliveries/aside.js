@@ -1,12 +1,12 @@
 // Section 3 of the deliveries page: the entries set aside, one alert per cause with the events as a data table under it.
 // The states are the package's: the busy card over the skeleton, the empty plate, the failed plate with Try again.
-import { attachArt, attachDataTables, attachSelectionBars, statePlate, openBusyCard } from '/static/kp/dist/kp-themes.min.js';
+import { attachArt, attachDataTables, attachSelectionBars, statePlate, openBusyCard } from '/static/kp/dist/js/index.js';
 import { state } from './state.js';
 import { asideEl, asideLoading, asideEmpty, asideFailed } from './dom.js';
 import { groupByCause, groupHtml } from './groups.js';
 import { act, held, initActions } from './actions.js';
 
-/** @type {import('/static/kp/dist/kp-themes.min.js').BusyCard | null} */
+/** @type {import('/static/kp/dist/js/index.js').BusyCard | null} */
 let asideBusy = null;
 /** What the groups on screen were drawn from, so a poll that changed nothing leaves the tables (and their ticks) alone. */
 let drawnFrom = '';

@@ -1,6 +1,6 @@
 // Retry and Dismiss on set-aside events. The click hides the rows at once and shows a toast with Undo; the request is
 // sent only when the toast's window closes, and Undo cancels it on this side (nothing was sent yet).
-import { undoToast } from '/static/kp/dist/kp-themes.min.js';
+import { undoToast } from '/static/kp/dist/js/index.js';
 import { events } from './words.js';
 
 /** How long Undo stays open [ms]. */

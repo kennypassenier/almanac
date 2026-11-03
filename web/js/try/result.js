@@ -1,5 +1,5 @@
 // The Path and Result cards: filled by the last Try, and their idle, refused and ready faces.
-import { setCardState, setCode, setTrace, trace, attachPatterns, statePlate } from '/static/kp/dist/kp-themes.min.js';
+import { setCardState, setCode, setTrace, trace, attachPatterns, statePlate } from '/static/kp/dist/js/index.js';
 import { esc } from '../lib/format.js';
 import { factRow, setAlert, refusalWords } from './words.js';
 import { specRows, diffLines, curlFor } from './spec.js';

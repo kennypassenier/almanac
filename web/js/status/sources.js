@@ -1,5 +1,5 @@
 // The Sources section: one read of /status/sources, kept in step by each source's stable id.
-import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/dist/kp-themes.min.js';
+import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/dist/js/index.js';
 import { readJson } from './read.js';
 import { $, hold, sourcesCard } from './card.js';
 import { sources as sourcesState } from './state.js';

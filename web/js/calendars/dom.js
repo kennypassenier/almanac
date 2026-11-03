@@ -1,5 +1,5 @@
 // The Calendars page's elements and its two data tables. Importing this waits for the package to attach its parts.
-import { dataTable, setMatrix } from '/static/kp/dist/kp-themes.min.js';
+import { dataTable, setMatrix } from '/static/kp/dist/js/index.js';
 import { autoReady } from '../lib/ready.js';
 
 export const $ = (/** @type {string} */ s, /** @type {ParentNode} */ r = document) => /** @type {HTMLElement | null} */ (r.querySelector(s));
@@ -30,5 +30,5 @@ setMatrix(lines, { view: 'lines', rows: [], columns: [], state: 'loading', skele
 
 await autoReady;
 
-export const table = /** @type {import('/static/kp/dist/kp-themes.min.js').DataTableHandle} */ (dataTable(tableWrap));
+export const table = /** @type {import('/static/kp/dist/js/index.js').DataTableHandle} */ (dataTable(tableWrap));
 export const servedTable = dataTable(servedWrap);
