@@ -61,6 +61,8 @@ async fn a_source_posts_with_its_own_client_token_and_nothing_else() {
     let pending = hub.state.journal.pending().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].source_id, "home-assistant");
+    // Durably journalled means a committed row in almanac.db.
+    assert_eq!(hub.journal_rows("home-assistant"), 1);
     // The admin's login token may post as any source (Kenny's scripts).
     let admin = hub
         .post_json("/v1/ingest/uptime-kuma", Some(hub.token()), ha_payload())

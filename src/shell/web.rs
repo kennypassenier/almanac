@@ -151,10 +151,6 @@ pub const FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../web/js/status/deliveries.js"),
     ),
     (
-        "js/status/footprint.js",
-        include_bytes!("../../web/js/status/footprint.js"),
-    ),
-    (
         "js/status/glance.js",
         include_bytes!("../../web/js/status/glance.js"),
     ),

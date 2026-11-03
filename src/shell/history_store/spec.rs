@@ -36,7 +36,7 @@ pub fn app_db_spec(journal_file: std::path::PathBuf) -> AppDbSpec {
     // one), next to the journal file's own .pre-db copy; three are kept.
     AppDbSpec::new(steps)
         .with_options(chassis::storage::DbOptions::new().pre_migration_snapshots(3))
-        .with_import(|tx, ctx: &ImportContext| import_from(tx, &ctx.state_dir))
+        .with_import(|tx, ctx: &ImportContext| import_from(tx, ctx))
 }
 
 /// The Storage page's "Delivery log". Rows older than [`history::MAX_DAYS`] days
@@ -59,7 +59,7 @@ pub fn kind() -> DataKind {
             ["created", "updated", "failed"],
         ))
         .filter(Filter::text("source", "Source", "source"))
-        .finished_by_definition(&format!(
+        .finished_when(format!(
             "delivered_at < :now - {}",
             history::retention_secs()
         ))

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use chassis::storage::rusqlite::Transaction;
-use chassis::storage::{ImportReport, ImportStore};
+use chassis::storage::{ImportContext, ImportReport, ImportStore};
 
 use super::rows::{INSERT, row_params};
 use crate::core::history::{self, Book, Row};
@@ -17,10 +17,8 @@ const STORE: &str = "delivery history";
 /// every row in the kit's transaction and reports what the file held and
 /// what was written (the kit rolls everything back when they differ).
 ///
-/// Deliberately a function of `(tx, dir)` and not of the kit's
-/// `ImportContext`: that context cannot be built in a unit test (queued
-/// package gap 28), so [`super::app_db_spec`] unpacks it and the tests call
-/// this directly.
+/// Takes the kit's own context, which tests build with
+/// `ImportContext::new(dir)` (chassis-rs 4.6.0, closing package gap 28).
 ///
 /// * No file: nothing to do, counts 0/0.
 /// * An unparseable file: logged and reported as 0/0 and moved, so the kit
@@ -28,8 +26,8 @@ const STORE: &str = "delivery history";
 ///   `history.json.bad`.
 /// * An existing row of the same entry (a delivery recorded after an
 ///   earlier failed import) is the newer truth and is kept.
-pub fn import_from(tx: &Transaction, dir: &Path) -> Result<ImportReport, chassis::Error> {
-    let path = dir.join(OLD_FILE);
+pub fn import_from(tx: &Transaction, ctx: &ImportContext) -> Result<ImportReport, chassis::Error> {
+    let path = ctx.state_dir.join(OLD_FILE);
     let Some(bytes) = read_old_file(&path)? else {
         return Ok(ImportReport::from_stores(Vec::new()));
     };

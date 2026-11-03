@@ -91,6 +91,19 @@ impl KitHub {
         request.send().await.expect("a response")
     }
 
+    /// How many journal rows the app database holds for `source`, read
+    /// straight from almanac.db (chassis-rs 4.6.0 `TestApp::read_app_db`).
+    pub fn journal_rows(&self, source: &str) -> i64 {
+        let source = source.to_string();
+        self.app.read_app_db(move |conn| {
+            Ok(conn.query_row(
+                "SELECT COUNT(*) FROM journal WHERE source_id = ?1",
+                [source],
+                |r| r.get(0),
+            )?)
+        })
+    }
+
     /// Issue a client token on the kit's Sources page (as the admin) and
     /// return the token, the way a person would with Reveal.
     pub async fn issue_client(&self, name: &str) -> String {

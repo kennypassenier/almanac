@@ -18,7 +18,9 @@ fn row(id: &str, at: &str, result: DeliveryResult) -> Row {
 /// An in-memory app database whose import reads `dir`.
 fn open(dir: &Path) -> AppDb {
     let dir = dir.to_path_buf();
-    let spec = AppDbSpec::new(migrations()).with_import(move |tx, _| import_from(tx, &dir));
+    let spec = AppDbSpec::new(migrations()).with_import(move |tx, _| {
+        import_from(tx, &chassis::storage::ImportContext::new(dir.to_path_buf()))
+    });
     AppDb::open_in_memory(spec, vec![kind()]).unwrap()
 }
 
@@ -126,7 +128,11 @@ fn the_import_reports_what_the_file_held_and_what_was_written() {
     let dir = temp_dir();
     old_file(&dir);
     let db = AppDb::open_in_memory(AppDbSpec::new(migrations()), vec![kind()]).unwrap();
-    let report = db.write_blocking(|tx| import_from(tx, &dir)).unwrap();
+    let report = db
+        .write_blocking(|tx| {
+            import_from(tx, &chassis::storage::ImportContext::new(dir.to_path_buf()))
+        })
+        .unwrap();
     assert_eq!(report.stores.len(), 1);
     assert_eq!(
         (report.stores[0].expected, report.stores[0].imported),

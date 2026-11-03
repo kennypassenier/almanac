@@ -8,7 +8,6 @@ import { tableHandle } from './status/read.js';
 import { $, hold, journalCard, sourcesCard } from './status/card.js';
 import { journal, sources } from './status/state.js';
 import { drawGlance } from './status/glance.js';
-import { holdTableFootprint } from './status/footprint.js';
 import { joinChips, tableLoading } from './status/deliveries.js';
 import { refreshJournal } from './status/journal.js';
 import { loadSources } from './status/sources.js';
@@ -52,7 +51,6 @@ function attachStage() {
 async function initJournal() {
     // The outcome bar and the trend are never blank before the first answer: the theme's own loading state, at their height.
     outcomesLoading();
-    holdTableFootprint();
     attachAgo(document);
     joinChips();
     await tableHandle(/** @type {HTMLElement} */ ($('#st-table')));

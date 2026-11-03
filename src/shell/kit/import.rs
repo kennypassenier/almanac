@@ -11,9 +11,6 @@ use crate::shell::token_store::TokenStore;
 const KIT_CLIENTS_FILE: &str = "clients.json.enc";
 /// What the kit renames that file to once it moved it into its database.
 const KIT_CLIENTS_MIGRATED: &str = "clients.json.enc.migrated";
-/// The kit's own database, `<name>-kit.db`. The kit does not export this
-/// name (queued package gap 29), so it is spelled out here.
-const KIT_DB_FILE: &str = "almanac-kit.db";
 
 /// A2-1 · one-time import of the 3.x per-source tokens into the kit's
 /// client store, so JobTracker and every other source keep their tokens.
@@ -48,7 +45,8 @@ pub async fn import_source_tokens(
 /// clients are already the kit's: writing a fresh sealed file now would
 /// make the kit migrate it a second time and trip over the duplicate ids.
 fn already_imported(state_dir: &Path) -> bool {
-    [KIT_CLIENTS_FILE, KIT_CLIENTS_MIGRATED, KIT_DB_FILE]
+    let kit_db = chassis::storage::kit_file_name("almanac");
+    [KIT_CLIENTS_FILE, KIT_CLIENTS_MIGRATED, kit_db.as_str()]
         .iter()
         .any(|name| state_dir.join(name).exists())
 }
