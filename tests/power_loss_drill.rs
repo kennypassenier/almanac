@@ -115,16 +115,16 @@ async fn a_crash_between_delivery_and_bookkeeping_loses_nothing_and_duplicates_n
     assert_eq!(after_first.len(), 1, "exactly one event after delivery");
     let first_event_id = after_first[0].id.clone().expect("event id");
 
-    // The crash: drain_once marked it done, so undo exactly that one
-    // record to reproduce the dangerous on-disk state — delivered to
-    // Google, not yet recorded as delivered.
-    let contents = std::fs::read_to_string(&journal_path).expect("read journal");
-    let without_done: String = contents
-        .lines()
-        .filter(|line| !line.contains("\"done\""))
-        .map(|line| format!("{line}\n"))
-        .collect();
-    std::fs::write(&journal_path, without_done).expect("rewrite journal");
+    // The crash: drain_once marked it done, which deletes its journal row
+    // (the journal is a table since 2026-11-03). Putting the same row back
+    // reproduces the dangerous state on disk: delivered to Google, not yet
+    // recorded as delivered.
+    state
+        .journal
+        .accept(&entry)
+        .await
+        .expect("restore the pending row");
+    drop(state);
 
     // ---- Second run: restart replays the "undelivered" entry -------
     let restarted = state_for(&calendar_id, journal_path.clone());
