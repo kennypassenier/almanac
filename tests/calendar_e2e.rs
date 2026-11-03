@@ -82,9 +82,14 @@ async fn create_read_update_delete_round_trip_against_a_real_calendar() {
         .find_event_by_property(&calendar_id, "almanac_source_id", &marker)
         .await
         .expect("find_event_by_property after delete");
+    // The lookup includes cancelled events since 2026-11-02 (Kenny, form
+    // cancelled-lookup), so a deleted event comes back as cancelled, which
+    // is what the upsert needs; it must never come back as a live event.
     assert!(
-        after_delete.is_none(),
-        "deleted event should no longer be findable"
+        after_delete
+            .as_ref()
+            .is_none_or(|e| e.status.as_deref() == Some("cancelled")),
+        "a deleted event is gone or cancelled, never live: {after_delete:?}"
     );
 }
 
