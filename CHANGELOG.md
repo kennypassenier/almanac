@@ -16,7 +16,7 @@ reviewers and fixed as he chose.
 
 ### Migration
 
-- **chassis-rs 4.0.0 → 4.5.0** (kp-themes 12.3.0). The pages import the
+- **chassis-rs 4.0.0 → 4.5.1** (kp-themes 12.3.0). The pages import the
   per-module kp-themes build (`/static/kp/dist/js/index.js`, `WebApp::kp_modules`)
   instead of the bundle: a kit-layout page that also imported the bundle held
   two kp-themes copies, and Firefox froze before the page finished loading.
