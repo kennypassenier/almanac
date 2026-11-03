@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-11-03
+
 The UX review round: every page Kenny uses daily, checked by two
 reviewers and fixed as he chose.
 
