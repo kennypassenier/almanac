@@ -6,7 +6,7 @@ mod common;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use common::inproc::{admin_state, body_text, get, post, scratch_dir};
+use common::inproc::{admin_state, body_text, get, post, scratch_dir, state_without_journal_store};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -93,12 +93,11 @@ async fn a_scrape_never_carries_a_token_a_calendar_id_or_payload_content() {
 
 #[tokio::test]
 async fn an_unreadable_journal_is_reported_as_unreadable_not_as_empty() {
-    // A directory where the journal file should be: reading it fails.
-    // The dangerous rendering is "0 pending" — a flat, green backlog
-    // graph on a hub that has quietly stopped being able to tell.
-    let dir = scratch_dir("metrics-broken-journal");
-    let state = admin_state(&dir);
-    std::fs::create_dir_all(dir.join("journal.jsonl")).unwrap();
+    // A journal whose store cannot be read (since 2026-11-03 a table; here
+    // one with no database behind it). The dangerous rendering is "0
+    // pending" — a flat, green backlog graph on a hub that has quietly
+    // stopped being able to tell.
+    let state = state_without_journal_store(&["home-assistant"]);
 
     let app = almanac::shell::build_router_with_probes(state);
     let body = body_text(app.oneshot(get("/metrics", None)).await.unwrap()).await;
@@ -108,6 +107,4 @@ async fn an_unreadable_journal_is_reported_as_unreadable_not_as_empty() {
         !body.contains("almanac_journal_pending 0"),
         "an unreadable journal must not look like an empty one:\n{body}"
     );
-
-    std::fs::remove_dir_all(&dir).ok();
 }
