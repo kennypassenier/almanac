@@ -368,8 +368,8 @@ dependencies = [
 
 [[package]]
 name = "chassis"
-version = "4.1.0"
-source = "git+https://github.com/kennypassenier/chassis-rs?rev=a4c9cb2#a4c9cb25475906254cb047ed872855a1cf597d7a"
+version = "4.4.0"
+source = "git+https://github.com/kennypassenier/chassis-rs?tag=v4.4.0#a37312e791b2a66a9fa3383ea887916d0e783d29"
 dependencies = [
  "axum",
  "axum-extra",
@@ -381,6 +381,7 @@ dependencies = [
  "governor",
  "hex",
  "http",
+ "http-body-util",
  "metrics",
  "metrics-exporter-prometheus",
  "minijinja",
@@ -788,7 +789,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1999,7 +2000,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2314,7 +2315,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2714,7 +2715,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -32,7 +32,11 @@ pub fn migrations() -> Vec<Migration> {
 pub fn app_db_spec(journal_file: std::path::PathBuf) -> AppDbSpec {
     let mut steps = migrations();
     steps.push(crate::shell::journal::migrate::migration(journal_file));
-    AppDbSpec::new(steps).with_import(|tx, ctx: &ImportContext| import_from(tx, &ctx.state_dir))
+    // A copy of almanac.db before every schema step (the journal import is
+    // one), next to the journal file's own .pre-db copy; three are kept.
+    AppDbSpec::new(steps)
+        .with_options(chassis::storage::DbOptions::new().pre_migration_snapshots(3))
+        .with_import(|tx, ctx: &ImportContext| import_from(tx, &ctx.state_dir))
 }
 
 /// The Storage page's "Delivery log". Rows older than [`history::MAX_DAYS`] days

@@ -63,14 +63,6 @@
     color: var(--muted-foreground);
 }
 
-/* Days after today carry nothing to read: plain, not a dashed button (kp-gaps almanac 34 until the package does it). */
-.hist-layout .kp-calendar__day[data-kp-tone='future'] {
-    border-color: transparent;
-    background: none;
-    cursor: default;
-    pointer-events: none;
-}
-
 /* The opened event's details: a popover beside the event, placed by history.js; light dismiss closes it. */
 .hist-eventcard[popover] {
     position: fixed;
@@ -80,11 +72,4 @@
     max-block-size: calc(100vh - 1rem);
     overflow: auto;
     box-shadow: var(--kp-shadow-lg, 0 8px 24px rgb(0 0 0 / 0.2));
-}
-
-/* The month's Prev, Next and Today share one width, so the row reads as one control; making it the week's segmented
-   track is the package's work (kp-gaps almanac 35). */
-.hist-layout .kp-calendar__nav .kp-button {
-    min-inline-size: 6rem;
-    justify-content: center;
 }
