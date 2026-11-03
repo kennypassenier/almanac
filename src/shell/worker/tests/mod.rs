@@ -13,7 +13,6 @@ use tokio::sync::watch;
 
 use super::*;
 use crate::shell::calendar_client::GoogleCalendarClient;
-use crate::shell::journal::{DEFAULT_MAX_BYTES, Journal};
 use crate::shell::notify::{Notifier, ops};
 use crate::shell::state::AppState;
 
@@ -57,7 +56,7 @@ fn state_with_empty_journal() -> (Arc<AppState>, std::path::PathBuf) {
 
     let state = Arc::new(AppState::new_for_test(
         HashMap::new(),
-        Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+        crate::shell::journal::testing::journal_in(&dir),
         GoogleCalendarClient::new(http, tokens),
     ));
 
@@ -86,7 +85,7 @@ target_calendar_id = "household"
 
     let state = Arc::new(AppState::new_for_test(
         profiles,
-        Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+        crate::shell::journal::testing::journal_in(&dir),
         GoogleCalendarClient::with_base_url(
             reqwest::Client::new(),
             crate::shell::auth::TokenManager::new(

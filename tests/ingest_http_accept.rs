@@ -9,7 +9,9 @@ use std::sync::Arc;
 use almanac::shell::build_router_with_probes;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use common::inproc::{HA_TOKEN, ha_payload, ingest_state, post, scratch_dir, state_with_journal};
+use common::inproc::{
+    HA_TOKEN, ha_payload, ingest_state, post, scratch_dir, state_without_journal_store,
+};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -94,20 +96,9 @@ async fn a_journal_that_cannot_be_written_answers_500_so_the_sender_retries() {
     // anyway" means a full disk quietly eats events while every sender
     // believes it succeeded — and nothing on the dashboard would show
     // it either.
-    let dir = scratch_dir("journal-readonly");
-    let readonly = dir.join("readonly");
-    std::fs::create_dir_all(&readonly).unwrap();
-
-    // A state whose journal points inside a directory nothing may
-    // write to; the door is the kit's, so the request reaches the write.
-
-    let state = state_with_journal(readonly.join("journal.jsonl"), &["home-assistant"]);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o500)).unwrap();
-    }
+    // Since 2026-11-03 the journal is a table; a store that refuses the
+    // write is one with no database behind it.
+    let state = state_without_journal_store(&["home-assistant"]);
 
     let response = build_router_with_probes(Arc::clone(&state))
         .oneshot(post(
@@ -118,14 +109,7 @@ async fn a_journal_that_cannot_be_written_answers_500_so_the_sender_retries() {
         .await
         .unwrap();
 
-    // Restore permissions before asserting, so a failure still cleans up.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o700)).ok();
-    }
     let status = response.status();
-    std::fs::remove_dir_all(&dir).ok();
 
     assert_eq!(
         status,

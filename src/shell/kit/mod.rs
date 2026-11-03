@@ -47,7 +47,9 @@ fn mount_storage(app: &mut App, state: &Arc<AppState>) {
     // handle opens at start; the state keeps it for the worker and the
     // History page. history.json is imported once, in one transaction.
     let app_db = app
-        .app_db(crate::shell::history_store::app_db_spec())
+        .app_db(crate::shell::history_store::app_db_spec(
+            state.journal.legacy_file().to_path_buf(),
+        ))
         .expect("the app database is declared once");
     app.storage_kind(crate::shell::history_store::kind());
     state.set_app_db(app_db);

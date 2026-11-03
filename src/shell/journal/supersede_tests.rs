@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use super::tests::temp_journal;
+use super::testing::temp_journal;
 use super::{Entry, RequeueError};
 
 fn version(id: &str, title: &str) -> Entry {
@@ -27,12 +27,12 @@ async fn delivering_a_version_closes_the_older_one_still_waiting() {
         .accept(&version("v2", "Afvalophaling 07:30"))
         .await
         .unwrap();
-    journal.mark_done("v2").await.unwrap();
-
+    // The worker closes older versions before it marks the delivered one done.
     assert_eq!(
         journal.supersede_older(&version("v2", "")).await.unwrap(),
         1
     );
+    journal.mark_done("v2").await.unwrap();
     assert!(journal.pending().unwrap().is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }

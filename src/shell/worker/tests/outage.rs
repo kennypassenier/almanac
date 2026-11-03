@@ -22,7 +22,7 @@ async fn state_with_two_entries(
     }
     let state = Arc::new(AppState::new_for_test(
         profiles,
-        Journal::new(dir.join("journal.jsonl"), DEFAULT_MAX_BYTES),
+        crate::shell::journal::testing::journal_in(&dir),
         GoogleCalendarClient::with_base_url(
             reqwest::Client::new(),
             crate::shell::auth::TokenManager::new(

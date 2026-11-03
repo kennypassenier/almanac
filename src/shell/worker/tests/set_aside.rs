@@ -61,10 +61,9 @@ async fn setting_an_entry_aside_is_reported() {
 }
 
 #[tokio::test]
-async fn a_dead_entry_survives_compaction_with_its_reason() {
-    // Compaction rewrites the log; dropping the dead entry there
-    // would discard a payload the source was told had been
-    // accepted, and lose the reason it failed.
+async fn a_dead_entry_keeps_its_payload_and_reason() {
+    // Dropping the dead entry would discard a payload the source was told
+    // had been accepted, and lose the reason it failed.
     let (state, dir) = state_rejecting_everything().await;
     let notifier = Notifier::disabled();
     let mut permanent = PermanentFailures::new();
@@ -72,14 +71,9 @@ async fn a_dead_entry_survives_compaction_with_its_reason() {
     for _ in 0..PERMANENT_FAILURES_BEFORE_DEAD {
         drain_once_tracking(&state, &mut permanent, &notifier).await;
     }
-    state
-        .journal
-        .compact_at((state.now_unix)() as i64)
-        .await
-        .unwrap();
 
     let dead = state.journal.dead().unwrap();
-    assert_eq!(dead.len(), 1, "the dead entry must survive compaction");
+    assert_eq!(dead.len(), 1, "the dead entry stays, with its reason");
     assert!(state.journal.pending().unwrap().is_empty());
 
     std::fs::remove_dir_all(&dir).ok();

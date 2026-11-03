@@ -25,7 +25,7 @@ use almanac::core::profile::Profile;
 use almanac::shell::auth::{TokenManager, load_credentials};
 use almanac::shell::calendar_client::GoogleCalendarClient;
 use almanac::shell::delivery::UPSERT_PROPERTY;
-use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::journal::Journal;
 use almanac::shell::state::AppState;
 use serde_json::json;
 
@@ -64,7 +64,7 @@ fn state_for(calendar_id: &str, journal_path: std::path::PathBuf) -> Arc<AppStat
 
     Arc::new(AppState::new(
         profiles,
-        Journal::new(journal_path, DEFAULT_MAX_BYTES),
+        Journal::open_in(journal_path.parent().expect("a folder")).expect("the journal opens"),
         GoogleCalendarClient::new(http, tokens),
     ))
 }

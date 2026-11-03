@@ -22,7 +22,6 @@ use super::sync::ingest_sync;
 use super::{AppState, IDEMPOTENCY_HEADER};
 use crate::core::profile::Profile;
 use crate::shell::calendar_client::GoogleCalendarClient;
-use crate::shell::journal::Journal;
 
 fn profile(source_id: &str) -> Profile {
     let toml = format!(
@@ -60,10 +59,7 @@ async fn state_with(source_id: &str, _token: &str) -> AppState {
 
     AppState::new_for_test(
         profiles,
-        Journal::new(
-            dir.join("journal.jsonl"),
-            crate::shell::journal::DEFAULT_MAX_BYTES,
-        ),
+        crate::shell::journal::testing::journal_in(&dir),
         GoogleCalendarClient::new(
             reqwest::Client::new(),
             crate::shell::auth::TokenManager::new(
@@ -109,10 +105,7 @@ async fn state_with_calendar(
     let tokens = crate::shell::testing::TokenStub::start(3600).await;
     AppState::new_for_test(
         profiles,
-        Journal::new(
-            dir.join("journal.jsonl"),
-            crate::shell::journal::DEFAULT_MAX_BYTES,
-        ),
+        crate::shell::journal::testing::journal_in(&dir),
         GoogleCalendarClient::with_base_url(
             reqwest::Client::new(),
             crate::shell::auth::TokenManager::new(

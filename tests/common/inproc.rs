@@ -9,7 +9,7 @@ use almanac::core::auth::ServiceAccountCredentials;
 use almanac::core::profile::Profile;
 use almanac::shell::auth::TokenManager;
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::journal::Journal;
 use almanac::shell::state::AppState;
 use axum::body::Body;
 use axum::http::Request;
@@ -58,6 +58,21 @@ target_calendar_id = "primary"
 /// App state with one profile per given source, a journal at `journal_path` and a
 /// Google client that points at an unreachable host.
 pub fn state_with_journal(journal_path: std::path::PathBuf, sources: &[&str]) -> Arc<AppState> {
+    let journal =
+        Journal::open_in(journal_path.parent().expect("a folder")).expect("the journal opens");
+    state_on(journal, sources)
+}
+
+/// App state whose journal has no database to write to, the way a store
+/// that refuses every write looks to the ingest path.
+pub fn state_without_journal_store(sources: &[&str]) -> Arc<AppState> {
+    state_on(
+        Journal::new(std::path::PathBuf::from("unused.jsonl")),
+        sources,
+    )
+}
+
+fn state_on(journal: Journal, sources: &[&str]) -> Arc<AppState> {
     let mut profiles = HashMap::new();
     for source in sources {
         profiles.insert(source.to_string(), profile(source));
@@ -73,7 +88,7 @@ pub fn state_with_journal(journal_path: std::path::PathBuf, sources: &[&str]) ->
     );
     Arc::new(AppState::new(
         profiles,
-        Journal::new(journal_path, DEFAULT_MAX_BYTES),
+        journal,
         GoogleCalendarClient::new(http, tokens),
     ))
 }

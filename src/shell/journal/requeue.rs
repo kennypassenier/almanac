@@ -1,17 +1,12 @@
-//! Acting on set-aside entries: retry them or dismiss them.
-//!
-//! Both are built from the records the journal already has, so an older
-//! binary still reads the file. Retry appends a NEW entry (fresh id, same
-//! source, payload and idempotency key) and then a `Done` for the old id;
-//! dismiss appends only the `Done`. `core::journal::dead` stops listing an
-//! entry with a `Done`, and the next compaction drops its payload.
+//! Acting on set-aside entries (retry, dismiss) and closing the older
+//! versions of an event once a newer one is delivered.
 
-use std::collections::HashSet;
+use chassis::storage::rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::core::error::AlmanacError;
-use crate::core::journal::{self, Entry, Record};
+use crate::core::journal::{self, Entry};
 
-use super::Journal;
+use super::{Journal, db_error, rows};
 
 /// Why a retry or a dismiss did not happen.
 #[derive(Debug)]
@@ -22,7 +17,7 @@ pub enum RequeueError {
     /// A newer version of these events arrived after they were set aside;
     /// retrying would put the older one back over it. Nothing was written.
     Superseded(Vec<String>),
-    /// The journal could not be read or appended to.
+    /// The journal could not be read or written.
     Journal(AlmanacError),
 }
 
@@ -32,91 +27,148 @@ impl From<AlmanacError> for RequeueError {
     }
 }
 
+/// Whether the refusal inside a transaction or the database failed.
+enum Outcome {
+    Done(usize),
+    Refused(RequeueError),
+}
+
 impl Journal {
-    /// Delivers set-aside entries again. For each id: a new entry first,
-    /// then the old id's `Done`, so a crash between the two leaves a
-    /// duplicate the idempotency key converges, never a lost event.
-    /// All-or-nothing on the check: one id that is not set aside refuses
-    /// the whole call before anything is written. Returns how many.
+    /// Delivers set-aside entries again: each becomes a new pending entry
+    /// (fresh id, same source, payload and key) and the old row goes, in
+    /// one transaction. All or nothing: one id that is not set aside, or
+    /// that a newer version followed, refuses the whole call.
     pub async fn retry_dead(&self, ids: &[String], now: &str) -> Result<usize, RequeueError> {
         let _turn = self.requeue_lock.lock().await;
-        let entries = self.set_aside_entries(ids)?;
-        self.refuse_superseded(&entries)?;
-        for entry in &entries {
-            let fresh = journal::requeued(entry, uuid::Uuid::new_v4().to_string(), now);
-            self.append(&Record::Entry(fresh)).await?;
-            self.mark_done(&entry.id).await?;
-        }
-        Ok(entries.len())
+        let (ids, now) = (unique(ids), now.to_string());
+        let outcome = self
+            .db()?
+            .write(move |tx| {
+                let entries = match set_aside(tx, &ids)? {
+                    Ok(entries) => entries,
+                    Err(refused) => return Ok(Outcome::Refused(refused)),
+                };
+                let superseded = superseded(tx, &entries)?;
+                if !superseded.is_empty() {
+                    return Ok(Outcome::Refused(RequeueError::Superseded(superseded)));
+                }
+                for entry in &entries {
+                    let fresh = journal::requeued(entry, uuid::Uuid::new_v4().to_string(), &now);
+                    rows::insert(tx, &fresh)?;
+                    tx.execute("DELETE FROM journal WHERE id = ?1", params![entry.id])?;
+                }
+                Ok(Outcome::Done(entries.len()))
+            })
+            .await
+            .map_err(db_error)?;
+        finish(outcome)
     }
 
-    /// Marks set-aside entries as handled: they leave the set-aside list
-    /// and their payload goes at the next compaction. Same all-or-nothing
-    /// check as `retry_dead`. Returns how many.
+    /// Marks set-aside entries as handled: their rows go. Same
+    /// all-or-nothing check as `retry_dead`.
     pub async fn dismiss_dead(&self, ids: &[String]) -> Result<usize, RequeueError> {
         let _turn = self.requeue_lock.lock().await;
-        let entries = self.set_aside_entries(ids)?;
-        for entry in &entries {
-            self.mark_done(&entry.id).await?;
-        }
-        Ok(entries.len())
-    }
-
-    /// The set-aside entries for `ids` (each once, in the order given), or
-    /// the ids that are not set aside.
-    fn set_aside_entries(&self, ids: &[String]) -> Result<Vec<Entry>, RequeueError> {
-        let records = self.read_records()?;
-        let dead = journal::dead(&records);
-        let mut seen = HashSet::new();
-        let mut found = Vec::new();
-        let mut refused = Vec::new();
-        for id in ids.iter().filter(|id| seen.insert(id.as_str())) {
-            match dead.iter().find(|(entry, _, _)| entry.id == *id) {
-                Some((entry, _, _)) => found.push((*entry).clone()),
-                None => refused.push(id.clone()),
-            }
-        }
-        if refused.is_empty() {
-            Ok(found)
-        } else {
-            Err(RequeueError::NotSetAside(refused))
-        }
-    }
-
-    /// Refuses a retry of an entry a newer version of the same event
-    /// followed, so the older payload cannot overwrite it.
-    fn refuse_superseded(&self, entries: &[Entry]) -> Result<(), RequeueError> {
-        let records = self.read_records()?;
-        let superseded: Vec<String> = entries
-            .iter()
-            .filter(|e| !journal::newer_versions(&records, e).is_empty())
-            .map(|e| e.id.clone())
-            .collect();
-        if superseded.is_empty() {
-            Ok(())
-        } else {
-            Err(RequeueError::Superseded(superseded))
-        }
-    }
-
-    /// Marks done every still-pending entry accepted before `entry` with
-    /// its upsert key: once a version is delivered, an older one must not
-    /// be sent after it. Returns how many.
-    pub async fn supersede_older(&self, entry: &Entry) -> Result<usize, AlmanacError> {
-        let records = self.read_records()?;
-        let older: Vec<String> = journal::pending(&records)
-            .into_iter()
-            .filter(|e| e.id != entry.id)
-            .filter(|e| {
-                journal::newer_versions(&records, e)
-                    .iter()
-                    .any(|n| n.id == entry.id)
+        let ids = unique(ids);
+        let outcome = self
+            .db()?
+            .write(move |tx| {
+                let entries = match set_aside(tx, &ids)? {
+                    Ok(entries) => entries,
+                    Err(refused) => return Ok(Outcome::Refused(refused)),
+                };
+                for entry in &entries {
+                    tx.execute("DELETE FROM journal WHERE id = ?1", params![entry.id])?;
+                }
+                Ok(Outcome::Done(entries.len()))
             })
-            .map(|e| e.id.clone())
-            .collect();
-        for id in &older {
-            self.mark_done(id).await?;
-        }
-        Ok(older.len())
+            .await
+            .map_err(db_error)?;
+        finish(outcome)
     }
+
+    /// Before `entry` is marked done: removes every pending entry accepted
+    /// before it under the same upsert key, so an older version cannot be
+    /// sent after it (Kenny, form newer-wins). Returns how many.
+    pub async fn supersede_older(&self, entry: &Entry) -> Result<usize, AlmanacError> {
+        let Some(key) = Journal::key_of(entry) else {
+            return Ok(0);
+        };
+        let id = entry.id.clone();
+        self.db()?
+            .write(move |tx| {
+                Ok(tx.execute(
+                    "DELETE FROM journal WHERE upsert_key = ?1 AND state = 'pending' AND id != ?2
+                        AND seq < (SELECT seq FROM journal WHERE id = ?2)",
+                    params![key, id],
+                )?)
+            })
+            .await
+            .map_err(db_error)
+    }
+}
+
+fn finish(outcome: Outcome) -> Result<usize, RequeueError> {
+    match outcome {
+        Outcome::Done(n) => Ok(n),
+        Outcome::Refused(refused) => Err(refused),
+    }
+}
+
+/// The ids once each, in the order given.
+fn unique(ids: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ids.iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// The set-aside entries for `ids`, or the refusal naming those that are not.
+fn set_aside(
+    tx: &Transaction,
+    ids: &[String],
+) -> Result<Result<Vec<Entry>, RequeueError>, chassis::Error> {
+    let (mut found, mut refused) = (Vec::new(), Vec::new());
+    for id in ids {
+        let entry = tx
+            .query_row(
+                "SELECT id, source_id, received_at, payload, idempotency_key FROM journal
+                    WHERE id = ?1 AND state = 'dead'",
+                params![id],
+                rows::entry_of,
+            )
+            .optional()?;
+        match entry {
+            Some(entry) => found.push(entry),
+            None => refused.push(id.clone()),
+        }
+    }
+    Ok(if refused.is_empty() {
+        Ok(found)
+    } else {
+        Err(RequeueError::NotSetAside(refused))
+    })
+}
+
+/// The entries a newer version of the same event followed: a later row
+/// under the same key, or a delivery of that key after it was received.
+fn superseded(tx: &Transaction, entries: &[Entry]) -> Result<Vec<String>, chassis::Error> {
+    let mut out = Vec::new();
+    for entry in entries {
+        let Some(key) = journal::entry_key(entry) else {
+            continue;
+        };
+        let received = crate::core::history::epoch_of(&entry.received_at).unwrap_or(0);
+        let newer: i64 = tx.query_row(
+            "SELECT (SELECT COUNT(*) FROM journal WHERE upsert_key = ?1
+                        AND seq > (SELECT seq FROM journal WHERE id = ?2))
+                  + (SELECT COUNT(*) FROM deliveries WHERE upsert_key = ?1 AND delivered_at > ?3)",
+            params![key, entry.id, received],
+            |r| r.get(0),
+        )?;
+        if newer > 0 {
+            out.push(entry.id.clone());
+        }
+    }
+    Ok(out)
 }

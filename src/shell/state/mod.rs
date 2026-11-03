@@ -148,6 +148,7 @@ impl AppState {
 
     /// Hands the state the kit's app database (once; a second call is ignored).
     pub fn set_app_db(&self, db: chassis::storage::AppDb) {
+        self.journal.attach(db.clone());
         // A second attach would silently keep the first database, which
         // hides a wiring mistake; the first one stays, but say so.
         if self.app_db.set(db).is_err() {

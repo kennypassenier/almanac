@@ -6,7 +6,7 @@ use std::sync::Arc;
 use almanac::core::profile::Profile;
 use almanac::shell::auth::TokenManager;
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::journal::Journal;
 use almanac::shell::kit::{import_source_tokens, mount};
 use almanac::shell::state::AppState;
 use almanac::shell::testing::{CalendarStub, TokenStub, stub_credentials};
@@ -47,7 +47,7 @@ pub async fn spawn_kit_in(dir: tempfile::TempDir, owner: Option<&str>) -> KitHub
     let state = Arc::new(
         AppState::new(
             profiles,
-            Journal::new(dir.path().join("journal.jsonl"), DEFAULT_MAX_BYTES),
+            Journal::new(dir.path().join("journal.jsonl")),
             GoogleCalendarClient::with_base_url(
                 http.clone(),
                 TokenManager::new(http, stub_credentials(&tokens.url)),

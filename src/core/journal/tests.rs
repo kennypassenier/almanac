@@ -172,44 +172,10 @@ fn an_entry_key_prefers_the_external_id_over_the_idempotency_key() {
 
 const DAY: i64 = 86_400;
 
-fn set_aside_at(id: &str, at: &str) -> Vec<Record> {
-    vec![
-        entry(id),
-        Record::Dead {
-            id: id.to_string(),
-            reason: "unmappable".to_string(),
-            at: at.to_string(),
-        },
-    ]
-}
-
 fn unix(rfc3339: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(rfc3339)
         .unwrap()
         .timestamp()
-}
-
-#[test]
-fn a_dead_entry_just_under_the_retention_is_kept() {
-    let at = "2026-10-01T00:00:00+00:00";
-    let now = unix(at) + SET_ASIDE_MAX_AGE_DAYS * DAY - 1;
-    assert!(expired_dead(&set_aside_at("a", at), now).is_empty());
-}
-
-#[test]
-fn a_dead_entry_just_over_the_retention_expires() {
-    let at = "2026-10-01T00:00:00+00:00";
-    let now = unix(at) + SET_ASIDE_MAX_AGE_DAYS * DAY + 1;
-    let records = set_aside_at("a", at);
-    let expired = expired_dead(&records, now);
-    assert_eq!(expired.len(), 1);
-    assert_eq!(expired[0].0.id, "a");
-}
-
-#[test]
-fn a_dead_entry_with_an_unparseable_time_is_never_expired() {
-    let records = set_aside_at("a", "not a time");
-    assert!(expired_dead(&records, i64::MAX / 2).is_empty());
 }
 
 #[test]
@@ -220,25 +186,4 @@ fn days_left_rounds_up_and_never_goes_negative() {
     assert_eq!(days_left(at, t + DAY + 1), 29);
     assert_eq!(days_left(at, t + 30 * DAY + 5), 0);
     assert_eq!(days_left("garbage", t), 30);
-}
-
-#[test]
-fn a_newer_version_is_an_entry_with_the_same_key_accepted_later() {
-    let v1 = entry_with("v1", json!({"title": "t", "external_id": "bin"}));
-    let v2 = entry_with("v2", json!({"title": "t2", "external_id": "bin"}));
-    let other = entry_with("o", json!({"title": "x", "external_id": "other"}));
-    let records = vec![
-        Record::Entry(v1.clone()),
-        Record::Entry(other),
-        Record::Entry(v2.clone()),
-    ];
-    let newer: Vec<&str> = newer_versions(&records, &v1)
-        .iter()
-        .map(|e| e.id.as_str())
-        .collect();
-    assert_eq!(newer, ["v2"]);
-    assert!(
-        newer_versions(&records, &v2).is_empty(),
-        "nothing came after v2"
-    );
 }

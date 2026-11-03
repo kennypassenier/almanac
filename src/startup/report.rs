@@ -1,6 +1,5 @@
 //! The lines a start writes once logging is up: compatibility warnings,
-//! the profiles that loaded and those that did not, and what the
-//! journal still holds.
+//! the profiles that loaded and those that did not.
 
 use std::path::PathBuf;
 
@@ -12,8 +11,6 @@ pub struct StartupReport {
     pub unusable: Vec<Unusable>,
     pub profile_names: Vec<String>,
     pub profiles_dir: PathBuf,
-    pub pending: usize,
-    pub journal_path: PathBuf,
 }
 
 impl StartupReport {
@@ -21,14 +18,9 @@ impl StartupReport {
         for warning in &self.warnings {
             tracing::warn!("{warning}");
         }
+        // What the journal still holds is logged by the worker's replay:
+        // the journal lives in the app database, which opens at start.
         self.log_profiles();
-        if self.pending > 0 {
-            tracing::info!(
-                count = self.pending,
-                journal = %self.journal_path.display(),
-                "journal holds undelivered entries from a previous run; they go out first"
-            );
-        }
     }
 
     /// One line per unusable file, at error level: the quietest possible

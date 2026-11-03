@@ -27,10 +27,12 @@ pub fn migrations() -> Vec<Migration> {
     )]
 }
 
-/// The app database spec: the schema and the one-time import.
-pub fn app_db_spec() -> AppDbSpec {
-    AppDbSpec::new(migrations())
-        .with_import(|tx, ctx: &ImportContext| import_from(tx, &ctx.state_dir))
+/// The app database spec: the schema (the delivery history, then the
+/// journal, which imports `journal_file` once) and the one-time history import.
+pub fn app_db_spec(journal_file: std::path::PathBuf) -> AppDbSpec {
+    let mut steps = migrations();
+    steps.push(crate::shell::journal::migrate::migration(journal_file));
+    AppDbSpec::new(steps).with_import(|tx, ctx: &ImportContext| import_from(tx, &ctx.state_dir))
 }
 
 /// The Storage page's "Delivery log". Rows older than [`history::MAX_DAYS`] days

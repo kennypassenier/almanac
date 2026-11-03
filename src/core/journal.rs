@@ -111,19 +111,6 @@ pub fn days_left(at: &str, now_unix: i64) -> u64 {
     ((left + SECONDS_PER_DAY - 1) / SECONDS_PER_DAY) as u64
 }
 
-/// Set-aside entries older than [`SET_ASIDE_MAX_AGE_DAYS`] at `now_unix`,
-/// as (entry, reason, at). Compaction drops these, so a dead payload does
-/// not pile up for ever; an entry with an unparseable `at` is kept.
-pub fn expired_dead(records: &[Record], now_unix: i64) -> Vec<(&Entry, &str, &str)> {
-    dead(records)
-        .into_iter()
-        .filter(|(_, _, at)| {
-            chrono::DateTime::parse_from_rfc3339(at)
-                .is_ok_and(|t| now_unix - t.timestamp() > SET_ASIDE_MAX_AGE_DAYS * SECONDS_PER_DAY)
-        })
-        .collect()
-}
-
 /// The entry that stands in for a set-aside one when it is retried: a
 /// fresh id, received now, with the same source, payload and
 /// idempotency key, so Google converges on one event.
@@ -180,24 +167,6 @@ pub fn entry_key(entry: &Entry) -> Option<String> {
             .as_deref()
             .map(|k| idempotency_upsert_key(&entry.source_id, k)),
     }
-}
-
-/// Entries accepted after `entry` that carry its upsert key: a newer
-/// version of the same event (Kenny, form newer-wins, 2026-11-02).
-pub fn newer_versions<'a>(records: &'a [Record], entry: &Entry) -> Vec<&'a Entry> {
-    let Some(key) = entry_key(entry) else {
-        return Vec::new();
-    };
-    records
-        .iter()
-        .filter_map(|r| match r {
-            Record::Entry(e) => Some(e),
-            _ => None,
-        })
-        .skip_while(|e| e.id != entry.id)
-        .skip(1)
-        .filter(|e| entry_key(e).as_deref() == Some(key.as_str()))
-        .collect()
 }
 
 /// The upsert key of an Idempotency-Key header (M7), in its own namespace

@@ -12,8 +12,19 @@ against before it installs anything.
 ## [Unreleased]
 
 The UX review round: every page Kenny uses daily, checked by two
-reviewers and fixed as he chose. No migration: state files, the journal
-and the profile format are unchanged.
+reviewers and fixed as he chose.
+
+### Migration
+
+- **The journal moves into the app database** (Kenny, form journal-store,
+  2026-11-03: all data in databases, one row per event). At the first start,
+  `data/journal.jsonl` is copied to `journal.jsonl.pre-db`, what it still owes
+  (waiting and set-aside events) goes into the `journal` table of
+  `almanac.db` in one transaction, and the file is renamed to
+  `journal.jsonl.migrated`. A damaged line other than a torn last line
+  refuses the start with the file untouched. The 64 MiB file cap,
+  compaction and the torn-tail repair are gone; the backlog warning now
+  fires at 2000 waiting events.
 
 ### Added
 

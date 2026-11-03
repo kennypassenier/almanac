@@ -62,13 +62,8 @@ pub(super) async fn settle_delivery(
 /// Marks the entry done and tells the watch. A failure to mark is only
 /// a warning: the event is on the calendar and replay converges.
 async fn on_delivered(state: &AppState, entry: &Entry, profile: &Profile, result: &Delivered) {
-    if let Err(e) = state.journal.mark_done(&entry.id).await {
-        tracing::warn!(
-            entry_id = %entry.id, error = %e,
-            "delivered but failed to mark done; replay will converge"
-        );
-    }
-    // An older version still waiting would overwrite this one next pass.
+    // Before this entry goes: an older version still waiting would
+    // overwrite this one next pass.
     match state.journal.supersede_older(entry).await {
         Ok(0) => {}
         Ok(n) => {
@@ -77,6 +72,12 @@ async fn on_delivered(state: &AppState, entry: &Entry, profile: &Profile, result
         Err(e) => {
             tracing::warn!(entry_id = %entry.id, error = %e, "could not close older versions")
         }
+    }
+    if let Err(e) = state.journal.mark_done(&entry.id).await {
+        tracing::warn!(
+            entry_id = %entry.id, error = %e,
+            "delivered but failed to mark done; replay will converge"
+        );
     }
     tracing::info!(
         entry_id = %entry.id,

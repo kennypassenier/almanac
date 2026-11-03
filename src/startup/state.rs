@@ -7,7 +7,7 @@ use std::sync::Arc;
 use almanac::core::paths::Paths;
 use almanac::shell::auth::TokenManager;
 use almanac::shell::calendar_client::GoogleCalendarClient;
-use almanac::shell::journal::{DEFAULT_MAX_BYTES, Journal};
+use almanac::shell::journal::Journal;
 use almanac::shell::kit::import_source_tokens;
 use almanac::shell::state::AppState;
 
@@ -29,7 +29,7 @@ pub fn build_state(
     Ok(Arc::new(
         AppState::new(
             profiles,
-            Journal::new(paths.journal.clone(), DEFAULT_MAX_BYTES),
+            Journal::new(paths.journal.clone()),
             GoogleCalendarClient::with_api_root(http.clone(), Arc::clone(tokens), &root),
         )
         .with_profiles_dir(paths.profiles_dir.clone())

@@ -15,33 +15,28 @@ use crate::core::pacing::{self, DrainSummary, Pacing};
 use crate::shell::notify::{Event, Notifier, ops};
 use crate::shell::state::AppState;
 
-/// Compact once the log has grown past this many delivered records,
-/// so a long-running process does not accumulate an unbounded file of
-/// done-markers.
-const COMPACT_AFTER_DELIVERIES: usize = 100;
+/// AR26's backlog warning fires once this many entries are waiting: a
+/// journal that big means deliveries have been failing for a long time.
+const BACKLOG_WARN_PENDING: usize = 1_000;
 
-/// Whether the journal is filling up. The I/O half of AR26's warning;
+/// Whether the journal holds a backlog. The I/O half of AR26's warning;
 /// what to do about it lives in `core::pacing`.
 fn journal_is_filling(state: &AppState) -> bool {
-    let size = match std::fs::metadata(state.journal.path()) {
-        Ok(meta) => meta.len(),
+    let pending = match state.journal.pending() {
+        Ok(pending) => pending.len(),
         Err(e) => {
-            // Without a size the warning cannot fire; say why instead of
+            // Without a count the warning cannot fire; say why instead of
             // quietly reporting a healthy journal.
-            tracing::warn!(
-                path = %state.journal.path().display(), error = %e,
-                "cannot read the journal's size; skipping the backlog check"
-            );
+            tracing::warn!(error = %e, "cannot count the journal; skipping the backlog check");
             return false;
         }
     };
-    let filling = pacing::journal_is_filling(size, state.journal.max_bytes());
+    let filling = pacing::journal_is_filling(pending as u64, BACKLOG_WARN_PENDING as u64 * 2);
     if filling {
         tracing::warn!(
-            bytes = size,
-            cap = state.journal.max_bytes(),
-            "the journal is over half its cap — deliveries have been failing long enough to build \
-             a backlog; check the delivery errors before it fills and ingest starts refusing events"
+            pending,
+            "the journal holds a backlog: deliveries have been failing long enough to pile up; \
+             check the delivery errors"
         );
     }
     filling
@@ -58,7 +53,6 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, noti
         tracing::info!(count = replayed, "replayed entries left by a previous run");
     }
 
-    let mut since_compaction = replayed;
     let mut permanent = PermanentFailures::new();
     let mut pace = pacing::Worker::new();
     let mut ticker = tokio::time::interval(Duration::from_secs(pacing::POLL_INTERVAL_SECS));
@@ -67,10 +61,9 @@ pub async fn run(state: Arc<AppState>, mut shutdown: watch::Receiver<bool>, noti
         tokio::select! {
             _ = ticker.tick() => {
                 let outcome = drain_once_tracking(&state, &mut permanent, &notifier).await;
-                since_compaction += outcome.delivered;
                 let next = pace_next(&state, &mut pace, &outcome, &notifier).await;
                 reschedule(&state, &mut ticker, &next, pace.consecutive_failures()).await;
-                compact_when_due(&state, &mut since_compaction).await;
+                expire_set_aside(&state).await;
             }
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
@@ -145,24 +138,10 @@ async fn reschedule(
     }
 }
 
-/// Compacts the journal once enough deliveries have piled up.
-async fn compact_when_due(state: &AppState, since_compaction: &mut usize) {
-    // Also when the file passes half its cap and some deliveries happened
-    // since the last compaction: after a long outage fewer than a hundred
-    // deliveries may be all it takes to make room again.
-    let half_full = std::fs::metadata(state.journal.path())
-        .is_ok_and(|m| m.len() * 2 > state.journal.max_bytes());
-    // Not on every pass: survivors alone may stay above half the cap.
-    let due = *since_compaction >= COMPACT_AFTER_DELIVERIES
-        || (*since_compaction >= COMPACT_AFTER_DELIVERIES / 10 && half_full);
-    if !due {
-        return;
-    }
-    match state.journal.compact().await {
-        Ok(kept) => {
-            tracing::info!(pending = kept, "compacted the journal");
-            *since_compaction = 0;
-        }
-        Err(e) => tracing::warn!(error = %e, "journal compaction failed"),
+/// Removes set-aside entries past their 30 days (Kenny, form
+/// aside-retention). Cheap on an indexed table, so every pass.
+async fn expire_set_aside(state: &AppState) {
+    if let Err(e) = state.journal.drop_expired((state.now_unix)() as i64).await {
+        tracing::warn!(error = %e, "could not remove expired set-aside events");
     }
 }

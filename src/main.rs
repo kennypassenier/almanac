@@ -193,12 +193,6 @@ impl Start {
             Err(e) => return die(e),
         };
 
-        // Surface a damaged journal before binding rather than letting
-        // the worker discover it a few seconds later.
-        let pending = match state.journal.pending() {
-            Ok(pending) => pending.len(),
-            Err(e) => return die(e),
-        };
         startup::hooks::forward_update_events(&mut app, notifier.clone());
         if let Err(e) = startup::state::import_tokens(&env, &state_dir, &paths).await {
             return die(e);
@@ -211,8 +205,6 @@ impl Start {
             unusable: loaded.unusable,
             profile_names,
             profiles_dir: paths.profiles_dir.clone(),
-            pending,
-            journal_path: paths.journal.clone(),
         };
         wire_start(&mut app, report, state, tokens, notifier, env);
         app.run().await

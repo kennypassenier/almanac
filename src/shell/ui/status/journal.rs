@@ -14,36 +14,22 @@ use crate::core::journal::Entry;
 use crate::core::status_view::{self, DeliveryView, Outcomes, Trend};
 use crate::shell::state::AppState;
 
-/// Whether the process could append to the journal, without writing to it.
+/// Whether the journal's database took its last writes: the kit records a
+/// write that failed in the last minute.
 fn store_state(state: &AppState) -> (&'static str, &'static str) {
-    if store_is_writable(state.journal.path()) {
-        ("ok", "Writable")
-    } else {
-        (
-            "down",
-            "Cannot be written; check the data folder's permissions",
-        )
-    }
-}
-
-/// Whether the journal file can be appended to, or (when it does not exist
-/// yet) whether the directory it will be made in can be written.
-fn store_is_writable(path: &std::path::Path) -> bool {
-    match std::fs::OpenOptions::new().append(true).open(path) {
-        Ok(_) => true,
-        // No journal file yet: the directory it will be made in decides.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => path
-            .parent()
-            .is_some_and(|dir| match std::fs::metadata(dir) {
-                Ok(m) => !m.permissions().readonly(),
-                Err(e) => {
-                    tracing::warn!(error = %e, dir = %dir.display(), "could not inspect the journal folder");
-                    false
-                }
-            }),
-        Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "the journal cannot be opened for appending");
-            false
+    let failing = state
+        .app_db()
+        .ok()
+        .and_then(|db| db.db().ok())
+        .and_then(|db| db.recent_write_failure());
+    match failing {
+        None => ("ok", "Writable"),
+        Some(why) => {
+            tracing::warn!(%why, "the journal's database refused a write in the last minute");
+            (
+                "down",
+                "A write failed; check free disk space and the data folder's permissions",
+            )
         }
     }
 }
