@@ -3,6 +3,7 @@ import { state, SECOND } from './state.js';
 import { renderChain } from './chain.js';
 import { renderSchedule } from './schedule.js';
 import { renderAside } from './aside.js';
+import { warnRead } from '../lib/leaving.js';
 
 /** How often the page reads the route while it is visible. */
 const POLL_MS = 5 * SECOND;
@@ -43,7 +44,7 @@ export async function load(showLoading = false) {
     try {
         await readRoute();
     } catch (error) {
-        console.warn('deliveries: the journal could not be read', error);
+        warnRead('deliveries: the journal could not be read', error);
         state.status = 'error';
         lastBody = '';
         moving = false;

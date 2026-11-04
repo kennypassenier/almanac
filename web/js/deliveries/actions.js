@@ -1,7 +1,8 @@
 // Retry and Dismiss on set-aside events. The click hides the rows at once and shows a toast with Undo; the request is
 // sent only when the toast's window closes, and Undo cancels it on this side (nothing was sent yet).
-import { undoToast } from '/static/kp/dist/js/index.js';
+import { undoToast } from '/static/kp/dist/kp-themes.min.js';
 import { events } from './words.js';
+import { warnRead } from '../lib/leaving.js';
 
 /** How long Undo stays open [ms]. */
 const UNDO_MS = 6000;
@@ -34,7 +35,7 @@ async function send(path, ids) {
             credentials: 'same-origin',
         });
     } catch (cause) {
-        console.warn(`deliveries: ${path} got no answer`, cause);
+        warnRead(`deliveries: ${path} got no answer`, cause);
         throw new Error('Almanac did not answer. Check that the service is running, then try again');
     }
     /** @type {any} */

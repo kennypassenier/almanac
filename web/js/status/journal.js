@@ -1,10 +1,11 @@
 // The Journal section: one read of /status/journal, and what the page shows when the first read fails.
-import { setStackbar } from '/static/kp/dist/js/index.js';
+import { setStackbar } from '/static/kp/dist/kp-themes.min.js';
 import { readJson } from './read.js';
 import { $, hold, journalCard } from './card.js';
 import { journal } from './state.js';
 import { drawGlance } from './glance.js';
 import { deliveriesTable, syncTable } from './deliveries.js';
+import { warnRead } from '../lib/leaving.js';
 
 /** One read of the journal; throws a ReadError. */
 async function loadJournal() {
@@ -37,7 +38,7 @@ export async function refreshJournal() {
         await loadJournal();
         return true;
     } catch (error) {
-        console.warn('status: the journal could not be read', error);
+        warnRead('status: the journal could not be read', error);
         if (journal.first) journalFailed();
         return false;
     }

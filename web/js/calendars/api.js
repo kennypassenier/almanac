@@ -1,5 +1,6 @@
 // The Calendars page's talk with the server: one JSON call, and the words a refusal or a toast uses.
-import { toast } from '/static/kp/dist/js/index.js';
+import { toast } from '/static/kp/dist/kp-themes.min.js';
+import { warnRead } from '../lib/leaving.js';
 
 /** A refusal in the shape the package shows: a sentence and what to do. @param {string} error @param {string} remedy */
 export const refusal = (error, remedy) => ({ error, remedy });
@@ -15,7 +16,7 @@ export async function api(path, body) {
             credentials: 'same-origin',
         });
     } catch (cause) {
-        console.warn(`calendars: ${path} got no answer`, cause);
+        warnRead(`calendars: ${path} got no answer`, cause);
         throw refusal('Almanac did not answer.', 'Check that the service is running, then try again.');
     }
     /** @type {any} */

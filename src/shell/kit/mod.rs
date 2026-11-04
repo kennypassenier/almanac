@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use chassis::App;
+use chassis::shell::pages::Page;
 
 use crate::shell::state::AppState;
 
@@ -85,15 +86,39 @@ fn mount_sources_page(app: &mut App, state: &Arc<AppState>) {
     app.client_column(TargetCalendar(Arc::clone(state)));
 }
 
+/// Almanac's own pages: id, title, path and the line under the title.
+const PAGES: [(&str, &str, &str, &str); 4] = [
+    (
+        "calendars",
+        "Calendars",
+        "/calendars",
+        "The Google calendars events land in",
+    ),
+    (
+        "deliveries",
+        "Deliveries",
+        "/deliveries",
+        "What reached Google Calendar and what waits",
+    ),
+    ("history", "History", "/history", "Every event, day by day"),
+    (
+        "try",
+        "Try a source",
+        "/try",
+        "See what a source's event would become",
+    ),
+];
+
 /// The navigation, the project pages and the status-page sections.
 fn mount_pages(app: &mut App, state: Arc<AppState>) {
     // Status stays the first entry, as the brand link's own page; project
     // pages sit at order 0 and would otherwise come before it.
     app.kit_page("status", |page| page.order(-1));
-    app.nav_entry("Calendars", "/calendars");
-    app.nav_entry("Deliveries", "/deliveries");
-    app.nav_entry("History", "/history");
-    app.nav_entry("Try a source", "/try");
+    // Pages with a hint, so the palette and the phone's More drawer print
+    // one line under each title, as they do for the kit's own pages.
+    for (id, title, path, hint) in PAGES {
+        app.page(Page::new(id, title, path).hint(hint));
+    }
     crate::shell::web::mount(app);
     app.status_section(JournalSection(Arc::clone(&state)));
     app.status_section(ProfilesSection(state));

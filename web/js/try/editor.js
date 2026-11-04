@@ -1,11 +1,12 @@
 // The event editor and the Try call: the JSON field, the dry run, and the states it moves the cards through.
-import { setCardState, setCode, trace, jsonField, form as formOf, VALID_EVENT } from '/static/kp/dist/js/index.js';
+import { setCardState, setCode, trace, jsonField, form as formOf, VALID_EVENT } from '/static/kp/dist/kp-themes.min.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { area, editorCard, editorForm, resultCard, traceEl, traceBody, note } from './dom.js';
 import { drawResult, drawTrace } from './result.js';
 import { refreshTry } from './try-button.js';
 import { loadSources } from './sources.js';
+import { warnRead } from '../lib/leaving.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 /** The length of an ISO timestamp without its fraction: `2026-10-30T14:00:00`. */
@@ -51,7 +52,7 @@ async function ask() {
     try {
         data = await api(`/try/api/run/${encodeURIComponent(state.editorSource)}`, { method: 'POST', body: JSON.stringify({ event: value }) });
     } catch (error) {
-        console.warn('try: the dry run got no answer', error);
+        warnRead('try: the dry run got no answer', error);
         if (turn === asking) askFailed();
         return;
     }

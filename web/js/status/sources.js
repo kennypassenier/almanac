@@ -1,8 +1,9 @@
 // The Sources section: one read of /status/sources, kept in step by each source's stable id.
-import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/dist/js/index.js';
+import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/dist/kp-themes.min.js';
 import { readJson } from './read.js';
 import { $, hold, sourcesCard } from './card.js';
 import { sources as sourcesState } from './state.js';
+import { warnRead } from '../lib/leaving.js';
 
 /** @param {any[]} rows @param {HTMLElement} host */
 function drawList(rows, host) {
@@ -43,7 +44,7 @@ export async function loadSources() {
         sourcesState.first = false;
         return true;
     } catch (error) {
-        console.warn('status: the sources could not be read', error);
+        warnRead('status: the sources could not be read', error);
         if (sourcesState.first) {
             const card = sourcesCard();
             if (card) hold(card).set('error', { title: 'The profile files could not be read', text: 'Almanac could not list them. Try again in a moment.' });

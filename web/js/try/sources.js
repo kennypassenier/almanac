@@ -1,5 +1,5 @@
 // The Try page's sources: the one source picker, the profile card, and the read of /try/api/sources that every card waits on.
-import { setCardState, setCode, attachPatterns, setSegmentedItems, setSegmentedValues } from '/static/kp/dist/js/index.js';
+import { setCardState, setCode, attachPatterns, setSegmentedItems, setSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
 import { api } from './api.js';
 import { state, sourceById } from './state.js';
 import { factRow } from './words.js';
@@ -7,6 +7,7 @@ import { $, profileCard, profileToml, editorCard, editorSource, resultCard, trac
 import { cancelAsk } from './editor.js';
 import { idle, idleTrace, emptyResult } from './result.js';
 import { refreshTry } from './try-button.js';
+import { warnRead } from '../lib/leaving.js';
 
 function drawProfile() {
     const s = sourceById(state.profileSource);
@@ -72,7 +73,7 @@ function reloadButton() {
             await fetch('/sources/reload', { method: 'POST', headers: { Accept: 'application/json' }, credentials: 'same-origin' });
         } catch (error) {
             // The read below says what is wrong; the console keeps the cause.
-            console.warn('try: the profile reload request failed', error);
+            warnRead('try: the profile reload request failed', error);
         }
         loadSources();
     });
@@ -86,7 +87,7 @@ export async function loadSources() {
     try {
         state.sources = (await api('/try/api/sources')).sources;
     } catch (error) {
-        console.warn('try: the sources could not be read', error);
+        warnRead('try: the sources could not be read', error);
         state.sourcesFailed = true;
         pageFailed();
         return;
