@@ -11,6 +11,8 @@ against before it installs anything.
 
 ## [Unreleased]
 
+## [7.1.0] - 2026-11-04
+
 Kenny's round go of 2026-11-04 (form "doorwerken": JA): move to the new
 chassis-rs and finish every open item. Replaces 7.0.0, which was published
 but never signed or installed, so everything under 7.0.0 ships with this
