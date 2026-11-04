@@ -1,5 +1,5 @@
 // The Journal section's glance: the counts, the health lines, the trend and the outcome bar, drawn from the last answer.
-import { setStackbar, setTrendData } from '/static/kp/dist/js/index.js';
+import { setStackbar, setTrendData } from '/static/kp/dist/kp-themes.min.js';
 import { $ } from './card.js';
 import { journal } from './state.js';
 

@@ -1,5 +1,5 @@
 // One "Copy" menu per card on the Try page instead of a Copy button per line: each card registers what its entries copy.
-import { toast } from '/static/kp/dist/js/index.js';
+import { toast } from '/static/kp/dist/kp-themes.min.js';
 
 /** The text each entry copies, read when it is picked (the card's content changes after every Try). @type {Map<string, () => string>} */
 const sources = new Map();

@@ -1,5 +1,5 @@
 // The kit's section cards around the status page's stages, and how this module holds their state.
-import { setCardState } from '/static/kp/dist/js/index.js';
+import { setCardState } from '/static/kp/dist/kp-themes.min.js';
 
 export const $ = (/** @type {string} */ selector, /** @type {ParentNode} */ root = document) => /** @type {HTMLElement | null} */ (root.querySelector(selector));
 

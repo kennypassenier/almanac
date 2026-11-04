@@ -1,5 +1,5 @@
 // Section 6 of the Calendars page: the profile files, served and not served, and the typed delete of an unserved file.
-import { toast, runFlashButton, statePlate, setProblems, attachArt } from '/static/kp/dist/js/index.js';
+import { toast, runFlashButton, statePlate, setProblems, attachArt } from '/static/kp/dist/kp-themes.min.js';
 import { esc } from '../lib/format.js';
 import { api, reportFailure } from './api.js';
 import { state, hooks, calName } from './state.js';

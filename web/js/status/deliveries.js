@@ -1,5 +1,5 @@
 // The Journal section's Recent deliveries table: rows kept in step with the answer, and the chips joined to its Result filter.
-import { agoMoment, dataTable, setSegmentedCounts, setSegmentedValues, getSegmentedValues } from '/static/kp/dist/js/index.js';
+import { agoMoment, dataTable, setSegmentedCounts, setSegmentedValues, getSegmentedValues } from '/static/kp/dist/kp-themes.min.js';
 import { esc as escape } from '../lib/format.js';
 import { $ } from './card.js';
 

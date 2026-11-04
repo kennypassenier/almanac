@@ -139,6 +139,10 @@ pub const FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../web/js/lib/format.js"),
     ),
     (
+        "js/lib/leaving.js",
+        include_bytes!("../../web/js/lib/leaving.js"),
+    ),
+    (
         "js/lib/ready.js",
         include_bytes!("../../web/js/lib/ready.js"),
     ),
@@ -222,7 +226,6 @@ pub fn mount(app: &mut chassis::App) {
     // the kit layout carries the install tags and the worker on every page.
     app.webapp(
         WebApp::embedded(FILES)
-            .kp_modules()
             .at("/ui")
             .pwa(Pwa::new().start_url("/")),
     );

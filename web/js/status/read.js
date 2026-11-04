@@ -1,5 +1,5 @@
 // The status page's reads: a JSON fetch whose failure is a sentence a person can be told, and the wait for a kit table.
-import { dataTable } from '/static/kp/dist/js/index.js';
+import { dataTable } from '/static/kp/dist/kp-themes.min.js';
 
 /** How often, and how many times, to look for a data table the kit's script has not attached yet (together: 5 s). */
 const TABLE_POLL_MS = 50;

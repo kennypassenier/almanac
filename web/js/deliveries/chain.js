@@ -1,5 +1,5 @@
 // Section 1 of the deliveries page: the delivery chain (received, journal, worker, Google), with the failing lane flagged.
-import { setPipeline, setPipelineState } from '/static/kp/dist/js/index.js';
+import { setPipeline, setPipelineState } from '/static/kp/dist/kp-themes.min.js';
 import { moment } from '../lib/format.js';
 import { state } from './state.js';
 import { chain, chainSaid, say } from './dom.js';

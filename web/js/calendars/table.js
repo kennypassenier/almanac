@@ -1,5 +1,5 @@
 // Section 3 of the Calendars page: the calendars table, with its empty plate.
-import { statePlate, attachDisabledReasons, attachCodes, attachArt } from '/static/kp/dist/js/index.js';
+import { statePlate, attachDisabledReasons, attachCodes, attachArt } from '/static/kp/dist/kp-themes.min.js';
 import { esc } from '../lib/format.js';
 import { state, hooks, sourcesOf, sourceCardText } from './state.js';
 import { must, table, tableWrap, tbody } from './dom.js';
