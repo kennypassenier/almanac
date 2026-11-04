@@ -1,4 +1,4 @@
-//! `GET /status/sources` and its reload twin: the Sources section.
+//! The `sources` part of `GET /status/data` and its reload twin: the Sources section.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -6,6 +6,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
+use chassis::PartResult;
 use serde_json::{Value, json};
 
 use crate::core::profile::Profile;
@@ -74,10 +75,10 @@ fn source_rows(state: &AppState, loaded: &HashMap<String, Profile>, disk: &Loade
     rows
 }
 
-/// `GET /status/sources`: every loaded profile with the calendar it writes
+/// The `sources` part of `GET /status/data`: every loaded profile with the calendar it writes
 /// to, set against the files on disk so a changed, new or broken file shows
 /// as a row that says what to do.
-pub(super) async fn sources(State(state): State<Arc<AppState>>) -> Response {
+pub(super) async fn sources(state: Arc<AppState>) -> PartResult {
     let read = Arc::clone(&state);
     let disk =
         tokio::task::spawn_blocking(move || crate::shell::profiles::load_all(&read.profiles_dir))
@@ -86,19 +87,17 @@ pub(super) async fn sources(State(state): State<Arc<AppState>>) -> Response {
         Ok(disk) => disk,
         Err(e) => {
             tracing::warn!(error = %e, "the profile files could not be listed for the status page");
-            return chassis::Error::internal(
+            return Err(chassis::Error::internal(
                 "the profile files could not be listed",
                 "try again in a moment",
-            )
-            .into_response();
+            ));
         }
     };
     let rows = source_rows(&state, &state.profiles(), &disk);
-    Json(json!({
+    Ok(json!({
         "schemaVersion": crate::core::profile::SUPPORTED_SCHEMA_VERSION,
         "sources": rows,
     }))
-    .into_response()
 }
 
 /// `POST /status/sources/reload`: re-reads the profile files, like

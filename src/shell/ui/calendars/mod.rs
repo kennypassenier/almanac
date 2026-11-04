@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::{Json, Router};
 use chassis::Error;
 use serde::Deserialize;
@@ -31,14 +31,25 @@ use profiles_data::{hourly_buckets, split_reason};
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/calendars/data/google", get(google_data))
-        .route(
-            "/calendars/data/profiles",
-            get(profiles_data::profiles_data),
-        )
         .route("/calendars/make", post(make))
         .route("/calendars/remove", post(remove))
         .route("/profiles/remove", post(remove_file))
+}
+
+/// `GET /calendars/data`: both cards in one read (chassis-rs 4.8.0);
+/// `GET /calendars/data/google` and `/calendars/data/profiles` read one card
+/// alone, as the page's Retry and fix buttons do.
+pub fn page_data(state: Arc<AppState>) -> chassis::PageData {
+    let google_state = Arc::clone(&state);
+    chassis::PageData::new("/calendars/data")
+        .part("google", move || {
+            let state = Arc::clone(&google_state);
+            async move { Ok(google_data(state).await) }
+        })
+        .part("profiles", move || {
+            let state = Arc::clone(&state);
+            async move { Ok(profiles_data::profiles_data(state).await) }
+        })
 }
 
 /// Lists the calendars the service account sees, the way the page always
@@ -61,7 +72,7 @@ pub(crate) async fn list_calendars(
 /// "Reading…" for half a minute in an outage (UX review 2026-11-01).
 const PAGE_GOOGLE_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
 
-async fn google_data(State(state): State<Arc<AppState>>) -> Json<Value> {
+async fn google_data(state: Arc<AppState>) -> Value {
     let listed = match tokio::time::timeout(PAGE_GOOGLE_WAIT, list_calendars(&state)).await {
         Ok(listed) => listed,
         Err(_) => Err(crate::core::error::AlmanacError::GoogleApi {
@@ -74,23 +85,23 @@ async fn google_data(State(state): State<Arc<AppState>>) -> Json<Value> {
         }),
     };
     match listed {
-        Ok(calendars) => Json(json!({
+        Ok(calendars) => json!({
             "ok": true,
             "can_create": state.calendar_owner.is_some(),
             "calendars": calendars
                 .iter()
                 .map(|(id, name)| json!({ "id": id, "name": name }))
                 .collect::<Vec<_>>(),
-        })),
+        }),
         Err(e) => {
             tracing::warn!(error = %e, "could not list the calendars for the page");
-            Json(json!({
+            json!({
                 "ok": false,
                 "can_create": state.calendar_owner.is_some(),
                 "calendars": [],
                 "error": "Google did not answer, so the calendars could not be listed.",
                 "remedy": "Almanac keeps the events and delivers them when Google answers again.",
-            }))
+            })
         }
     }
 }

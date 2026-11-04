@@ -1,6 +1,7 @@
-// The Sources section: one read of /status/sources, kept in step by each source's stable id.
+// The Sources section: the `sources` part of /status/data, kept in step by each source's stable id.
 import { attachStatusLists, buildStatusList, setStatus } from '/static/kp/dist/kp-themes.min.js';
-import { readJson } from './read.js';
+import { ReadError } from './read.js';
+import { readPart, partWords } from '../lib/page-data.js';
 import { $, hold, sourcesCard } from './card.js';
 import { sources as sourcesState } from './state.js';
 import { warnRead } from '../lib/leaving.js';
@@ -37,10 +38,12 @@ function drawSources(d) {
     hold(card).set('ready');
 }
 
-/** @returns {Promise<boolean>} */
-export async function loadSources() {
+/** @param {import('../lib/page-data.js').Part} [given] the part from the page's merged read @returns {Promise<boolean>} */
+export async function loadSources(given) {
     try {
-        drawSources(await readJson('/status/sources'));
+        const part = given ?? (await readPart('/status/data', 'sources'));
+        if (!part.ok) throw new ReadError(partWords(part));
+        drawSources(part.data);
         sourcesState.first = false;
         return true;
     } catch (error) {

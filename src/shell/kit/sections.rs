@@ -8,7 +8,7 @@ use crate::shell::state::AppState;
 /// The Journal section on the kit's status page (A2-2): what is waiting
 /// and what was just delivered. The section is a frame of kp-themes parts
 /// in the loading state; `web/js/status.js` fills it from
-/// `/status/journal` and keeps it current (4.3.0).
+/// `/status/data` (its `journal` part) and keeps it current (4.3.0).
 pub struct JournalSection(pub Arc<AppState>);
 
 /// The files both sections need, declared to the kit (kit-kp11): it renders
@@ -111,7 +111,7 @@ const JOURNAL_HTML: &str = r##"
 
 impl chassis::StatusSection for JournalSection {
     fn render(&self) -> chassis::Section {
-        // The page fills itself from /status/journal; the server only
+        // The page fills itself from /status/data; the server only
         // frames it, so the waiting count is read once, in the explain.
         let mut explain = match self.0.journal.pending() {
             Ok(_) => String::new(),

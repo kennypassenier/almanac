@@ -51,7 +51,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 /// `App::dashboard_routes`: the kit renders them inside its layout behind
 /// the admin login and refuses cross-origin form posts (4.0.0).
 pub fn pages(state: Arc<AppState>) -> Router {
-    dashboard::routes().merge(ui::routes()).with_state(state)
+    let page_data = ui::page_data(&state);
+    dashboard::routes()
+        .merge(ui::routes())
+        .with_state(state)
+        .merge(page_data)
 }
 
 /// [`build_router`] plus `/healthz` and `/metrics` as the kit serves them

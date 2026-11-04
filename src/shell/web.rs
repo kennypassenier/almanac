@@ -143,6 +143,10 @@ pub const FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../web/js/lib/leaving.js"),
     ),
     (
+        "js/lib/page-data.js",
+        include_bytes!("../../web/js/lib/page-data.js"),
+    ),
+    (
         "js/lib/ready.js",
         include_bytes!("../../web/js/lib/ready.js"),
     ),

@@ -1,12 +1,10 @@
-//! `GET /status/journal`: the Journal section's glance and recent
+//! The `journal` part of `GET /status/data`: the Journal section's glance and recent
 //! deliveries.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use axum::Json;
-use axum::extract::State;
-use axum::response::{IntoResponse, Response};
+use chassis::PartResult;
 use serde_json::{Value, json};
 
 use crate::core::error::AlmanacError;
@@ -100,10 +98,10 @@ fn trend_json(trend: &Trend) -> Value {
     })
 }
 
-/// `GET /status/journal`: the figures, the two health marks, the outcome
+/// The `journal` part of `GET /status/data`: the figures, the two health marks, the outcome
 /// bar, the per-hour trend and the deliveries, all from what Almanac holds
 /// in memory (counters, the route ring) and the journal file.
-pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
+pub(super) async fn journal(state: Arc<AppState>) -> PartResult {
     let routes: Vec<_> = state.routes.lock().await.iter().cloned().collect();
     let read = Arc::clone(&state);
     let read = tokio::task::spawn_blocking(move || {
@@ -117,11 +115,10 @@ pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
         Ok(read) => read,
         Err(e) => {
             tracing::warn!(error = %e, "the journal read for the status page did not finish");
-            return chassis::Error::internal(
+            return Err(chassis::Error::internal(
                 "the journal read did not finish",
                 "try again in a moment",
-            )
-            .into_response();
+            ));
         }
     };
     let pending_ids: Option<HashSet<String>> = pending
@@ -137,7 +134,7 @@ pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
     let counts = state.metrics.snapshot();
     let trend = status_view::hourly_trend(&routes, chrono::Utc::now());
 
-    Json(json!({
+    Ok(json!({
         "at": chrono::Utc::now().to_rfc3339(),
         "waiting": pending.as_ref().ok().map(Vec::len),
         "accepted": counts.accepted,
@@ -150,5 +147,4 @@ pub(super) async fn journal(State(state): State<Arc<AppState>>) -> Response {
         "trend": trend_json(&trend),
         "deliveries": deliveries_json(&state, &rows),
     }))
-    .into_response()
 }

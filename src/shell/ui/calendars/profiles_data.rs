@@ -5,8 +5,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::Json;
-use axum::extract::State;
 use serde_json::{Value, json};
 
 use crate::core::observability::RouteOutcome;
@@ -25,7 +23,7 @@ struct Point {
     delivered: bool,
 }
 
-pub(super) async fn profiles_data(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub(super) async fn profiles_data(state: Arc<AppState>) -> Value {
     let loaded = crate::shell::profiles::load_all(&state.profiles_dir);
     let folder_ok = !loaded.unusable.iter().any(|u| u.path == state.profiles_dir);
     let unserved: Vec<Value> = loaded
@@ -40,13 +38,13 @@ pub(super) async fn profiles_data(State(state): State<Arc<AppState>>) -> Json<Va
     let points = route_points(&state).await;
     let (sources, served) = per_source(&state.profiles(), &points);
     let now = (state.now_unix)() as i64;
-    Json(json!({
+    json!({
         "folder_ok": folder_ok,
         "served": served,
         "unserved": unserved,
         "sources": sources,
         "trend": trend(&points, now),
-    }))
+    })
 }
 
 /// The ring holds the latest deliveries since start (at most

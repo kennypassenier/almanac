@@ -22,3 +22,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .merge(deliveries::routes())
         .merge(history::routes())
 }
+
+/// The pages that read their data in one merged answer (chassis-rs 4.8.0
+/// `PageData`); stateless routers, so merged after `with_state`.
+pub fn page_data(state: &Arc<AppState>) -> Router {
+    calendars::page_data(Arc::clone(state))
+        .router()
+        .merge(status::page_data(Arc::clone(state)).router())
+}

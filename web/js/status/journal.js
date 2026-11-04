@@ -1,15 +1,19 @@
-// The Journal section: one read of /status/journal, and what the page shows when the first read fails.
+// The Journal section: the `journal` part of /status/data, and what the page shows when the first read fails.
 import { setStackbar } from '/static/kp/dist/kp-themes.min.js';
-import { readJson } from './read.js';
+import { ReadError } from './read.js';
+import { readPart, partWords } from '../lib/page-data.js';
 import { $, hold, journalCard } from './card.js';
 import { journal } from './state.js';
 import { drawGlance } from './glance.js';
 import { deliveriesTable, syncTable } from './deliveries.js';
 import { warnRead } from '../lib/leaving.js';
 
-/** One read of the journal; throws a ReadError. */
-async function loadJournal() {
-    const d = await readJson('/status/journal');
+/** Draws the journal part (read alone when the page's merged read did not bring it); throws a ReadError.
+ * @param {import('../lib/page-data.js').Part} [given] */
+async function loadJournal(given) {
+    const part = given ?? (await readPart('/status/data', 'journal'));
+    if (!part.ok) throw new ReadError(partWords(part));
+    const d = part.data;
     journal.last = d;
     drawGlance();
     syncTable(d.deliveries);
@@ -32,10 +36,11 @@ function journalFailed() {
     if (bar) setStackbar(bar, { title: 'Outcomes', state: 'error', parts: [], message: note.title });
 }
 
-/** @returns {Promise<boolean>} whether the read worked; a later failure leaves what is shown (the kit's connection line says it) */
-export async function refreshJournal() {
+/** @param {import('../lib/page-data.js').Part} [given] the part from the page's merged read
+ * @returns {Promise<boolean>} whether the read worked; a later failure leaves what is shown (the kit's connection line says it) */
+export async function refreshJournal(given) {
     try {
-        await loadJournal();
+        await loadJournal(given);
         return true;
     } catch (error) {
         warnRead('status: the journal could not be read', error);

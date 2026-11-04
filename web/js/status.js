@@ -1,6 +1,6 @@
 // status page: the Journal and Sources sections inside the kit's section cards (chassis-rs 3.9.0). The kit draws each card and
-// its states and owns the page's one refresh control; this module fills the two stages from /status/journal and
-// /status/sources, reads them again on the kit's refresh, and keeps rows updating in place by their stable id.
+// its states and owns the page's one refresh control; this module fills the two stages from one read of /status/data
+// (both parts, each on its own), reads it again on the kit's refresh, and keeps rows updating in place by their stable id.
 // The parts live in js/status/*.js.
 
 import { setStackbar, attachSegmented, attachAgo, attachSparklines, attachKpiToggles, attachKpiStrips, attachCharts, attachTicks } from '/static/kp/dist/kp-themes.min.js';
@@ -11,6 +11,7 @@ import { drawGlance } from './status/glance.js';
 import { joinChips, tableLoading } from './status/deliveries.js';
 import { refreshJournal } from './status/journal.js';
 import { loadSources } from './status/sources.js';
+import { readParts } from './lib/page-data.js';
 
 /** Resolves once chassis.js has attached the page (the kit's own parts attach after that, so handles are awaited). */
 const ready = /** @type {Promise<unknown>} */ (/** @type {any} */ (window).chassis?.ready ?? new Promise((resolve) => document.addEventListener('chassis:ready', resolve, { once: true })));
@@ -28,7 +29,11 @@ function outcomesLoading() {
 let reading = /** @type {Promise<boolean> | null} */ (null);
 function run() {
     if (!reading) {
-        reading = Promise.all([hasJournal() ? refreshJournal() : true, hasSources() ? loadSources() : true])
+        const names = [hasJournal() ? 'journal' : '', hasSources() ? 'sources' : ''].filter(Boolean);
+        // A merged read that cannot even start leaves each section to read its own part.
+        reading = readParts('/status/data', names)
+            .catch(() => /** @type {Record<string, any>} */ ({}))
+            .then((parts) => Promise.all([hasJournal() ? refreshJournal(parts.journal) : true, hasSources() ? loadSources(parts.sources) : true]))
             .then(([journalOk, sourcesOk]) => journalOk && sourcesOk)
             .finally(() => {
                 reading = null;

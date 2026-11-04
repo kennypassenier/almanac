@@ -11,6 +11,43 @@ against before it installs anything.
 
 ## [Unreleased]
 
+Kenny's round go of 2026-11-04 (form "doorwerken": JA): move to the new
+chassis-rs and finish every open item. Replaces 7.0.0, which was published
+but never signed or installed, so everything under 7.0.0 ships with this
+release too.
+
+### Migration
+
+- **chassis-rs 4.5.1 → 4.8.0** (kp-themes 12.3.0 → 12.7.0). The pages load
+  kp-themes as one bundle again (`/static/kp/dist/kp-themes.min.js`, pinned
+  to its hashed form by the kit's import map); the four page templates no
+  longer load `dist/js/index.js` as a script and `WebApp::kp_modules` is
+  gone. On a phone the tab bar shows Status, Calendars, Deliveries and
+  History, with Try a source, Sources and Storage under More.
+  `.chassis.toml` records the kit and kp-themes it is on (it still said
+  3.1.0 and 8.1.0).
+
+### Changed
+
+- **Status and Calendars read their data in one request** (chassis-rs
+  `PageData`). `GET /status/data` answers the Journal and Sources sections
+  together and `GET /calendars/data` both calendar cards; a failing part is
+  that part's error and remedy, and the other part still draws. A section's
+  own Retry reads its part alone (`/status/data/journal`,
+  `/status/data/sources`, `/calendars/data/google`,
+  `/calendars/data/profiles`). `/status/journal` and `/status/sources` are
+  gone.
+- The four project pages are registered with a one-line hint, so the
+  phone's More drawer and the palette print a line under "Try a source"
+  like they do for the kit's pages.
+
+### Fixed
+
+- Leaving Status, Calendars, Deliveries or Try a source while a read was
+  still on its way logged "could not be read" or "got no answer" in the
+  console, though nothing was wrong (the browser cancels the read). Those
+  reads are quiet now (`web/js/lib/leaving.js`).
+
 ## [7.0.0] - 2026-11-03
 
 The UX review round: every page Kenny uses daily, checked by two

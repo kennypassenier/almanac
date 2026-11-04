@@ -46,7 +46,7 @@ async fn the_kit_owns_the_door_and_the_old_addresses_keep_working() {
         status.contains("Journal") && status.contains("Sources"),
         "{status}"
     );
-    let sources = body_json(hub.get("/status/sources").await).await;
+    let sources = body_json(hub.get("/status/data/sources").await).await;
     assert!(
         sources.to_string().contains("home-assistant"),
         "the Sources section is filled from its route: {sources}"

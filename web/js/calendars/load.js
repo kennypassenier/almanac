@@ -1,5 +1,6 @@
 // Loading for the Calendars page: the two reads, and the redraw of every section after each answer.
 import { api } from './api.js';
+import { readParts } from '../lib/page-data.js';
 import { state, hooks } from './state.js';
 import { renderStrip } from './strip.js';
 import { renderAttention } from './fixes.js';
@@ -20,8 +21,18 @@ export function render() {
 let googleTurn = 0;
 let profilesTurn = 0;
 
-/** @param {boolean} [quiet] keep what is shown while the answer comes (a fix button is running, or a refusal is being checked) */
-export async function loadGoogle(quiet = false) {
+/** The card's data: from the page's merged read when given, else read alone; rejects with `{ error, remedy }`.
+ * @param {string} name @param {Promise<import('../lib/page-data.js').Part | undefined>} [given] */
+async function readCard(name, given) {
+    const part = given ? await given : undefined;
+    if (!part) return api(`/calendars/data/${name}`);
+    if (!part.ok) throw { error: part.error, remedy: part.remedy };
+    return part.data;
+}
+
+/** @param {boolean} [quiet] keep what is shown while the answer comes (a fix button is running, or a refusal is being checked)
+ * @param {Promise<import('../lib/page-data.js').Part | undefined>} [given] the part from the page's merged read */
+export async function loadGoogle(quiet = false, given = undefined) {
     const turn = (googleTurn += 1);
     if (!quiet) {
         state.google = null;
@@ -29,7 +40,7 @@ export async function loadGoogle(quiet = false) {
     }
     try {
         // A refused answer carries no calendars; every section reads the list, so it is always there.
-        const google = { calendars: [], .../** @type {any} */ (await api('/calendars/data/google')) };
+        const google = { calendars: [], .../** @type {any} */ (await readCard('google', given)) };
         if (turn !== googleTurn) return;
         state.google = google;
     } catch (e) {
@@ -40,15 +51,15 @@ export async function loadGoogle(quiet = false) {
     render();
 }
 
-/** @param {boolean} [quiet] as in loadGoogle */
-export async function loadProfiles(quiet = false) {
+/** @param {boolean} [quiet] as in loadGoogle @param {Promise<import('../lib/page-data.js').Part | undefined>} [given] as in loadGoogle */
+export async function loadProfiles(quiet = false, given = undefined) {
     const turn = (profilesTurn += 1);
     if (!quiet) {
         state.profiles = null;
         render();
     }
     try {
-        const profiles = { ok: true, .../** @type {any} */ (await api('/calendars/data/profiles')) };
+        const profiles = { ok: true, .../** @type {any} */ (await readCard('profiles', given)) };
         if (turn !== profilesTurn) return;
         state.profiles = profiles;
     } catch (e) {
@@ -59,9 +70,11 @@ export async function loadProfiles(quiet = false) {
     render();
 }
 
-/** Asks for everything at once; each card fills as its own answer arrives. @param {boolean} [quiet] */
+/** Asks for both cards in one read of /calendars/data, each part on its own; a merged read that cannot start leaves
+ * each card to read its own part. @param {boolean} [quiet] */
 export function load(quiet = false) {
-    return Promise.all([loadGoogle(quiet), loadProfiles(quiet)]);
+    const parts = readParts('/calendars/data', ['google', 'profiles']).catch(() => undefined);
+    return Promise.all([loadGoogle(quiet, parts.then((p) => p?.google)), loadProfiles(quiet, parts.then((p) => p?.profiles))]);
 }
 
 Object.assign(hooks, { render, load, loadGoogle, loadProfiles });
