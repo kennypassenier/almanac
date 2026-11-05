@@ -162,15 +162,15 @@ right on a private network and wrong on the internet.
 |---|---|
 | Host | CT 112 on Proxmox, an LXC container, `10.10.10.12:8080` |
 | Supervision | systemd, running the binary under `latch run` |
-| Data | `/opt/almanac/data` — `almanac.db` (journal, delivery history), `almanac-kit.db` (sources, sessions), update state |
-| Profiles | `/opt/almanac/profiles/*.toml`, holding the real calendar ids |
+| Data | `<ALMANAC_STATE_DIR>/data` (CT 112: `/appdata/almanac/almanac-config/data`) — `almanac.db` (journal, delivery history), `almanac-kit.db` (sources, sessions), update state |
+| Profiles | `<ALMANAC_STATE_DIR>/profiles/*.toml`, holding the real calendar ids |
 | Secrets | a ciphertext-only Latch clone; no credentials on the machine to pull with |
-| Updates | itself, from signed GitHub releases |
-| External | `almanac.kp-soft.dev` via Cloudflare tunnel and Traefik, behind Cloudflare Access; `/metrics` blocked at the edge |
+| Updates | `almanac update` (`ALMANAC_UPDATE_MODE=supervised`), run by the homelab's nightly round; the homelab restarts the unit and puts the preserved binary back if it does not come up. Releases are signed GitHub releases |
+| External | `almanac.kp-soft.dev` via Cloudflare tunnel and Traefik, behind Cloudflare Access; `/metrics` blocked at the edge. At home the same name resolves to Traefik (`10.10.10.4`), routers on `web` and `websecure` (`stacks/almanac/traefik-routes.yml`); the unit trusts `10.10.10.4` as proxy and `10.10.10.10` as admin (`ALMANAC_TRUSTED_PROXIES`, `ALMANAC_TRUSTED_ADMINS`) |
 | Metrics | scraped by Prometheus on CT 113 |
 | Sources | all on the LAN, posting to `10.10.10.12:8080` directly |
 
-The unit is hardened (`ProtectSystem=strict` with `/opt/almanac`
+The unit is hardened (`ProtectSystem=strict` with `/opt/almanac/bin`
 writable — it has to be, since self-update replaces the binary there)
 and has its restart limit disabled, so a service that cannot reach
 Google at boot keeps trying instead of parking itself in `failed` with

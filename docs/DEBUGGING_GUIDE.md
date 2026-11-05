@@ -50,7 +50,7 @@ which profile, which calendar, and whether it worked.
 | The source got **202**, `pending` is 0, still nothing | It went to a **different calendar** than you are looking at | `/v1/debug/status` shows the target calendar id per profile | Compare against the calendar you have open. This is the most common false alarm |
 | The source got **422** | The payload does not match the profile | The response names the missing field and the profile | Fix the profile or the payload; check with dry-run first (§5) |
 | The source got **502** from `/sync` | Google was unreachable *at that moment* | The payload is still journalled | Nothing to do. It goes out on the next pass — 502 here means "not yet", never "lost" |
-| The source got **500** | The journal row could not be written | `journalctl` names the database and the reason | Usually disk or permissions on `/opt/almanac/data` |
+| The source got **500** | The journal row could not be written | `journalctl` names the database and the reason | Usually disk or permissions on `<state root>/data` (CT 112: `/appdata/almanac/almanac-config/data`) |
 | Nothing at all, no request logged | It never arrived | Capture surface (§5) | The problem is on the source's side, not here |
 
 **A calendar you cannot see is not an empty calendar.** A calendar the

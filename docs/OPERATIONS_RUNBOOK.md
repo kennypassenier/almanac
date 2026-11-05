@@ -4,9 +4,13 @@ What to do when something happens. Written for the case where it is
 2am, the notification woke you up, and you do not want to re-derive the
 design from the code.
 
-Everything here assumes the standalone LXC running under systemd
-(`deploy/almanac.service`). The homelab-v2 compose path is different in
-exactly one way: self-update is off and homelab v2 owns updates.
+Everything here assumes the native systemd service on CT 112, the way the
+homelab runs it (`deploy/almanac-latch.service` is the unit's template;
+the live unit is `stacks/almanac/almanac/almanac.service` in the homelab
+repository). The binary is `/opt/almanac/bin/almanac`; everything it
+writes lives under `ALMANAC_STATE_DIR=/appdata/almanac/almanac-config`.
+The compose path (`deploy/docker-compose.yml`) is different in exactly one
+way: self-update is off and whatever builds the image owns updates.
 
 ---
 
@@ -60,10 +64,8 @@ The live suites (`make live-test`) are not part of the gate and nothing
 runs them on a schedule any more — the nightly workflow is gone. Run
 them by hand before a release.
 
-**Needs chassis >= 3.0.0.** The pin in this repository is still older;
-once chassis-rs 3.0.0 is released, run `chassis upgrade 3.0.0` and
-`chassis sync --write` before the first release this way. The release
-machine needs docker logged in to `ghcr.io` with `write:packages`,
+**Needs chassis >= 3.0.0.** The pin in `Cargo.toml` is past that. The
+release machine needs docker logged in to `ghcr.io` with `write:packages`,
 `cargo-deny`, `gh` and `minisign`.
 
 **Two ways to run it**, both fine, chosen per release: run `make
@@ -93,10 +95,11 @@ exactly the asset `sign-release.sh` uploads last.
 # as root, on the machine itself
 apt-get install -y ca-certificates git   # git: `latch run` reads a git clone
 useradd --system --home-dir /opt/almanac --shell /usr/sbin/nologin almanac
-mkdir -p /opt/almanac/{data,profiles} /etc/almanac
-install -m 0755 almanac /opt/almanac/almanac
+mkdir -p /opt/almanac/bin /appdata/almanac/almanac-config/profiles
+install -D -m 0755 -o almanac -g almanac almanac /opt/almanac/bin/almanac
 install -m 0755 latch /usr/local/bin/latch
-cp fixtures/profiles/*.toml /opt/almanac/profiles/   # examples — see below
+cp fixtures/profiles/*.toml /appdata/almanac/almanac-config/profiles/   # examples — see below
+chown -R almanac:almanac /appdata/almanac/almanac-config
 ```
 
 **The shipped profiles are examples, not configuration.** Their
@@ -128,8 +131,8 @@ no GitHub token lives on an unattended box:
 ```bash
 # from your desktop
 tar czf - -C ~/.latch repo | ssh <machine> 'mkdir -p /opt/almanac/.latch && tar xzf - -C /opt/almanac/.latch'
-# on the machine: tell latch which project this directory is
-printf 'repo = "kennypassenier/secrets"\n\n[[projects]]\nname = "almanac"\ndir = "/opt/almanac"\n' \
+# on the machine: tell latch which project the working directory is (R16)
+printf 'repo = "kennypassenier/secrets"\n\n[[projects]]\nname = "almanac"\ndir = "/appdata/almanac/almanac-config"\n' \
     > /opt/almanac/.latch/config.toml
 chown -R almanac:almanac /opt/almanac && chmod 700 /opt/almanac/.latch
 ```
@@ -140,7 +143,7 @@ command line, where it is visible in `ps`:
 ```bash
 # from your desktop; the value never appears on screen or on disk
 latch key show --reveal | awk '/^value/{print $2}' | \
-    ssh <machine> 'umask 077; read k; printf "LATCH_KEY_ALMANAC=%s\n" "$k" > /etc/almanac/latch.env'
+    ssh <machine> 'umask 077; read k; printf "LATCH_KEY_ALMANAC=%s\n" "$k" > /appdata/almanac/almanac-config/latch.env'
 ```
 
 Take the value from the `value` line, not from a pattern of your own:
@@ -149,14 +152,15 @@ silently truncate it and produce "stored key has 32 bytes, expected 34"
 much later.
 
 ```bash
-cp deploy/almanac.service /etc/systemd/system/
+cp deploy/almanac-latch.service /etc/systemd/system/almanac.service
+chown almanac:almanac /appdata/almanac/almanac-config/latch.env
 systemctl daemon-reload && systemctl enable --now almanac
 ```
 
 Before starting it, prove the configuration is complete:
 
 ```bash
-sudo -u almanac latch run -- /opt/almanac/almanac --check
+sudo -u almanac latch run -- /opt/almanac/bin/almanac --check
 ```
 
 `--check` loads the profiles, checks every secret Latch injects, and
@@ -187,7 +191,7 @@ doing tonight.
 ```bash
 systemctl status almanac                 # should be active, on the old version
 journalctl -u almanac -n 200 --no-pager  # why the new one died
-ls -l /opt/almanac/almanac*              # .prev is gone; it was moved back
+ls -l /opt/almanac/bin/                  # the preserved previous binary is gone; it was moved back
 ```
 
 The revert only happens after a second start with the update still
@@ -237,7 +241,7 @@ skipped updates, which is why R5's notification exists.
 
 ## R7 · Latch and the key on the LXC
 
-`/etc/almanac/latch.env` holds `LATCH_KEY_ALMANAC` — the per-project
+`/appdata/almanac/almanac-config/latch.env` holds `LATCH_KEY_ALMANAC` — the per-project
 key, not the passphrase. The passphrase would open every project's
 secrets and the GitHub token; the project key opens Almanac's five
 values and nothing else.
@@ -247,7 +251,7 @@ credential in one passphrase-encrypted escrow file held offline, so
 recovery is `latch key restore`, or a `latch clone` from the desktop.
 No token needs re-issuing.
 
-Note, consciously accepted: vzdump backs up that key alongside the
+Note, consciously accepted: the nightly restic snapshot backs up that key alongside the
 encrypted store it opens, so **the backup is as sensitive as the
 secrets themselves**. Treat it accordingly. The alternative — excluding
 the key — produces a restore that stops halfway for manual work, which
@@ -264,7 +268,7 @@ to refuse events.
 journalctl -u almanac -n 100 --no-pager | grep -i "delivery failed"
 curl -H "Authorization: Bearer $ALMANAC_TOKEN" \
      http://localhost:8080/v1/debug/status
-sqlite3 /opt/almanac/data/almanac.db \
+sqlite3 /appdata/almanac/almanac-config/data/almanac.db \
   "select state, count(*) from journal group by state"
 ```
 
@@ -281,9 +285,9 @@ through.
 # fails with "Text file busy". A rename replaces the directory entry
 # and leaves the running process on its old inode, which is exactly
 # what the self-updater does.
-install -m 0755 <old binary> /opt/almanac/almanac.new
-chown almanac:almanac /opt/almanac/almanac.new
-mv /opt/almanac/almanac.new /opt/almanac/almanac
+install -m 0755 <old binary> /opt/almanac/bin/almanac.new
+chown almanac:almanac /opt/almanac/bin/almanac.new
+mv /opt/almanac/bin/almanac.new /opt/almanac/bin/almanac
 systemctl restart almanac
 ```
 
@@ -296,7 +300,7 @@ systemctl edit almanac      # Environment=ALMANAC_UPDATE_MODE=off
 
 ## R10 · Two processes, one data directory
 
-Almanac takes an `flock` on `data/.lock` at startup and refuses to
+Almanac takes an `flock` on `data/.lock` under the state root at startup and refuses to
 start if another process holds it. If you see that refusal, a previous
 instance is still running — find it before doing anything else. Two
 processes over one journal deliver the same event twice and can lose
@@ -345,11 +349,13 @@ confirmed nothing in their deploy path ever deletes from `/appdata` —
 so both the live profiles and the `.toml.retired` records survive a
 deploy and ride along in the nightly snapshot.
 
-Since 2026-08-29 the homelab also takes a nightly restic snapshot of
-`/opt/almanac` and `/etc/almanac` to Drive. Worth knowing exactly what
-that contains, because it is both halves of the same lock: `/etc/almanac`
-holds `latch.env` with the project key, and `/opt/almanac` holds the
-encrypted token store and the Latch clone the key opens.
+The homelab takes a nightly restic snapshot of the state root
+`/appdata/almanac/almanac-config` to Drive (`data_dirs` in
+`stacks/almanac/service.yml`), pausing writes through the kit's
+`backup-pause` first (`backup_pause: chassis`). Worth knowing exactly what
+that contains, because it is both halves of the same lock:
+`latch.env` holds the project key, and the same directory holds the
+encrypted token store the key opens.
 
 That is not a new category of exposure — restic encrypts client-side
 with AES-256 before anything leaves the machine, under Kenny's own
@@ -475,7 +481,7 @@ new version does not serve. Nothing else needed.
 environment and give `stacks/almanac/service.yml` an `update_cmd`:
 
 ```yaml
-update_cmd: runuser -u almanac -- /opt/almanac/almanac update
+update_cmd: runuser -u almanac -- /opt/almanac/bin/almanac update
 ```
 
 `almanac update` fetches, verifies, probes and installs — then exits
@@ -634,7 +640,7 @@ make live-test                                             # both live suites, s
 **Then, on the deployment:** the LXC has a ciphertext-only clone with no
 credentials to pull with, by design — copy `~/.latch/repo` across again
 (`tar`, `pct push`, `chown -R almanac:almanac`), update
-`target_calendar_id` in every profile under `/opt/almanac/profiles/` to
+`target_calendar_id` in every profile under `/appdata/almanac/almanac-config/profiles/` to
 the new calendars, and restart. `almanac_token_refreshes_total` going to
 1 on `/metrics` is the proof it authenticated with the new key.
 
@@ -681,10 +687,9 @@ carries no ballast.
 `ALMANAC_PROFILES_DIR`, `ALMANAC_DATA_DIR`, `ALMANAC_JOURNAL` and
 `ALMANAC_TOKEN_STORE` override the derived paths individually
 (`ALMANAC_JOURNAL` now only names the legacy `journal.jsonl` the first
-start imports). CT 112
-sets all four absolutely and is therefore unaffected by this feature
-until someone removes them — which is the point: adopting the release
-changes nothing, and the move is a separate, deliberate act.
+start imports). CT 112's
+unit sets `ALMANAC_STATE_DIR=/appdata/almanac/almanac-config` and none of
+the four, so the root is the only thing that places its files.
 
 To actually migrate a deployment: stop the service, copy the tree,
 replace the four settings with one `ALMANAC_STATE_DIR`, make sure
@@ -741,6 +746,22 @@ in the keyring:
 The container's copy is what made 2026-09-02 a non-event. It is a
 side effect of how the service is run, not a designed escrow, so it is
 not a substitute for `latch key backup`.
+
+**If the container's copy is gone** (a rebuilt CT 112 whose snapshot
+does not hold `latch.env`), put it back from the workstation, which holds
+the other copy, with the pipe from R2 (the unit's `EnvironmentFile` is
+this path):
+
+```bash
+# from the workstation; the value never appears on screen or on disk
+latch key show --reveal | awk '/^value/{print $2}' | \
+    ssh <machine> 'umask 077; read k; printf "LATCH_KEY_ALMANAC=%s\n" "$k" > /appdata/almanac/almanac-config/latch.env'
+ssh <machine> 'chown almanac:almanac /appdata/almanac/almanac-config/latch.env && systemctl restart almanac'
+```
+
+**If both copies are gone**, R7 applies: the passphrase-encrypted escrow
+file kept offline restores the key with `latch key restore`, then the
+recipe above carries it to the container.
 
 **To restore the workstation's copy from the running service:**
 

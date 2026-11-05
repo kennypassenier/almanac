@@ -123,11 +123,14 @@ VERSION=x.y.z`), never on GitHub Actions — see the runbook.
 
 ## Deployment
 
-systemd on its own LXC ([deploy/almanac.service](deploy/almanac.service)),
-because self-update replaces the running binary and a container would
-silently discard that on the next recreation. A compose file
+Almanac runs as a native systemd service on its own LXC (CT 112), because self-update
+replaces the running binary and a container would silently discard that
+on the next recreation. The homelab installs and updates it
+(`deploy/service.yml` describes it to the homelab; the unit template is
+[deploy/almanac-latch.service](deploy/almanac-latch.service), running the
+binary under `latch run`). A compose file
 ([deploy/docker-compose.yml](deploy/docker-compose.yml)) ships alongside
-it for the future homelab-v2 migration.
+it for running it as an image.
 
 The binary works out which of the two it is in: inside a Docker or
 Podman image it switches self-update off and says so, leaving updates to
