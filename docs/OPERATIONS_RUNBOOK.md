@@ -31,20 +31,18 @@ make release-dry VERSION=<version>    # the same gate and builds, publishes noth
 1. runs the gate — `cargo fmt --all -- --check`, `cargo clippy
    --all-targets -- -D warnings`, `cargo test`,
    `.claude/hooks/gates.project.sh`, `cargo run -q -- --version`,
-   `cargo deny check all`, `docker build -t almanac:ci .` with
-   `--version` and a `--healthcheck` against a closed port that must
-   fail, and `cargo llvm-cov --summary-only` (informational, skipped
-   when absent);
+   `cargo deny check all`, and `cargo llvm-cov --summary-only`
+   (informational, skipped when absent); no image build, because
+   `deploy/service.yml` names a binary, so the kit treats the project as
+   a native unit (`chassis release` prints `container image: no` and why);
 2. bumps `Cargo.toml`, dates a `## [<version>]` section in
    `CHANGELOG.md` under `## [Unreleased]`, commits
    `chore(release): <version> [meta]` through the repository's hooks and
    tags `v<version>` locally;
 3. builds the static musl binary in `rust:1.97-slim-trixie`, refuses it
-   if `ldd` shows a resolved shared library (a `=>` line), writes
-   `dist/almanac` and `dist/SHA256SUMS`, and builds the image
-   `ghcr.io/kennypassenier/almanac:v<version>` + `:latest`, checked to
-   answer `--version` with the new version;
-4. only then pushes `main` and the tag, pushes both image tags, runs
+   if `ldd` shows a resolved shared library (a `=>` line), and writes
+   `dist/almanac` and `dist/SHA256SUMS`;
+4. only then pushes `main` and the tag, runs
    `gh release create v<version> --verify-tag --latest=false` with the
    binary and `SHA256SUMS`, and calls `scripts/sign-release.sh
    v<version>`, which asks for the minisign key's password on the
@@ -65,8 +63,7 @@ runs them on a schedule any more — the nightly workflow is gone. Run
 them by hand before a release.
 
 **Needs chassis >= 3.0.0.** The pin in `Cargo.toml` is past that. The
-release machine needs docker logged in to `ghcr.io` with `write:packages`,
-`cargo-deny`, `gh` and `minisign`.
+release machine needs `cargo-deny`, `gh` and `minisign`.
 
 **Two ways to run it**, both fine, chosen per release: run `make
 release VERSION=<version>` yourself, start to finish, in one sitting —
