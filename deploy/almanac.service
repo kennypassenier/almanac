@@ -48,6 +48,9 @@ TimeoutStopSec=60
 # still runs against this machine's measured directory.
 Environment=ALMANAC_STATE_DIR=/appdata/almanac/almanac-config
 Environment=ALMANAC_TIMEOUT_STOP_SECS=60
+Environment=ALMANAC_UPDATE_MODE=supervised
+# Behind a reverse proxy, name it and the admin's own address, as the live
+# unit does: ALMANAC_TRUSTED_PROXIES and ALMANAC_TRUSTED_ADMINS.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
